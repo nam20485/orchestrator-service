@@ -5,7 +5,7 @@ AUTH_DEST="/root/.local/share/opencode/auth.json"
 
 mkdir -p "$(dirname "$AUTH_DEST")"
 
-if [ -n "${ZAI_CODING_API_KEY:-}${ZAI_API_KEY:-}${ZHIPUAI_CODING_API_KEY:-}${OPENROUTER_API_KEY:-}${ALIBABA_API_KEY:-}" ]; then
+if [ -n "${ZAI_CODING_API_KEY:-}${ZAI_API_KEY:-}${OPENROUTER_API_KEY:-}" ]; then
   python3 - <<'PY'
 import json
 import os
@@ -20,17 +20,9 @@ zai_key = os.environ.get("ZAI_CODING_API_KEY") or os.environ.get("ZAI_API_KEY")
 if zai_key:
     auth["zai-coding-plan"] = {"type": "api", "key": zai_key}
 
-zhipuai_key = os.environ.get("ZHIPUAI_CODING_API_KEY") or zai_key
-if zhipuai_key:
-    auth["zhipuai-coding-plan"] = {"type": "api", "key": zhipuai_key}
-
 openrouter_key = os.environ.get("OPENROUTER_API_KEY")
 if openrouter_key:
     auth["openrouter"] = {"type": "api", "key": openrouter_key}
-
-alibaba_key = os.environ.get("ALIBABA_API_KEY")
-if alibaba_key:
-    auth["alibaba"] = {"type": "api", "key": alibaba_key}
 
 if not auth:
     raise SystemExit("No provider API keys found in environment.")
@@ -38,7 +30,7 @@ if not auth:
 auth_path.write_text(json.dumps(auth, indent=2) + "\n")
 PY
 else
-  echo "ERROR: No OpenCode provider credentials found. Set one or more of: ZAI_CODING_API_KEY, ZHIPUAI_CODING_API_KEY, OPENROUTER_API_KEY, ALIBABA_API_KEY." >&2
+  echo "ERROR: No OpenCode provider credentials found. Set one or more of: ZAI_CODING_API_KEY, ZAI_API_KEY, OPENROUTER_API_KEY." >&2
   exit 1
 fi
 
