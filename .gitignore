@@ -217,3 +217,5 @@ __marimo__/
 # Streamlit
 .streamlit/secrets.toml
 auth/auth.json
+.cursor/hooks/state/continual-learning-index.json
+.cursor/hooks/state/continual-learning.json
