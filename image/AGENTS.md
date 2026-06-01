@@ -360,23 +360,59 @@ scope: repository
 
   <available_tools>
     <summary>
-      Tools available inside the devcontainer at runtime. Installed via the
-      `intel-agency/workflow-orchestration-prebuild` repo Dockerfile and devcontainer prebuild pipeline.
+      CLI and runtime tools installed in the orchestrator-service Docker image (see repo `Dockerfile`).
+      OpenCode server config lives under `/app`; agent sessions use `/workspace` (pass `--dir /workspace` when attaching).
     </summary>
 
+    <filesystem_layout>
+      <path name="/app">OpenCode install and config — `opencode.json`, `AGENTS.md`, `.opencode/`, MCP memory at `/app/.memory/`.</path>
+      <path name="/workspace">Agent working directory — clone repos and edit code here; default for `scripts/prompt.ps1`.</path>
+    </filesystem_layout>
+
     <runtimes_and_package_managers>
-      <tool name="dotnet" version="10.0.102">`.NET SDK` — build, test, publish C#/F# projects. Includes Avalonia Templates 11.3.12.</tool>
-      <tool name="node" version="24.14.0 LTS">`Node.js` — JavaScript runtime. Required for MCP server packages (`npx`).</tool>
-      <tool name="npm">`npm` — Node package manager (bundled with Node.js).</tool>
-      <tool name="bun" version="1.3.10">`Bun` — fast JavaScript/TypeScript runtime, bundler, and package manager.</tool>
-      <tool name="uv" version="0.10.9">`uv` — Astral Python package manager. Also provides `uvx` for ephemeral tool runs.</tool>
+      <tool name="node" version="24.14.0 LTS">JavaScript runtime. Required for MCP servers launched via `npx`.</tool>
+      <tool name="npm">Node package manager (bundled with Node.js).</tool>
+      <tool name="npx">Runs MCP packages without a global install (`sequential-thinking`, `memory-graph`).</tool>
+      <tool name="python3">System Python 3 interpreter.</tool>
+      <tool name="pip">Python package installer (`python3-pip`).</tool>
+      <tool name="uv" version="0.10.9">Astral Python package manager; `uvx` runs ephemeral Python tools.</tool>
+      <tool name="pwsh" version="7.6.2 LTS">PowerShell 7 — run `scripts/*.ps1` inside the container when needed.</tool>
     </runtimes_and_package_managers>
 
+    <system_utilities>
+      <tool name="git">Version control — clone and branch work in `/workspace`.</tool>
+      <tool name="rg">Ripgrep — fast content search (also used by OpenCode grep tooling).</tool>
+      <tool name="jq">JSON parsing for shell pipelines and `gh api … | jq`.</tool>
+      <tool name="curl">HTTP downloads and API probes.</tool>
+      <tool name="file">Identify file types by magic bytes.</tool>
+      <tool name="make">Build projects that use Makefiles.</tool>
+      <tool name="patch">Apply unified diffs outside of `git apply`.</tool>
+      <tool name="tar">Archive extract/create (Node and PowerShell installed via tarballs).</tool>
+      <tool name="unzip">Extract `.zip` archives.</tool>
+      <tool name="xz">Compress/decompress `.xz` archives (`xz-utils`).</tool>
+      <tool name="ssh">OpenSSH client — `git clone git@github.com:…` over SSH.</tool>
+      <tool name="gpg">GnuPG — verify signatures and handle encrypted artifacts (`gnupg`).</tool>
+      <tool name="ps">Process listing (`procps`) — check running MCP or server processes.</tool>
+    </system_utilities>
+
     <cli_tools>
-      <tool name="gh">`GitHub CLI` — interact with GitHub API (issues, PRs, repos, releases, actions). Authenticated via `GH_ORCHESTRATION_AGENT_TOKEN` exported as `GH_TOKEN`.</tool>
-      <tool name="opencode" version="1.2.24">`opencode CLI` — AI agent runtime. Runs agents defined in `.opencode/agents/` with MCP server support.</tool>
-      <tool name="git">`Git` — version control (system package + devcontainer feature).</tool>
+      <tool name="opencode" version="1.15.13">OpenCode CLI — server runs `opencode serve`; agents defined under `.opencode/agents/`.</tool>
+      <tool name="gh">GitHub CLI — issues, PRs, repos, Actions. Authenticate with `GH_ORCHESTRATION_AGENT_TOKEN` / `GITHUB_TOKEN` from compose env.</tool>
     </cli_tools>
+
+    <mcp_servers>
+      <summary>Configured in `/app/opencode.json` (not separate installs).</summary>
+      <tool name="sequential-thinking">Local MCP via `npx @modelcontextprotocol/server-sequential-thinking`.</tool>
+      <tool name="memory-graph">Local MCP via `npx @modelcontextprotocol/server-memory`; persists to `/app/.memory/memory.jsonl`.</tool>
+      <tool name="microsoft-learn">Remote MCP at `https://learn.microsoft.com/api/mcp` — Microsoft docs search/fetch.</tool>
+    </mcp_servers>
+
+    <not_installed>
+      <summary>Not in this image — do not assume availability inside the container.</summary>
+      <item>.NET SDK (`dotnet`) — install in workspace or use a different image if required.</item>
+      <item>Bun — use Node/npm/npx instead.</item>
+      <item>Docker CLI — container is the runtime, not a Docker host.</item>
+    </not_installed>
 
     <github_authentication>
       <summary>
