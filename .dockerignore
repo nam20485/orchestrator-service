@@ -1,0 +1,55 @@
+# Build / compose (not needed in OpenCode server image)
+**/.dockerignore
+**/Dockerfile*
+**/docker-compose*
+**/compose*
+
+# Git / IDE / editor
+**/.git
+**/.gitignore
+**/.idea
+**/.vscode
+**/.vs
+**/.cursor
+**/.project
+**/.settings
+**/.classpath
+**/*.*proj.user
+**/*.dbmdl
+**/*.jfm
+**/.toolstarget
+
+# Docs / planning / Cursor memory (OpenCode uses image/AGENTS.md instead)
+AGENTS.md
+README.md
+LICENSE
+plan_docs/
+
+# Python scaffold (not used by opencode serve)
+**/.python-version
+**/.venv
+main.py
+pyproject.toml
+uv.lock
+
+# Client scripts (entrypoint is copied separately in Dockerfile)
+scripts/attach.ps1
+scripts/prompt.ps1
+
+# Secrets (mounted at runtime via compose, not baked into image)
+auth/
+
+*.code-workspace
+.memory/
+
+# Legacy duplicate agent defs (image/.opencode/agents/ is canonical)
+image/.opencode/agent/
+
+# Node / build artifacts
+**/node_modules
+**/npm-debug.log
+**/bin
+**/obj
+**/charts
+**/secrets.dev.yaml
+**/values.dev.yaml

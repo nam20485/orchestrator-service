@@ -1,0 +1,87 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "instructions": [
+    "AGENTS.md"
+  ],
+  "provider": {
+    "zai-coding-plan": {
+      "models": {
+        "glm-5": {
+          "name": "GLM-5",
+          "limit": {
+            "context": 200000,
+            "output": 131072
+          }
+        },
+        "glm-4.7": {
+          "name": "GLM-4.7",
+          "limit": {
+            "context": 200000,
+            "output": 131072
+          }
+        },
+        "glm-4.7-flash": {
+          "name": "GLM-4.7-Flash",
+          "limit": {
+            "context": 200000,
+            "output": 131072
+          }
+        },
+        "glm-4.7-flashx": {
+          "name": "GLM-4.7-FlashX",
+          "limit": {
+            "context": 200000,
+            "output": 131072
+          }
+        }
+      },
+      "glm-4.5": {
+          "name": "GLM-4.5",
+          "limit": {
+            "context": 131072,
+            "output": 96000
+          }
+        },
+    }
+  },
+  "model": "zai-coding-plan/GLM-4.7",
+  "small_model": "zai-coding-plan/GLM-4.7-FlashX",
+  "permission": {
+    "external_directory": {
+      "/tmp/*": "allow"
+    },
+    "mcp_tool": {
+      "sequential-thinking:sequentialthinking": "allow",
+      "memory-graph:create_entities": "allow",
+      "memory-graph:create_relations": "allow",
+      "memory-graph:add_observations": "allow",
+      "memory-graph:delete_entities": "allow",
+      "memory-graph:delete_observations": "allow",
+      "memory-graph:delete_relations": "allow",
+      "memory-graph:read_graph": "allow",
+      "memory-graph:search_nodes": "allow",
+      "memory-graph:open_nodes": "allow"
+    }
+  },
+  "mcp": {
+    "sequential-thinking": {
+      "type": "local",
+      "command": [
+        "npx",
+        "-y",
+        "@modelcontextprotocol/server-sequential-thinking"
+      ]
+    },
+    "memory-graph": {
+      "type": "local",
+      "command": [
+        "npx",
+        "-y",
+        "@modelcontextprotocol/server-memory"
+      ],
+      "environment": {
+        "MEMORY_FILE_PATH": "/app/.memory/memory.jsonl"
+      }
+    }
+  }
+}

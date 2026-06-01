@@ -1,0 +1,15 @@
+services:
+  orchestratorservice:
+    image: orchestratorservice
+    build:
+      context: .
+      dockerfile: ./Dockerfile
+    ports:
+      - "4099:4099"
+    volumes:
+      - ./auth/auth.json:/run/opencode/auth.json:ro
+    environment:
+      - OPENROUTER_API_KEY
+      - GH_ORCHESTRATION_AGENT_TOKEN
+      - GITHUB_TOKEN
+      - OPENCODE_SERVER_PASSWORD
