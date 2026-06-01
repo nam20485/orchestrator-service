@@ -23,19 +23,19 @@
 # Docs / planning / Cursor memory (OpenCode uses image/AGENTS.md instead)
 AGENTS.md
 README.md
+!README.md
 LICENSE
 plan_docs/
 
-# Python scaffold (not used by opencode serve)
+# Python scaffold (webhook image uses these; opencode Dockerfile does not COPY them)
 **/.python-version
 **/.venv
-main.py
-pyproject.toml
-uv.lock
+tests/
 
-# Host/client scripts (only entrypoint belongs in image; also copied to /usr/local/bin)
+# Host/client scripts (opencode image: entrypoint only; webhook image: prompt wrappers)
 scripts/*
 !scripts/docker-entrypoint.sh
+!scripts/prompt.ps1
 
 # Secrets (mounted at runtime via compose, not baked into image)
 auth/
