@@ -1,15 +1,16 @@
 ---
 name: safe-commit
 description: >-
-  Runs scan-uncommitted-secrets, then groups outstanding changes into logical
-  commits with meaningful messages. Use when the user asks for safe-commit,
-  safe commit, commit changes safely, or grouped commits after a secret scan.
+  Runs scan-uncommitted-secrets, validate.ps1, then groups outstanding changes
+  into logical commits with meaningful messages. Use when the user asks for
+  safe-commit, safe commit, commit changes safely, or grouped commits after
+  validation.
 disable-model-invocation: true
 ---
 
 # Safe Commit
 
-Commit outstanding work only after a clean secret scan, split into focused commits by concept.
+Commit outstanding work only after a clean secret scan and passing validation, split into focused commits by concept.
 
 ## Prerequisites
 
@@ -37,7 +38,21 @@ git add --dry-run -A
 
 Abort if dry-run would add credential files.
 
-## Phase 2 — Understand changes
+## Phase 2 — Validation (mandatory)
+
+Run the full local validation suite (lint, scan, tests — same as pre-commit/CI, except Docker image build is CI-only):
+
+```bash
+pwsh -NoProfile -File ./scripts/validate.ps1 -All
+```
+
+**If exit code is non-zero:** stop immediately. Do not stage or commit. Report which step failed (from script output), fix issues, and re-run validation until clean.
+
+**If `pwsh` or a tool is missing:** run `pwsh -NoProfile -File ./scripts/install-dev-tools.ps1` if appropriate, or report what the user must install. Do not skip validation unless the user explicitly opts out in the same request.
+
+**If exit code is 0:** proceed to Phase 3.
+
+## Phase 3 — Understand changes
 
 Run in **parallel**:
 
@@ -55,7 +70,7 @@ Read enough of each changed file to assign it to a group. Exclude:
 - Obvious noise unless the user wants everything committed
 - any files already in `.gitignore`
 
-## Phase 3 — Group changes conceptually
+## Phase 4 — Group changes conceptually
 
 Partition files into **1–6 logical groups**. Each group should be one coherent story a reviewer can understand in one glance.
 
@@ -90,7 +105,7 @@ Show a short table:
 
 Then execute unless the user already constrained grouping in the same request.
 
-## Phase 4 — Commit each group
+## Phase 5 — Commit each group
 
 For **each** group, in dependency-friendly order (infra → config → scripts → docs → tooling):
 
@@ -120,12 +135,14 @@ Guidelines:
 
 After each commit: `git status --short`
 
-## Phase 5 — Final report
+## Phase 6 — Final report
 
 ```markdown
 ## Safe commit complete
 
 **Scan:** passed (no sensitive content)
+
+**Validation:** passed (`scripts/validate.ps1 -All`)
 
 **Commits created:**
 1. `<hash>` — `<subject>`
@@ -149,6 +166,7 @@ After each commit: `git status --short`
 | Situation | Action |
 |-----------|--------|
 | Scan finds secrets | Stop; no commits |
+| Validation fails | Stop; no commits; fix and re-run `validate.ps1 -All` |
 | Empty group after exclusions | Skip group |
 | Pre-commit hook fails | Fix issue; new commit (do not amend unless allowed) |
 | Unclear grouping | Prefer smaller groups; note assumption in report |
