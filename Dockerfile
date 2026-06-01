@@ -1,20 +1,42 @@
 FROM debian:trixie-20260518-slim
-#FROM debianbookworm-20260518-slim
 LABEL Name=orchestratorservice Version=0.0.1
 
 ARG DEBIAN_FRONTEND=noninteractive
 ARG OPENCODE_VERSION=1.15.13
-ARG DOTNET_SDK_VERSION=10.0.300
+#ARG DOTNET_SDK_VERSION=10.0.300
+ARG NODE_LTS_VERSION=24.14.0
+ARG POWERSHELL_VERSION=7.6.2
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
         ca-certificates \
         curl \
+        file \
+        git \
+        gnupg \
+        jq \
+        make \
+        openssh-client \
+        patch \
+        procps \
         python3 \
         python3-pip \
+        ripgrep \
         tar \
-        git \
         unzip \
+        xz-utils \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# PowerShell (pwsh) — tarball install (Microsoft apt repo fails on trixie SHA1 key policy)
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends libicu76 libssl3t64 \
+    && curl -fsSL "https://github.com/PowerShell/PowerShell/releases/download/v${POWERSHELL_VERSION}/powershell-${POWERSHELL_VERSION}-linux-x64.tar.gz" -o /tmp/powershell.tar.gz \
+    && mkdir -p /opt/powershell \
+    && tar -xzf /tmp/powershell.tar.gz -C /opt/powershell \
+    && chmod +x /opt/powershell/pwsh \
+    && ln -sf /opt/powershell/pwsh /usr/local/bin/pwsh \
+    && rm /tmp/powershell.tar.gz \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
@@ -30,7 +52,6 @@ RUN mkdir -p /etc/apt/keyrings \
     && rm -rf /var/lib/apt/lists/*
 
 # Node.js 24.14.0 LTS (needed for MCP server packages)
-ARG NODE_LTS_VERSION=24.14.0
 RUN curl -fsSL "https://nodejs.org/dist/v${NODE_LTS_VERSION}/node-v${NODE_LTS_VERSION}-linux-x64.tar.gz" -o /tmp/node.tar.gz \
     && tar -xzf /tmp/node.tar.gz -C /usr/local --strip-components=1 \
     && rm /tmp/node.tar.gz
