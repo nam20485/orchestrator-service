@@ -29,10 +29,23 @@ param (
     [Parameter()]
     [String]
     $Thinking = "true",
-    [Parameter(Mandatory = $true)]
+    [Parameter()]
     [String]
     $Prompt,
+    [Parameter()]
+    [String]
+    $PromptFile,
 )
+
+if ($PromptFile) {
+    if (-not (Test-Path -LiteralPath $PromptFile)) {
+        throw "PromptFile not found: $PromptFile"
+    }
+    $Prompt = Get-Content -LiteralPath $PromptFile -Raw
+}
+if (-not $Prompt) {
+    throw "Provide -Prompt or -PromptFile."
+}
 
 opencode run `
     --attach $ServerUrl `
