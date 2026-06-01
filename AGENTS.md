@@ -8,22 +8,22 @@
 - Does not use a project `.env` for compose; provider credentials are host/CI environment variables synthesized at container start by `scripts/docker-entrypoint.sh`.
 - Client scripts should rely on host `OPENCODE_SERVER_PASSWORD` (opencode CLI default); never hardcode server passwords in committed scripts.
 - Before commit, scan changed files for secrets (API keys, hardcoded passwords); never commit API keys or provider credentials.
+- Use `.cursor/skills/scan-uncommitted-secrets` for pre-commit secret checks; use `.cursor/skills/safe-commit` for grouped commits after a clean scan.
 
 ## Learned Workspace Facts
 
-- Docker image uses `debian:bookworm-slim`, runs `opencode serve` on `0.0.0.0:4099`, and bundles Node.js 24.14.0 (MCP), uv, gh CLI, and Python3.
-- Install Node in the Dockerfile via the official `.tar.gz` with `tar -xzf`; `.tar.xz` / `tar -xJf` fails on bookworm-slim because `xz-utils` is not installed.
-- One-shot client flow: `opencode run --attach <url>`; interactive attach: `opencode attach <url>` (not `attach --prompt`).
+- Docker image uses `debian:trixie-20260518-slim`, runs `opencode serve` on `0.0.0.0:4099`, and bundles Node.js 24.14.0, pwsh 7.6.2 LTS, uv, gh CLI, Python3, ripgrep, jq, and agent utilities (git, make, openssh-client, gnupg, patch, xz-utils, file, procps); Node and pwsh use linux-x64 tarballs (image is amd64-only for now).
+- Install Node and PowerShell via official `.tar.gz` tarballs; PowerShell uses GitHub tarball because Microsoft apt repo fails on trixie (SHA1 key policy).
 - Authoritative OpenCode server planning spec for this repo: `plan_docs/plan.md`.
 - OpenCode server config source of truth is repo `image/` (`opencode.json`, `AGENTS.md`, `.opencode/agents/`, `.opencode/commands/`); Dockerfile copies those into `/app` (no full-repo `COPY . .`); `.dockerignore` excludes non-image files.
-- Agent sessions run in `/workspace` (named compose volume); `/app` is server config only—keep working tree separate from OpenCode install/config.
+- Agent sessions run in `/workspace` (compose volume `opencode-workspace`); `/app` is server config only—keep working tree separate from OpenCode install/config.
 - Root repo `AGENTS.md` is Cursor continual-learning memory only; the container uses `image/AGENTS.md` copied to `/app/AGENTS.md` (overwrites any root copy).
-- Provider auth: `scripts/docker-entrypoint.sh` writes `/root/.local/share/opencode/auth.json` from host/CI env vars before `opencode serve` starts.
-- Supported provider env vars: `ZAI_CODING_API_KEY` (or `ZAI_API_KEY`), `ZHIPUAI_CODING_API_KEY`, `OPENROUTER_API_KEY`, `ALIBABA_API_KEY`. At least one must be set.
+- Provider auth: `scripts/docker-entrypoint.sh` writes `/root/.local/share/opencode/auth.json` from host/CI env vars before `opencode serve` starts; supported vars: `ZAI_CODING_API_KEY` (or `ZAI_API_KEY`), `ZHIPUAI_CODING_API_KEY`, `OPENROUTER_API_KEY`, `ALIBABA_API_KEY` (at least one required).
 - `zai-coding-plan/glm-4.7` needs `ZAI_CODING_API_KEY`; `OPENROUTER_API_KEY` alone does not authenticate that provider.
-- MCP `memory-graph` in `image/opencode.json` uses `@modelcontextprotocol/server-memory` with `MEMORY_FILE_PATH=/app/.memory/memory.jsonl`.
+- MCP `memory-graph` in `image/opencode.json` uses `@modelcontextprotocol/server-memory` with `MEMORY_FILE_PATH=/app/.memory/memory.jsonl`; compose volume `opencode-memory` persists it.
+- OpenCode config: use `default_agent` (not `agent`); remote MCPs like `microsoft-learn` need `type: "remote"` and `enabled: true`.
 - Compose `environment: - VAR` passes host shell env into the container; `${VAR}` adds `.env` interpolation—this project does not use `.env`.
-- Host client scripts: `scripts/prompt.ps1`, `scripts/attach.ps1` (PowerShell thin wrappers to local `opencode`).
+- Host client scripts: `scripts/prompt.ps1`, `scripts/attach.ps1` (PowerShell thin wrappers to local `opencode`); one-shot via `opencode run --attach <url>`, interactive via `opencode attach <url>`.
 
 ## Agent Instructions
 
