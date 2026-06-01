@@ -7,6 +7,7 @@
 # Git / IDE / editor
 **/.git
 **/.gitignore
+**/.gitattributes
 **/.idea
 **/.vscode
 **/.vs
@@ -32,9 +33,9 @@ main.py
 pyproject.toml
 uv.lock
 
-# Client scripts (entrypoint is copied separately in Dockerfile)
-scripts/attach.ps1
-scripts/prompt.ps1
+# Host/client scripts (only entrypoint belongs in image; also copied to /usr/local/bin)
+scripts/*
+!scripts/docker-entrypoint.sh
 
 # Secrets (mounted at runtime via compose, not baked into image)
 auth/

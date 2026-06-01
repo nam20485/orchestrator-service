@@ -1,4 +1,5 @@
-FROM debian:bookworm-slim
+FROM debian:trixie-20260518-slim
+#FROM debianbookworm-20260518-slim
 LABEL Name=orchestratorservice Version=0.0.1
 
 ARG DEBIAN_FRONTEND=noninteractive
@@ -48,9 +49,14 @@ RUN curl -fsSL https://opencode.ai/install | bash -s -- --version "${OPENCODE_VE
 
 ENV PATH="/root/.opencode/bin:${PATH}"
 
+# Agent workspace (sessions via --dir); separate from OpenCode config in /app
+RUN mkdir -p /workspace && chmod 755 /workspace
 
 WORKDIR /app
 COPY image/opencode.json image/AGENTS.md /app/
+COPY image/.github /app/.github
+COPY image/local_ai_instruction_modules /app/local_ai_instruction_modules
+COPY scripts /app/scripts
 COPY image/.opencode /app/.opencode
 
 COPY scripts/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
