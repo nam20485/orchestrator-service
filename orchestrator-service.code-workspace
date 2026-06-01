@@ -5,6 +5,7 @@
 		}
 	],
 	"settings": {
-		"python.languageServer": "None"
+		"python.languageServer": "None",
+		"python.defaultInterpreterPath": ".venv/bin/python"
 	}
 }
