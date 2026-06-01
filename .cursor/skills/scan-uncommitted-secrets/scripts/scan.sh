@@ -43,6 +43,8 @@ is_allowlisted_line() {
   [[ "$line" =~ your-.*-key ]] && return 0
   [[ "$line" =~ \<YOUR_.*\> ]] && return 0
   [[ "$line" =~ changeme|placeholder|redacted|REDACTED ]] && return 0
+  # Lockfile wheel hashes and digest pins are not PII/secrets
+  [[ "$line" =~ sha256:[a-f0-9]{16,} ]] && return 0
   return 1
 }
 
