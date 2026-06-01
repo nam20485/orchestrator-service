@@ -1,0 +1,31 @@
+# Default: normalize text files to LF (Linux containers, shell entrypoints).
+* text=auto eol=lf
+
+# Scripts
+*.sh text eol=lf
+*.bash text eol=lf
+*.ps1 text eol=lf
+
+# Config / docs
+*.md text diff=markdown
+*.json text
+*.yaml text
+*.yml text
+*.toml text
+Dockerfile text
+.dockerignore text
+.gitignore text
+.gitattributes text
+
+# Binary assets
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.webp binary
+*.pdf binary
+*.zip binary
+
+# Generated / lock files
+uv.lock linguist-generated=true
