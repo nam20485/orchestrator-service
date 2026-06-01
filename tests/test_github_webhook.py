@@ -14,3 +14,11 @@ def test_verify_signature_accepts_valid_hmac() -> None:
 
 def test_verify_signature_rejects_invalid() -> None:
     assert not verify_signature(b"{}", "sha256=deadbeef", "secret")
+
+
+def test_verify_signature_rejects_missing_header() -> None:
+    assert not verify_signature(b"{}", None, "secret")
+
+
+def test_verify_signature_rejects_wrong_prefix() -> None:
+    assert not verify_signature(b"{}", "sha1=abc", "secret")
