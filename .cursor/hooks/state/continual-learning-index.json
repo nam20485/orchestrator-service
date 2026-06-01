@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "workspace": "/home/nam20485/src/github/nam20485/orchestrator-service",
+  "updatedAt": "2026-06-01T12:27:04.150641Z",
+  "transcripts": {
+    "/home/nam20485/.cursor/projects/home-nam20485-src-github-nam20485-orchestrator-service/agent-transcripts/80139217-dea9-4cb8-ab10-3a06fabd29ac/80139217-dea9-4cb8-ab10-3a06fabd29ac.jsonl": {
+      "processedAt": "2026-06-01T12:27:04.150508Z",
+      "mtime": "2026-05-27T12:51:55.260318-07:00",
+      "mtimeMs": 1779911515260.3179,
+      "mtimeNs": "1779911515260317867",
+      "lastSeenLine": 36
+    },
+    "/home/nam20485/.cursor/projects/home-nam20485-src-github-nam20485-orchestrator-service/agent-transcripts/fd6d61ed-7e7b-47e1-a529-df57a30c12f2/fd6d61ed-7e7b-47e1-a529-df57a30c12f2.jsonl": {
+      "processedAt": "2026-06-01T12:27:04.150628Z",
+      "mtime": "2026-06-01T05:26:33.297973-07:00",
+      "mtimeMs": 1780316793297.9734,
+      "mtimeNs": "1780316793297973474",
+      "lastSeenLine": 23
+    }
+  }
+}
