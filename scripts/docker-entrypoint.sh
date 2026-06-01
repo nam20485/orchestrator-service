@@ -1,7 +1,8 @@
 #!/bin/sh
 set -e
 
-AUTH_DEST="/root/.local/share/opencode/auth.json"
+HOME_DIR="${HOME:-/root}"
+AUTH_DEST="${HOME_DIR}/.local/share/opencode/auth.json"
 
 mkdir -p "$(dirname "$AUTH_DEST")"
 
@@ -11,7 +12,8 @@ import json
 import os
 import pathlib
 
-auth_path = pathlib.Path("/root/.local/share/opencode/auth.json")
+home = pathlib.Path(os.environ.get("HOME", "/root"))
+auth_path = home / ".local/share/opencode/auth.json"
 auth_path.parent.mkdir(parents=True, exist_ok=True)
 
 auth = {}
