@@ -219,4 +219,7 @@ Expected: script exits with a clear message explaining that local `opencode` mus
 
 ## Open Questions
 
+
+
+
 None.
