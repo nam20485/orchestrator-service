@@ -34,7 +34,7 @@ param (
     $Prompt,
     [Parameter()]
     [String]
-    $PromptFile,
+    $PromptFile
 )
 
 if ($PromptFile) {

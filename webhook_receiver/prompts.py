@@ -31,7 +31,8 @@ def build_orchestrator_prompt(
 
     return f"""# GitHub App webhook — orchestration task
 
-A GitHub App webhook was delivered to the orchestrator service. Analyze the event and take appropriate action using the orchestrator agent workflow (delegate to specialists as needed).
+A GitHub App webhook was delivered to the orchestrator service. Analyze the event and
+take appropriate action using the orchestrator agent workflow (delegate to specialists as needed).
 
 ## Delivery metadata
 - Delivery ID: `{delivery_id}`
