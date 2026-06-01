@@ -82,3 +82,14 @@ Logs for the last dispatched run: `/tmp/orchestrator-webhook/last-prompt.md` and
 ```bash
 curl -s http://localhost:8080/health
 ```
+
+## Validation
+
+Prerequisites: **pwsh**, **uv**, **docker** (compose/caddy tests), **jq**, optional **actionlint** / **shellcheck**.
+
+```bash
+pwsh -NoProfile -File ./scripts/install-dev-tools.ps1   # first time
+pwsh -NoProfile -File ./scripts/validate.ps1 -All         # before commit
+```
+
+CI runs [`.github/workflows/validate.yml`](.github/workflows/validate.yml) on PRs: **lint**, **scan**, **test**, **build** (Docker images; build is CI-only, not in local `-All`). See [AGENTS.md](AGENTS.md) for the full validation contract.

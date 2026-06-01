@@ -138,16 +138,18 @@ scope: repository
   </environment_setup>
 
   <testing>
-    <guidance>Tests include both shell scripts (`bash`) and Pester scripts (`pwsh`) in `test/`. The full suite is invoked via `./scripts/validate.ps1 -Test`.</guidance>
+    <guidance>Host repo tests live under `tests/` (pytest), `test/*.sh` (bash), and `test/*.Tests.ps1` (Pester). Invoke via `./scripts/validate.ps1 -Test` or `-All` on the orchestrator-service clone.</guidance>
     <commands>
-      <command>All tests (preferred): `pwsh -NoProfile -File ./scripts/validate.ps1 -Test`</command>
-      <command>Prompt assembly: `bash test/test-prompt-assembly.sh`</command>
-      <command>Tool availability: `bash test/test-devcontainer-tools.sh`</command>
-      <command>Image tag logic: `bash test/test-image-tag-logic.sh`</command>
-      <command>Pester tests: `pwsh -NoProfile -File ./test/run-pester-tests.ps1`</command>
-      <command>Agent validation: `pwsh -NoProfile -File ./test/validate-agents.ps1`</command>
+      <command>All validation (preferred): `pwsh -NoProfile -File ./scripts/validate.ps1 -All`</command>
+      <command>Tests only: `pwsh -NoProfile -File ./scripts/validate.ps1 -Test`</command>
+      <command>Python: `uv run pytest tests/ -q`</command>
+      <command>Pester: `pwsh -NoProfile -File ./test/run-pester-tests.ps1`</command>
+      <command>Docker entrypoint: `bash test/test-docker-entrypoint.sh`</command>
+      <command>Compose config: `bash test/test-compose-config.sh`</command>
+      <command>Caddyfile: `bash test/test-caddyfile.sh`</command>
+      <command>opencode.json: `bash test/test-opencode-json.sh`</command>
     </commands>
-    <guidance>Add new fixture payloads to `test/fixtures/` when testing new event types.</guidance>
+    <guidance>Add webhook fixture payloads to `test/fixtures/github/` when testing new event types. Use synthetic secrets only (`FAKE-KEY-FOR-TESTING-…`).</guidance>
   </testing>
 
   <coding_conventions>

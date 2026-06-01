@@ -17,13 +17,51 @@
 - Authoritative OpenCode server planning spec for this repo: `plan_docs/plan.md`.
 - OpenCode server config source of truth is repo `image/` (`opencode.json`, `AGENTS.md`, `.opencode/agents/`, `.opencode/commands/`); Dockerfile copies those into `/app` (no full-repo `COPY . .`); `.dockerignore` excludes non-image files.
 - Agent sessions run in `/workspace` (compose volume `opencode-workspace`); `/app` is server config only—keep working tree separate from OpenCode install/config.
-- Root repo `AGENTS.md` is Cursor continual-learning memory only; the container uses `image/AGENTS.md` copied to `/app/AGENTS.md` (overwrites any root copy).
+- Root repo `AGENTS.md` is Cursor memory plus host-repo validation docs; the container uses `image/AGENTS.md` copied to `/app/AGENTS.md` (overwrites any root copy).
 - Provider auth: `scripts/docker-entrypoint.sh` writes `/root/.local/share/opencode/auth.json` from host/CI env vars before `opencode serve` starts; supported vars: `ZAI_CODING_API_KEY` (or `ZAI_API_KEY`), `OPENROUTER_API_KEY` (at least one required).
 - `zai-coding-plan/glm-4.7` needs `ZAI_CODING_API_KEY`; `OPENROUTER_API_KEY` alone does not authenticate that provider.
 - MCP `memory-graph` in `image/opencode.json` uses `@modelcontextprotocol/server-memory` with `MEMORY_FILE_PATH=/app/.memory/memory.jsonl`; compose volume `opencode-memory` persists it.
 - OpenCode config: use `default_agent` (not `agent`); remote MCPs like `microsoft-learn` need `type: "remote"` and `enabled: true`.
 - Compose `environment: - VAR` passes host shell env into the container; `${VAR}` adds `.env` interpolation—this project does not use `.env`.
 - Host client scripts: `scripts/prompt.ps1`, `scripts/attach.ps1` (PowerShell thin wrappers to local `opencode`); one-shot via `opencode run --attach <url>`, interactive via `opencode attach <url>`.
+
+## Testing
+
+- Full suite: `pwsh -NoProfile -File ./scripts/validate.ps1 -Test` (or `-All` for lint + scan + test).
+- Python: `uv sync --group dev` then `uv run pytest tests/ -q`.
+- Pester: `pwsh -NoProfile -File ./test/run-pester-tests.ps1`.
+- Bash: `test/test-docker-entrypoint.sh`, `test/test-compose-config.sh`, `test/test-caddyfile.sh`, `test/test-opencode-json.sh`.
+- Webhook fixtures: `test/fixtures/github/` (use `FAKE-KEY-FOR-TESTING-…` only; never `ghp_`, `sk-`, `AKIA`, etc. in fixtures).
+
+## Change validation (mandatory)
+
+After any non-trivial change (code, config, workflows, Docker):
+
+1. Run `pwsh -NoProfile -File ./scripts/validate.ps1 -All`.
+2. Fix all failures; re-run until clean.
+3. Only then commit and push.
+
+Missing local tools: `pwsh -NoProfile -File ./scripts/install-dev-tools.ps1`.
+
+## Validation commands
+
+| Check | Command | CI job (`validate.yml`) |
+|-------|---------|-------------------------|
+| All (local) | `./scripts/validate.ps1 -All` | lint + scan + test (not build) |
+| Lint | `./scripts/validate.ps1 -Lint` | `lint` |
+| Secret scan | `./scripts/validate.ps1 -Scan` | `scan` |
+| Tests | `./scripts/validate.ps1 -Test` | `test` |
+| Docker image build | *(CI only)* | `build` |
+
+## Pre-commit checklist
+
+- Ran `./scripts/validate.ps1 -All` (or the relevant `-Lint` / `-Scan` / `-Test` subset).
+- Secret scan clean (`.cursor/skills/scan-uncommitted-secrets` or `validate.ps1 -Scan`).
+- No real API keys or tokens in committed files.
+
+## After push
+
+Monitor CI until green: `gh run list --limit 5`, `gh run watch <id>`, `gh run view <id> --log-failed`. Required workflow: **validate** (lint, scan, test, build). Do not mark work complete while CI is red.
 
 ## Agent Instructions
 

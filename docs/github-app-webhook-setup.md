@@ -210,7 +210,11 @@ GitHub webhook URL: `https://hooks.example.com/webhooks/github` (or `http://<hos
 
 Config file: `deploy/caddy/Caddyfile`. Logs: `docker compose logs -f webhook-proxy webhook-receiver`
 
-**Local development (uv)**
+**Local development with ngrok + Docker Compose**
+
+See **[Local development with ngrok + Docker Compose](#local-development-with-ngrok--docker-compose)** — tunnel `ngrok http 80` to Caddy while the full stack runs in Compose.
+
+**Local development (uv, no Docker)**
 
 ```bash
 uv sync
@@ -219,7 +223,7 @@ export OPENCODE_SERVER_URL=http://localhost:4099
 uv run orchestrator-webhook
 ```
 
-Requires local `pwsh`, `opencode`, and a running OpenCode server on the URL you configure.
+Requires local `pwsh`, `opencode`, and a running OpenCode server on the URL you configure. For GitHub webhooks, run `ngrok http 8080` (receiver binds **8080** directly when not using Compose).
 
 ### Security considerations
 
@@ -273,19 +277,120 @@ docker compose up --build
 curl -s http://localhost/health
 ```
 
-**Option C — external tunnel** to port 80:
+**Option C — external tunnel to port 80** (recommended for local development)
 
-```bash
-cloudflared tunnel --url http://localhost:80
-# or: ngrok http 80
+GitHub requires a **public HTTPS** webhook URL. `http://localhost` is not reachable from GitHub unless you terminate TLS with a tunnel. With Docker Compose, tunnel to **`webhook-proxy` on port 80** — not port **8080** (`webhook-receiver` is internal only).
+
+See **[Local development with ngrok + Docker Compose](#local-development-with-ngrok--docker-compose)** below for step-by-step ngrok instructions. Other tunnels work the same way (e.g. `cloudflared tunnel --url http://localhost:80`).
+
+---
+
+## Local development with ngrok + Docker Compose
+
+Use this when developing on a laptop or workstation without a public hostname. [ngrok](https://ngrok.com/) gives you a temporary `https://….ngrok-free.app` URL that forwards to Caddy on localhost port **80**.
+
+### How traffic flows
+
+```mermaid
+flowchart LR
+  GH[GitHub App]
+  NG[ngrok HTTPS]
+  CD[Caddy webhook-proxy :80]
+  WH[webhook-receiver :8080]
+  GH -->|POST /webhooks/github| NG
+  NG -->|HTTP localhost:80| CD
+  CD --> WH
 ```
 
-Verify health via the proxy:
+### Prerequisites
+
+- [ngrok](https://ngrok.com/download) installed and signed in (`ngrok config add-authtoken …` once).
+- Docker Compose stack from this repo (see root [README.md](../README.md)).
+- A GitHub App (or draft app) with webhook **Active** — you will paste the ngrok URL in Part 1.
+
+### 1. Start the stack
+
+Export required variables on the host (same values you will use in the GitHub App):
+
+```bash
+export OPENCODE_SERVER_PASSWORD='…'
+export ZAI_CODING_API_KEY='…'                    # and/or OPENROUTER_API_KEY
+export GITHUB_WEBHOOK_SECRET='…'                 # generate now; reuse in GitHub App settings
+export GH_ORCHESTRATION_AGENT_TOKEN='…'          # optional but recommended
+
+# default WEBHOOK_SITE_ADDRESS=:80 — HTTP on port 80; ngrok provides HTTPS
+docker compose up --build
+```
+
+Confirm Caddy is healthy locally:
 
 ```bash
 curl -s http://localhost/health
 # {"status":"ok"}
 ```
+
+### 2. Start ngrok
+
+In a **second terminal**, forward public HTTPS to port **80**:
+
+```bash
+ngrok http 80
+```
+
+ngrok prints a forwarding URL, for example:
+
+```text
+Forwarding   https://abc123.ngrok-free.app -> http://localhost:80
+```
+
+Copy the **https** URL (not the `http://127.0.0.1` line).
+
+### 3. Set the GitHub App webhook URL
+
+In your GitHub App settings (Part 1 below):
+
+| Field | Value |
+|-------|--------|
+| **Webhook URL** | `https://abc123.ngrok-free.app/webhooks/github` |
+| **Webhook secret** | Same string as `GITHUB_WEBHOOK_SECRET` |
+| **SSL verification** | **Enabled** (default) — ngrok presents a valid certificate |
+
+Save the app. GitHub sends a **ping**; check **Recent Deliveries** for **200**.
+
+Verify through ngrok before saving (replace the host):
+
+```bash
+curl -s https://abc123.ngrok-free.app/health
+# {"status":"ok"}
+```
+
+### 4. Watch deliveries
+
+```bash
+docker compose logs -f webhook-proxy webhook-receiver
+```
+
+- **ping** → HTTP **200**, no orchestration run.
+- Other subscribed events → HTTP **202**, background `opencode run` via `prompt.ps1`.
+
+### ngrok notes
+
+| Topic | Detail |
+|-------|--------|
+| **Port** | Always `ngrok http 80` with Compose. Do not tunnel **8080** unless you run `uv run orchestrator-webhook` without Caddy. |
+| **URL changes** | Free ngrok URLs change when you restart ngrok. Update the GitHub App **Webhook URL** each time (or use a [reserved domain](https://ngrok.com/docs/guides/how-to-set-up-a-custom-domain/) on a paid plan). |
+| **Stack order** | Start `docker compose` first, then ngrok. If compose is down, ngrok returns 502 and GitHub deliveries fail. |
+| **Alternatives** | [Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/) (`cloudflared tunnel --url http://localhost:80`) or Tailscale Funnel work the same way — tunnel to port **80**, path `/webhooks/github`. |
+
+### ngrok troubleshooting
+
+| Symptom | Likely cause | Fix |
+|---------|----------------|-----|
+| GitHub **connection failed** | ngrok not running or wrong port | `ngrok http 80`; confirm compose is up |
+| **502 Bad Gateway** from ngrok | Caddy/receiver not listening | `curl -s http://localhost/health`; restart compose |
+| **401** on delivery | Secret mismatch | `GITHUB_WEBHOOK_SECRET` must match GitHub App webhook secret exactly |
+| URL worked yesterday, fails today | Free ngrok hostname changed | Copy new URL from ngrok UI; update GitHub App webhook URL |
+| Browser shows ngrok interstitial | ngrok free-tier warning page | `curl` and GitHub deliveries are unaffected; use ngrok dashboard to inspect requests |
 
 ---
 
@@ -474,5 +579,8 @@ Use **repository rules** or **label filters** in your orchestrator instructions 
 | Internal app | `webhook-receiver` on **8080** (Docker network only) |
 | CLI (local) | `uv run orchestrator-webhook` |
 | Application details | [Webhook receiver application](#webhook-receiver-application) above |
+| Local dev (ngrok) | [Local development with ngrok + Docker Compose](#local-development-with-ngrok--docker-compose) |
 
 See also the root [README.md](../README.md) for compose and client script usage.
+
+Before opening a PR, run `pwsh -NoProfile -File ./scripts/validate.ps1 -All` (see [AGENTS.md](../AGENTS.md)).
