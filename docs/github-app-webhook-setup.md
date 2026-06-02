@@ -215,6 +215,10 @@ Config file: `deploy/caddy/Caddyfile`. Logs: `docker compose logs -f webhook-pro
 
 See **[Local development with ngrok + Docker Compose](#local-development-with-ngrok--docker-compose)** — tunnel `ngrok http 80` to Caddy while the full stack runs in Compose.
 
+**Local development with Tailscale Funnel + Docker Compose**
+
+See **[Local development with Tailscale Funnel + Docker Compose](#local-development-with-tailscale-funnel--docker-compose)** — stable `https://<machine>.<tailnet>.ts.net` URL; set the GitHub webhook once per machine.
+
 **Local development (uv, no Docker)**
 
 ```bash
@@ -224,7 +228,7 @@ export OPENCODE_SERVER_URL=http://localhost:4099
 uv run orchestrator-webhook
 ```
 
-Requires local `pwsh`, `opencode`, and a running OpenCode server on the URL you configure. For GitHub webhooks, run `ngrok http 8080` (receiver binds **8080** directly when not using Compose).
+Requires local `pwsh`, `opencode`, and a running OpenCode server on the URL you configure. For GitHub webhooks without Caddy, use `ngrok http 8080` or `tailscale funnel 8080` (see local dev sections below).
 
 ### Security considerations
 
@@ -282,7 +286,7 @@ curl -s http://localhost/health
 
 GitHub requires a **public HTTPS** webhook URL. `http://localhost` is not reachable from GitHub unless you terminate TLS with a tunnel. With Docker Compose, tunnel to **`webhook-proxy` on port 80** — not port **8080** (`webhook-receiver` is internal only).
 
-See **[Local development with ngrok + Docker Compose](#local-development-with-ngrok--docker-compose)** below for step-by-step ngrok instructions. Other tunnels work the same way (e.g. `cloudflared tunnel --url http://localhost:80`).
+See **[Local development with ngrok + Docker Compose](#local-development-with-ngrok--docker-compose)** or **[Local development with Tailscale Funnel + Docker Compose](#local-development-with-tailscale-funnel--docker-compose)** below for step-by-step instructions. [Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/) (`cloudflared tunnel --url http://localhost:80`) also works the same way — tunnel to port **80**, path `/webhooks/github`.
 
 ---
 
@@ -381,7 +385,7 @@ docker compose logs -f webhook-proxy webhook-receiver
 | **Port** | Always `ngrok http 80` with Compose. Do not tunnel **8080** unless you run `uv run orchestrator-webhook` without Caddy. |
 | **URL changes** | Free ngrok URLs change when you restart ngrok. Update the GitHub App **Webhook URL** each time (or use a [reserved domain](https://ngrok.com/docs/guides/how-to-set-up-a-custom-domain/) on a paid plan). |
 | **Stack order** | Start `docker compose` first, then ngrok. If compose is down, ngrok returns 502 and GitHub deliveries fail. |
-| **Alternatives** | [Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/) (`cloudflared tunnel --url http://localhost:80`) or Tailscale Funnel work the same way — tunnel to port **80**, path `/webhooks/github`. |
+| **Alternatives** | [Tailscale Funnel](#local-development-with-tailscale-funnel--docker-compose) (stable URL) or [Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/) — tunnel to port **80**, path `/webhooks/github` |
 
 ### ngrok troubleshooting
 
@@ -393,7 +397,153 @@ docker compose logs -f webhook-proxy webhook-receiver
 | URL worked yesterday, fails today | Free ngrok hostname changed | Copy new URL from ngrok UI; update GitHub App webhook URL |
 | Browser shows ngrok interstitial | ngrok free-tier warning page | `curl` and GitHub deliveries are unaffected; use ngrok dashboard to inspect requests |
 
-### Webhook simulator UI (local dev)
+---
+
+## Local development with Tailscale Funnel + Docker Compose
+
+Use this when you already run [Tailscale](https://tailscale.com/) (same network you may use for OpenCode clients). [Tailscale Funnel](https://tailscale.com/kb/1242/tailscale-funnel/) exposes Caddy on port **80** at a **stable** public HTTPS URL:
+
+```text
+https://<machine-name>.<tailnet-name>.ts.net/webhooks/github
+```
+
+Unlike free ngrok, you typically **set the GitHub App webhook URL once** per machine and reuse it across restarts (same Tailscale node name and tailnet).
+
+### How traffic flows
+
+```mermaid
+flowchart LR
+  GH[GitHub App]
+  TS[Tailscale Funnel HTTPS]
+  CD[Caddy webhook-proxy :80]
+  WH[webhook-receiver :8080]
+  GH -->|POST /webhooks/github| TS
+  TS -->|HTTP localhost:80| CD
+  CD --> WH
+```
+
+### Prerequisites
+
+- [Tailscale](https://tailscale.com/download) installed and signed in on the dev machine (`tailscale up`).
+- **Funnel enabled** for your tailnet — an admin must allow it in the [access controls](https://login.tailscale.com/admin/acls) (ACL) policy. See [Tailscale Funnel documentation](https://tailscale.com/kb/1242/tailscale-funnel/) if `tailscale funnel` reports that Funnel is disabled.
+- Docker Compose stack from this repo (see root [README.md](../README.md)).
+- A GitHub App (or draft app) with webhook **Active**.
+
+### 1. Start the stack
+
+Export required variables on the host (same values you will use in the GitHub App):
+
+```bash
+export OPENCODE_SERVER_PASSWORD='…'
+export ZAI_CODING_API_KEY='…'                    # and/or OPENROUTER_API_KEY
+export OS_WEBHOOK_SECRET='…'
+export GH_ORCHESTRATION_AGENT_TOKEN='…'          # optional but recommended
+
+# default WEBHOOK_SITE_ADDRESS=:80 — HTTP on port 80; Tailscale Funnel provides HTTPS
+docker compose up --build
+```
+
+Confirm Caddy is healthy locally:
+
+```bash
+curl -s http://localhost/health
+# {"status":"ok"}
+```
+
+### 2. Enable Tailscale Funnel
+
+In a **second terminal**, expose port **80** to the internet:
+
+```bash
+tailscale funnel 80
+```
+
+To keep Funnel running after you close the terminal:
+
+```bash
+tailscale funnel --bg 80
+```
+
+Check status and copy your public URL:
+
+```bash
+tailscale funnel status
+```
+
+Example output (hostnames vary by tailnet):
+
+```text
+https://devbox.tail1234.ts.net/
+  |-- / proxy http://127.0.0.1:80
+```
+
+Your webhook base URL is the `https://…ts.net` host (no trailing path). Full webhook URL:
+
+```text
+https://devbox.tail1234.ts.net/webhooks/github
+```
+
+### 3. Set the GitHub App webhook URL
+
+In your GitHub App settings (Part 1 below):
+
+| Field | Value |
+|-------|--------|
+| **Webhook URL** | `https://<machine>.<tailnet>.ts.net/webhooks/github` |
+| **Webhook secret** | Same string as `OS_WEBHOOK_SECRET` |
+| **SSL verification** | **Enabled** (default) — Tailscale provisions the TLS certificate |
+
+Save the app. GitHub sends a **ping**; check **Recent Deliveries** for **200**.
+
+Verify through Funnel before saving (replace the host):
+
+```bash
+curl -s https://devbox.tail1234.ts.net/health
+# {"status":"ok"}
+```
+
+### 4. Watch deliveries
+
+```bash
+docker compose logs -f webhook-proxy webhook-receiver
+```
+
+- **ping** → HTTP **200**, no orchestration run.
+- Other subscribed events → HTTP **202**, background `opencode run` via `prompt.ps1`.
+
+### 5. Stop Funnel when done
+
+Funnel exposes port 80 to the **public internet**. Turn it off when you are not testing:
+
+```bash
+tailscale funnel off
+```
+
+### Tailscale notes
+
+| Topic | Detail |
+|-------|--------|
+| **Port** | Always `tailscale funnel 80` with Compose. Do not funnel **8080** unless you run `uv run orchestrator-webhook` without Caddy. |
+| **Stable URL** | Same machine + tailnet → same `*.ts.net` hostname. You usually **do not** update the GitHub App URL on every dev session (unlike free ngrok). |
+| **Stack order** | Start `docker compose` first, then Funnel. If compose is down, Funnel returns errors and GitHub deliveries fail. |
+| **Background mode** | `tailscale funnel --bg 80` persists until `tailscale funnel off` or reboot (verify with `tailscale funnel status`). |
+| **vs ngrok** | Prefer Tailscale when you already use it for LAN/Tailscale access; prefer ngrok for quick one-off tests without tailnet admin setup. |
+| **Production** | Funnel is for dev/demo. For always-on production, use **Option A** (`WEBHOOK_SITE_ADDRESS=hooks.yourdomain.com`) on a reachable host. |
+
+### Tailscale troubleshooting
+
+| Symptom | Likely cause | Fix |
+|---------|----------------|-----|
+| `funnel` not allowed / disabled | Funnel off in tailnet ACL | Enable Funnel in [Tailscale admin → Access controls](https://login.tailscale.com/admin/acls); see [Funnel KB](https://tailscale.com/kb/1242/tailscale-funnel/) |
+| GitHub **connection failed** | Funnel not running or wrong port | `tailscale funnel status`; run `tailscale funnel --bg 80`; confirm compose is up |
+| **502** or proxy errors | Caddy/receiver not listening | `curl -s http://localhost/health`; restart compose |
+| **401** on delivery | Secret mismatch | `OS_WEBHOOK_SECRET` must match GitHub App webhook secret exactly |
+| URL unreachable after reboot | Funnel not restarted | Re-run `tailscale funnel --bg 80` (or automate on login) |
+| Wrong hostname | Multiple machines | Use `tailscale funnel status` on the machine running compose; URL is per-node |
+
+---
+
+## Webhook simulator UI (local dev)
 
 When `WEBHOOK_ENABLE_SIMULATOR=1` (default in compose), open **`http://localhost/simulator`** in a browser (via Caddy on port **80**, or `http://localhost:8080/simulator` when running `uv run orchestrator-webhook` with the flag set).
 
@@ -579,7 +729,7 @@ Use **repository rules** or **label filters** in your orchestrator instructions 
 | **202** but no agent activity | OpenCode down or prompt failed | `docker compose logs orchestratorservice`; inspect `last-run.stderr` |
 | Event ignored (`ignored` in body) | Not in `WEBHOOK_ALLOWED_EVENTS` | Unset variable or add the event name |
 | Ping OK, events missing | App not installed on repo | **Install App** on that repository |
-| SSL errors | Self-signed cert | Use a tunnel with valid TLS (ngrok, Cloudflare, reverse proxy with Let’s Encrypt) |
+| SSL errors | Self-signed cert | Use a tunnel with valid TLS (ngrok, Tailscale Funnel, Cloudflare, reverse proxy with Let’s Encrypt) |
 
 ---
 
@@ -594,6 +744,7 @@ Use **repository rules** or **label filters** in your orchestrator instructions 
 | CLI (local) | `uv run orchestrator-webhook` |
 | Application details | [Webhook receiver application](#webhook-receiver-application) above |
 | Local dev (ngrok) | [Local development with ngrok + Docker Compose](#local-development-with-ngrok--docker-compose) |
+| Local dev (Tailscale) | [Local development with Tailscale Funnel + Docker Compose](#local-development-with-tailscale-funnel--docker-compose) |
 | Local dev (simulator) | [Webhook simulator UI](#webhook-simulator-ui-local-dev) at `/simulator` |
 
 See also the root [README.md](../README.md) for compose and client script usage.
