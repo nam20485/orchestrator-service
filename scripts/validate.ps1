@@ -117,6 +117,7 @@ try {
         }
 
         Invoke-BashStep -Name 'docker-entrypoint' -ScriptPath './test/test-docker-entrypoint.sh'
+        Invoke-BashStep -Name 'secret scan (regression)' -ScriptPath './test/test-scan-secrets.sh'
         Invoke-BashStep -Name 'compose config (test)' -ScriptPath './test/test-compose-config.sh'
         if (Get-Command docker -ErrorAction SilentlyContinue) {
             Invoke-BashStep -Name 'caddyfile (test)' -ScriptPath './test/test-caddyfile.sh'

@@ -36,7 +36,15 @@ Also verify secrets stay ignored:
 git add --dry-run -A
 ```
 
-Abort if dry-run would add credential files.
+Abort if dry-run would add **credential files**. Blocked paths (scanner fails these automatically):
+
+| Pattern | Examples |
+|---------|----------|
+| Env files | `.env`, `.env.local`, `.envrc` |
+| Auth / creds | `auth.json`, `secrets.toml`, `credentials.json`, `.pypirc` |
+| Keys / certs | `*.pem`, `*.p12`, `id_rsa`, `id_ed25519` |
+
+See [scan-uncommitted-secrets blocked filenames](../scan-uncommitted-secrets/SKILL.md#blocked-credential-filenames) for the full list.
 
 ## Phase 2 — Validation (mandatory)
 
