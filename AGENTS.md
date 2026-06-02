@@ -9,11 +9,11 @@
 - Client scripts should rely on host `OPENCODE_SERVER_PASSWORD` (opencode CLI default); never hardcode server passwords in committed scripts.
 - Before commit, scan changed files for secrets (API keys, hardcoded passwords); never commit API keys or provider credentials.
 - Use `.cursor/skills/scan-uncommitted-secrets` for pre-commit secret checks; use `.cursor/skills/safe-commit` for grouped commits after a clean scan.
+- Prefers ngrok for local GitHub webhook development; with Docker Compose tunnel public HTTPS to host port **80** (Caddy), not receiver port 8080.
 
 ## Learned Workspace Facts
 
-- Docker image uses `debian:trixie-20260518-slim`, runs `opencode serve` on `0.0.0.0:4099`, and bundles Node.js 24.14.0, pwsh 7.6.2 LTS, uv, gh CLI, Python3, ripgrep, jq, and agent utilities (git, make, openssh-client, gnupg, patch, xz-utils, file, procps); Node and pwsh use linux-x64 tarballs (image is amd64-only for now).
-- Install Node and PowerShell via official `.tar.gz` tarballs; PowerShell uses GitHub tarball because Microsoft apt repo fails on trixie (SHA1 key policy).
+- Docker image uses `debian:trixie-20260518-slim`, runs `opencode serve` on `0.0.0.0:4099`, and bundles Node.js 24.14.0, pwsh 7.6.2 LTS, uv, gh CLI, Python3, ripgrep, jq, and agent utilities (git, make, openssh-client, gnupg, patch, xz-utils, file, procps); Node and pwsh install from linux-x64 `.tar.gz` tarballs (image is amd64-only; PowerShell uses GitHub tarball because Microsoft apt repo fails on trixie SHA1 policy).
 - Authoritative OpenCode server planning spec for this repo: `plan_docs/plan.md`.
 - OpenCode server config source of truth is repo `image/` (`opencode.json`, `AGENTS.md`, `.opencode/agents/`, `.opencode/commands/`); Dockerfile copies those into `/app` (no full-repo `COPY . .`); `.dockerignore` excludes non-image files.
 - Agent sessions run in `/workspace` (compose volume `opencode-workspace`); `/app` is server config only—keep working tree separate from OpenCode install/config.
@@ -23,7 +23,8 @@
 - MCP `memory-graph` in `image/opencode.json` uses `@modelcontextprotocol/server-memory` with `MEMORY_FILE_PATH=/app/.memory/memory.jsonl`; compose volume `opencode-memory` persists it.
 - OpenCode config: use `default_agent` (not `agent`); remote MCPs like `microsoft-learn` need `type: "remote"` and `enabled: true`.
 - Compose `environment: - VAR` passes host shell env into the container; `${VAR}` adds `.env` interpolation—this project does not use `.env`.
-- Host client scripts: `scripts/prompt.ps1`, `scripts/attach.ps1` (PowerShell thin wrappers to local `opencode`); one-shot via `opencode run --attach <url>`, interactive via `opencode attach <url>`.
+- Host client scripts: `scripts/prompt.ps1`, `scripts/attach.ps1` (PowerShell thin wrappers to local `opencode`; pwsh is a host prerequisite); one-shot via `opencode run --attach <url>`, interactive via `opencode attach <url>`.
+- GitHub webhook stack: `webhook_receiver/` FastAPI app validates GitHub App webhooks and dispatches OpenCode via `scripts/prompt.ps1` (`-PromptFile` for large payloads); `webhook-receiver` (internal :8080) behind `webhook-proxy` (Caddy on host :80/:443); webhook URL path `/webhooks/github`.
 
 ## Testing
 
