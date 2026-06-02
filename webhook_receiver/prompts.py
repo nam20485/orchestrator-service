@@ -7,7 +7,8 @@ from typing import Any
 
 from jinja2 import Template
 
-_PROMPT_TEMPLATE_PATH = Path(__file__).resolve().parent / "orchestration_prompt.md"
+_PROMPT_TEMPLATE_FILENAME = "orchestration_prompt.jinja2.md"
+_PROMPT_TEMPLATE_PATH = Path(__file__).resolve().parent / _PROMPT_TEMPLATE_FILENAME
 
 
 @lru_cache(maxsize=1)
