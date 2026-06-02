@@ -9,22 +9,23 @@
 - Client scripts should rely on host `OPENCODE_SERVER_PASSWORD` (opencode CLI default); never hardcode server passwords in committed scripts.
 - Before commit, scan changed files for secrets (API keys, hardcoded passwords); never commit API keys or provider credentials.
 - Use `.cursor/skills/scan-uncommitted-secrets` for pre-commit secret checks; use `.cursor/skills/safe-commit` for grouped commits after a clean scan.
+- For webhook simulator secrets, avoid new config endpoints; read `OS_WEBHOOK_SECRET` from the server process environment and inject it when serving simulator HTML.
 - For local GitHub webhook development, tunnel public HTTPS to host port **80** (Caddy), not receiver **8080**; use **ngrok** or **Tailscale Funnel** (`tailscale funnel 80`; stable `*.ts.net` URL, less churn than free ngrok).
 
 ## Learned Workspace Facts
 
 - Docker image uses `debian:trixie-20260518-slim`, runs `opencode serve` on `0.0.0.0:4099`, and bundles Node.js 24.14.0, pwsh 7.6.2 LTS, uv, gh CLI, Python3, ripgrep, jq, and agent utilities (git, make, openssh-client, gnupg, patch, xz-utils, file, procps); Node and pwsh install from linux-x64 `.tar.gz` tarballs (image is amd64-only; PowerShell uses GitHub tarball because Microsoft apt repo fails on trixie SHA1 policy).
-- Authoritative OpenCode server planning spec for this repo: `plan_docs/plan.md`.
+- Authoritative OpenCode server POR: `plan_docs/plan.md`; dual orchestrator/maestro supervisor spec: `plan_docs/orchestration_supervisor.md`.
 - OpenCode server config source of truth is repo `image/` (`opencode.json`, `AGENTS.md`, `.opencode/agents/`, `.opencode/commands/`); Dockerfile copies those into `/app` (no full-repo `COPY . .`); `.dockerignore` excludes non-image files.
 - Agent sessions run in `/workspace` (compose volume `opencode-workspace`); `/app` is server config only—keep working tree separate from OpenCode install/config.
 - Root repo `AGENTS.md` is Cursor memory plus host-repo validation docs; the container uses `image/AGENTS.md` copied to `/app/AGENTS.md` (overwrites any root copy).
-- Provider auth: `scripts/docker-entrypoint.sh` writes `/root/.local/share/opencode/auth.json` from host/CI env vars before `opencode serve` starts; supported vars: `ZAI_CODING_API_KEY` (or `ZAI_API_KEY`), `OPENROUTER_API_KEY` (at least one required).
+- Provider auth: `scripts/docker-entrypoint.sh` writes `/root/.local/share/opencode/auth.json` from host/CI env vars before `opencode serve` starts; supported vars include `ZAI_CODING_API_KEY` (or `ZAI_API_KEY`), `OPENROUTER_API_KEY`, and `MODEL_STUDIO_API_KEY`; Alibaba Model Studio Singapore (`bailian-payg`) defaults to `bailian-payg/qwen3.6-plus` with `bailian-payg/qwen3.6-flash` as `small_model`.
 - `zai-coding-plan/glm-4.7` needs `ZAI_CODING_API_KEY`; `OPENROUTER_API_KEY` alone does not authenticate that provider.
 - MCP `memory-graph` in `image/opencode.json` uses `@modelcontextprotocol/server-memory` with `MEMORY_FILE_PATH=/app/.memory/memory.jsonl`; compose volume `opencode-memory` persists it.
 - OpenCode config: use `default_agent` (not `agent`); remote MCPs like `microsoft-learn` need `type: "remote"` and `enabled: true`.
 - Compose `environment: - VAR` passes host shell env into the container; `${VAR}` adds `.env` interpolation—this project does not use `.env`.
 - Host client scripts: `scripts/prompt.ps1`, `scripts/attach.ps1` (PowerShell thin wrappers to local `opencode`; pwsh is a host prerequisite); one-shot via `opencode run --attach <url>`, interactive via `opencode attach <url>`.
-- GitHub webhook stack: `webhook_receiver/` FastAPI validates App webhooks with `OS_WEBHOOK_SECRET` and dispatches OpenCode via `scripts/prompt.ps1` (`-PromptFile` for large payloads); `webhook-receiver` (internal :8080) behind `webhook-proxy` (Caddy on host :80/:443); path `/webhooks/github`; dev simulator UI at `/simulator` when `WEBHOOK_ENABLE_SIMULATOR=1` (compose defaults off).
+- GitHub webhook stack: `webhook_receiver/` FastAPI validates App webhooks with `OS_WEBHOOK_SECRET` and dispatches OpenCode via `scripts/prompt.ps1` (`-PromptFile` for large payloads); `webhook-receiver` (internal :8080) behind `webhook-proxy` (Caddy on host :80/:443); path `/webhooks/github`; dev simulator UI at `/simulator` when `WEBHOOK_ENABLE_SIMULATOR=1` (compose defaults off), with `OS_WEBHOOK_SECRET` injected server-side into non-cached HTML.
 
 ## Testing
 

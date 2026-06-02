@@ -6,7 +6,7 @@ AUTH_DEST="${HOME_DIR}/.local/share/opencode/auth.json"
 
 mkdir -p "$(dirname "$AUTH_DEST")"
 
-if [ -n "${ZAI_CODING_API_KEY:-}${ZAI_API_KEY:-}${OPENROUTER_API_KEY:-}" ]; then
+if [ -n "${ZAI_CODING_API_KEY:-}${ZAI_API_KEY:-}${OPENROUTER_API_KEY:-}${MODEL_STUDIO_API_KEY:-}" ]; then
   python3 - <<'PY'
 import json
 import os
@@ -26,14 +26,22 @@ openrouter_key = os.environ.get("OPENROUTER_API_KEY")
 if openrouter_key:
     auth["openrouter"] = {"type": "api", "key": openrouter_key}
 
+model_studio_key = os.environ.get("MODEL_STUDIO_API_KEY")
+if model_studio_key:
+    auth["bailian-payg"] = {"type": "api", "key": model_studio_key}
+
 if not auth:
     raise SystemExit("No provider API keys found in environment.")
 
 auth_path.write_text(json.dumps(auth, indent=2) + "\n")
 PY
 else
-  echo "ERROR: No OpenCode provider credentials found. Set one or more of: ZAI_CODING_API_KEY, ZAI_API_KEY, OPENROUTER_API_KEY." >&2
+  echo "ERROR: No OpenCode provider credentials found. Set one or more of: ZAI_CODING_API_KEY, ZAI_API_KEY, OPENROUTER_API_KEY, MODEL_STUDIO_API_KEY." >&2
   exit 1
 fi
+
+# opencode serve reads ~/.config/opencode by default; image config lives under /app.
+export OPENCODE_CONFIG=/app/opencode.json
+export OPENCODE_CONFIG_DIR=/app/.opencode
 
 exec "$@"

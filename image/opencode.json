@@ -4,6 +4,33 @@
     "AGENTS.md"
   ],
   "provider": {
+    "bailian-payg": {
+      "npm": "@ai-sdk/anthropic",
+      "name": "Qwen Cloud",
+      "options": {
+        "baseURL": "https://dashscope-intl.aliyuncs.com/apps/anthropic/v1"
+      },
+      "models": {
+        "qwen3.6-plus": {
+          "name": "Qwen3.6 Plus",
+          "options": {
+            "thinking": {
+              "type": "enabled",
+              "budgetTokens": 8192
+            }
+          }
+        },
+        "qwen3.6-flash": {
+          "name": "Qwen3.6 Flash",
+          "options": {
+            "thinking": {
+              "type": "enabled",
+              "budgetTokens": 8192
+            }
+          }
+        }
+      }
+    },
     "zai-coding-plan": {
       "models": {
         "glm-5": {
@@ -45,8 +72,8 @@
     }
   },
   "default_agent": "orchestrator",
-  "model": "zai-coding-plan/GLM-4.7",
-  "small_model": "zai-coding-plan/GLM-4.7-FlashX",
+  "model": "bailian-payg/qwen3.6-plus",
+  "small_model": "bailian-payg/qwen3.6-flash",
   "permission": {
     "external_directory": {
       "/tmp/*": "allow"

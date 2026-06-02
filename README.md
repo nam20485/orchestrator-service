@@ -6,7 +6,7 @@ Dockerized OpenCode server (`opencode serve` on port **4099**) plus client scrip
 
 ```bash
 export OPENCODE_SERVER_PASSWORD='…'
-export ZAI_CODING_API_KEY='…'   # and/or OPENROUTER_API_KEY
+export ZAI_CODING_API_KEY='…'   # and/or OPENROUTER_API_KEY, MODEL_STUDIO_API_KEY
 export OS_WEBHOOK_SECRET='…'   # GitHub App webhook secret
 docker compose up --build
 ```
@@ -69,7 +69,7 @@ Content type: `application/json`. Subscribe to the events you need; restrict wit
 | `OPENCODE_SERVER_URL` | `http://localhost:4099` | OpenCode server for `prompt.ps1` |
 | `ORCHESTRATOR_WORKSPACE` | `/workspace` | `--dir` passed to `opencode run` |
 | `PROMPT_SCRIPT` | `scripts/prompt.ps1` | PowerShell prompt launcher (requires `pwsh`) |
-| `OPENCODE_MODEL` | `zai-coding-plan/glm-4.7-flash` | Model |
+| `OPENCODE_MODEL` | `bailian-payg/qwen3.6-plus` | Model |
 | `OPENCODE_AGENT` | `orchestrator` | Agent |
 | `WEBHOOK_ALLOWED_EVENTS` | *(all)* | Optional comma-separated event filter |
 | `WEBHOOK_MAX_PAYLOAD_CHARS` | `120000` | Max JSON chars embedded in prompt |

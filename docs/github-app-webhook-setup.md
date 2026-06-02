@@ -154,7 +154,7 @@ All settings are **environment variables**. In Docker Compose, set them on the h
 | `OPENCODE_SERVER_PASSWORD` | *(from host)* | Passed into prompt container env for CLI auth |
 | `ORCHESTRATOR_WORKSPACE` | `/workspace` | `--dir` for agent file access |
 | `PROMPT_SCRIPT` | `/app/scripts/prompt.ps1` | PowerShell launcher path in image |
-| `OPENCODE_MODEL` | `zai-coding-plan/glm-4.7-flash` | Model flag |
+| `OPENCODE_MODEL` | `bailian-payg/qwen3.6-plus` | Model flag |
 | `OPENCODE_AGENT` | `orchestrator` | Agent name |
 
 #### GitHub CLI (recommended)
@@ -261,7 +261,7 @@ Requires local `pwsh`, `opencode`, and a running OpenCode server on the URL you 
 - Orchestrator stack running: `docker compose up --build` (see root `README.md`).
 - Environment variables set before compose starts:
   - `OPENCODE_SERVER_PASSWORD`
-  - At least one provider key (`ZAI_CODING_API_KEY` and/or `OPENROUTER_API_KEY`)
+  - At least one provider key (`ZAI_CODING_API_KEY`, `OPENROUTER_API_KEY`, and/or `MODEL_STUDIO_API_KEY`)
   - `OS_WEBHOOK_SECRET` — you will choose this when creating the app (or generate one and paste the same value into the app and your shell).
   - `GH_ORCHESTRATION_AGENT_TOKEN` (recommended) — PAT or app installation token so the orchestrator can use `gh` against your repos.
 - A **public HTTPS URL** that reaches **`webhook-proxy`** (ports **80** / **443**). GitHub requires HTTPS for production webhooks.
@@ -319,7 +319,7 @@ Export required variables on the host (same values you will use in the GitHub Ap
 
 ```bash
 export OPENCODE_SERVER_PASSWORD='…'
-export ZAI_CODING_API_KEY='…'                    # and/or OPENROUTER_API_KEY
+export ZAI_CODING_API_KEY='…'                    # and/or OPENROUTER_API_KEY, MODEL_STUDIO_API_KEY
 export OS_WEBHOOK_SECRET='…'                 # generate now; reuse in GitHub App settings
 export GH_ORCHESTRATION_AGENT_TOKEN='…'          # optional but recommended
 
@@ -435,7 +435,7 @@ Export required variables on the host (same values you will use in the GitHub Ap
 
 ```bash
 export OPENCODE_SERVER_PASSWORD='…'
-export ZAI_CODING_API_KEY='…'                    # and/or OPENROUTER_API_KEY
+export ZAI_CODING_API_KEY='…'                    # and/or OPENROUTER_API_KEY, MODEL_STUDIO_API_KEY
 export OS_WEBHOOK_SECRET='…'
 export GH_ORCHESTRATION_AGENT_TOKEN='…'          # optional but recommended
 
