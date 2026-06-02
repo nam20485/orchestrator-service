@@ -9,7 +9,7 @@
 - Client scripts should rely on host `OPENCODE_SERVER_PASSWORD` (opencode CLI default); never hardcode server passwords in committed scripts.
 - Before commit, scan changed files for secrets (API keys, hardcoded passwords); never commit API keys or provider credentials.
 - Use `.cursor/skills/scan-uncommitted-secrets` for pre-commit secret checks; use `.cursor/skills/safe-commit` for grouped commits after a clean scan.
-- Prefers ngrok for local GitHub webhook development; with Docker Compose tunnel public HTTPS to host port **80** (Caddy), not receiver port 8080.
+- For local GitHub webhook development, tunnel public HTTPS to host port **80** (Caddy), not receiver **8080**; use **ngrok** or **Tailscale Funnel** (`tailscale funnel 80`; stable `*.ts.net` URL, less churn than free ngrok).
 
 ## Learned Workspace Facts
 
@@ -24,7 +24,7 @@
 - OpenCode config: use `default_agent` (not `agent`); remote MCPs like `microsoft-learn` need `type: "remote"` and `enabled: true`.
 - Compose `environment: - VAR` passes host shell env into the container; `${VAR}` adds `.env` interpolation—this project does not use `.env`.
 - Host client scripts: `scripts/prompt.ps1`, `scripts/attach.ps1` (PowerShell thin wrappers to local `opencode`; pwsh is a host prerequisite); one-shot via `opencode run --attach <url>`, interactive via `opencode attach <url>`.
-- GitHub webhook stack: `webhook_receiver/` FastAPI app validates GitHub App webhooks and dispatches OpenCode via `scripts/prompt.ps1` (`-PromptFile` for large payloads); `webhook-receiver` (internal :8080) behind `webhook-proxy` (Caddy on host :80/:443); webhook URL path `/webhooks/github`.
+- GitHub webhook stack: `webhook_receiver/` FastAPI validates App webhooks with `OS_WEBHOOK_SECRET` and dispatches OpenCode via `scripts/prompt.ps1` (`-PromptFile` for large payloads); `webhook-receiver` (internal :8080) behind `webhook-proxy` (Caddy on host :80/:443); path `/webhooks/github`; dev simulator UI at `/simulator` when `WEBHOOK_ENABLE_SIMULATOR=1` (compose defaults off).
 
 ## Testing
 
