@@ -35,7 +35,7 @@ def _test_settings() -> Settings:
 @pytest.fixture
 def client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
     dispatch = MagicMock()
-    monkeypatch.setattr("webhook_receiver.handlers.orchestration.dispatch_to_opencode", dispatch)
+    monkeypatch.setattr("webhook_receiver.app.dispatch_to_opencode", dispatch)
     return TestClient(create_app(_test_settings()))
 
 
@@ -97,7 +97,7 @@ def test_rejects_oversized_body(monkeypatch: pytest.MonkeyPatch) -> None:
         enable_simulator=base.enable_simulator,
     )
     dispatch = MagicMock()
-    monkeypatch.setattr("webhook_receiver.handlers.orchestration.dispatch_to_opencode", dispatch)
+    monkeypatch.setattr("webhook_receiver.app.dispatch_to_opencode", dispatch)
     client = TestClient(create_app(cfg))
     body = b"x" * 9
     response = client.post(
@@ -117,7 +117,7 @@ def test_accepts_issue_event(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     dispatch = MagicMock()
-    monkeypatch.setattr("webhook_receiver.handlers.orchestration.dispatch_to_opencode", dispatch)
+    monkeypatch.setattr("webhook_receiver.app.dispatch_to_opencode", dispatch)
     payload = {
         "action": "opened",
         "repository": {"full_name": "org/repo"},
@@ -157,7 +157,7 @@ def test_ignores_disallowed_event(monkeypatch: pytest.MonkeyPatch) -> None:
         enable_simulator=base.enable_simulator,
     )
     dispatch = MagicMock()
-    monkeypatch.setattr("webhook_receiver.handlers.orchestration.dispatch_to_opencode", dispatch)
+    monkeypatch.setattr("webhook_receiver.app.dispatch_to_opencode", dispatch)
     client = TestClient(create_app(cfg))
     body = b'{"action":"opened"}'
     response = client.post(
