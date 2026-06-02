@@ -120,6 +120,89 @@ sequenceDiagram
 
 This is useful as a local integration milestone, not as the recommended long-term architecture.
 
+## Option 1A: Maestro-First Envelope Delegation
+
+This variant still uses two same-job or same-Compose OpenCode services, but reverses the intake path.
+Instead of sending the original GitHub-derived prompt directly to the regular orchestrator, the
+webhook receiver sends it to the maestro first. The maestro wraps the original prompt in a supervision
+envelope and delegates that envelope to the regular orchestrator service.
+
+The envelope is conceptually:
+
+```text
+Execute this prompt:
+
+<original prompt P>
+
+When complete, report success or failure, relevant run details, and bounded logs back to
+<maestro address> using the prompt wrapper.
+```
+
+The regular orchestrator then executes the original prompt as it would today. At the end, it uses the
+maestro address embedded in the envelope to prompt the maestro service with a result report.
+
+```mermaid
+sequenceDiagram
+  participant Receiver
+  participant Maestro as MaestroService
+  participant Orch as OrchestratorService
+
+  Receiver->>Maestro: original prompt P
+  Maestro->>Orch: envelope plus prompt P plus return address
+  Orch->>Orch: execute prompt P normally
+  Orch->>Maestro: result report prompt
+  Maestro->>Maestro: decide done, retry, skip, or stop
+```
+
+### Pros
+
+- Makes the maestro the first-class entry point for orchestration without needing the receiver to know
+  detailed recovery policy.
+- Preserves the existing regular orchestrator behavior for the actual work. The second service still
+  receives a prompt and runs it through the normal `orchestrator` agent path.
+- Keeps the supervision instructions close to the delegated prompt, which is easy to reason about in
+  a same-Compose prototype.
+- Avoids requiring the regular orchestrator to know the maestro URL from global configuration; the
+  return address is carried in the envelope for that specific run.
+- Uses OpenCode prompting for both directions, so a first prototype may avoid building a full
+  status/directive HTTP API immediately.
+
+### Cons
+
+- It relies heavily on prompt compliance. If the regular orchestrator crashes, times out, or ignores
+  the final reporting instruction, the maestro may never receive a status report.
+- The result report is delivered as another prompt, not a validated machine-level status POST. That
+  makes schema enforcement, idempotency, and automated retries weaker unless a wrapper still captures
+  ground-truth exit status.
+- The original prompt becomes nested inside a larger prompt. That can dilute instruction priority,
+  make prompt injection boundaries less clear, and increase token usage.
+- The maestro can become a bottleneck for all inbound work because every run starts with a maestro
+  prompt before the regular orchestrator even begins.
+- It still depends on service-to-service reachability in both directions, even if both directions are
+  implemented through `prompt.ps1`.
+- If the maestro prompt launches the orchestrator prompt asynchronously, it needs a reliable run
+  registry anyway; if it launches synchronously, the maestro session can block for the full duration
+  of the delegated run.
+
+### Implementation Impact
+
+- Point the webhook receiver at the maestro service instead of the regular orchestrator service, or
+  add routing that selects the maestro for supervised runs.
+- Add a maestro prompt/agent that accepts original prompt `P`, creates the delegation envelope, and
+  invokes `scripts/prompt.ps1 -ServerUrl <orchestrator-url>` with that envelope.
+- Include a per-run return address such as `MAESTRO_SERVER_URL`, plus a `run_id`, `delivery_id`,
+  `repo`, `hop`, and `max_hops` in the envelope.
+- Add a result-report prompt template for the regular orchestrator to send back to the maestro.
+- Prefer wrapper-level capture of exit code and logs even in this design, so the return prompt cannot
+  replace ground-truth process status with the model's narrative.
+
+### Best Use
+
+This is a strong same-Compose prototype when the desired experiment is "make the maestro the first
+thing that sees every prompt." It is less robust than a status API or polling design, but it can prove
+whether maestro-authored delegation envelopes produce better supervised runs before investing in a
+durable directive service.
+
 ## Option 2: Always-On Maestro With Direct Callback
 
 Run the maestro as a long-lived service outside individual orchestrator runs. Each orchestrator
@@ -321,10 +404,11 @@ This should be the first implementation phase regardless of the final maestro to
 Use **Option 3: Always-On Maestro With Orchestrator Polling** as the target architecture, preceded by
 **Option 5: Structured Status Reporting Only** as the first implementation phase.
 
-The direct callback model is conceptually clean, but it makes network reachability the central risk.
-That risk grows as soon as orchestrators move across containers, LANs, Tailscale hosts, or GitHub
-Actions runners. Polling keeps every orchestrator interaction outbound to the maestro, which is far
-more compatible with ephemeral infrastructure and multi-repo supervision.
+The direct callback and maestro-first envelope models are conceptually clean, but they make service
+reachability and prompt compliance central risks. Those risks grow as soon as orchestrators move
+across containers, LANs, Tailscale hosts, or GitHub Actions runners. Polling keeps every orchestrator
+interaction outbound to the maestro, which is far more compatible with ephemeral infrastructure and
+multi-repo supervision.
 
 The recommended architecture is:
 
@@ -361,6 +445,8 @@ directive persistence, hop counting, idempotency, and redaction.
   port while keeping the current orchestrator service stable.
 - Polling supports future GitHub Actions, LAN, and Tailscale deployments without requiring inbound
   connectivity to each orchestrator.
+- The maestro-first envelope option remains useful as a prototype path, but the long-term control
+  plane should not depend on a model remembering to report its own final status.
 
 ## Proposed Phased Rollout
 
@@ -445,6 +531,7 @@ more appropriate for run state and directive queues.
 ## Non-Recommendations
 
 - Do not start with public inbound callbacks to orchestrator containers.
+- Do not rely only on prompt-instruction reporting for authoritative success/failure status.
 - Do not share one memory file between active orchestrator and maestro services without proving the
   MCP memory server handles concurrent writers safely.
 - Do not let the maestro retry indefinitely. Every path needs hop and step caps.

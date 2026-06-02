@@ -10,13 +10,14 @@
 - Before commit, scan changed files for secrets (API keys, hardcoded passwords); never commit API keys or provider credentials.
 - Use `.cursor/skills/scan-uncommitted-secrets` for pre-commit secret checks; use `.cursor/skills/safe-commit` for grouped commits after a clean scan.
 - For webhook simulator secrets, avoid new config endpoints; read `OS_WEBHOOK_SECRET` from the server process environment and inject it when serving simulator HTML.
+- When describing fixes, distinguish uncommitted local edits from committed repo state and from what a rebuilt/running container image actually contains.
 - For local GitHub webhook development, tunnel public HTTPS to host port **80** (Caddy), not receiver **8080**; use **ngrok** or **Tailscale Funnel** (`tailscale funnel 80`; stable `*.ts.net` URL, less churn than free ngrok).
 
 ## Learned Workspace Facts
 
 - Docker image uses `debian:trixie-20260518-slim`, runs `opencode serve` on `0.0.0.0:4099`, and bundles Node.js 24.14.0, pwsh 7.6.2 LTS, uv, gh CLI, Python3, ripgrep, jq, and agent utilities (git, make, openssh-client, gnupg, patch, xz-utils, file, procps); Node and pwsh install from linux-x64 `.tar.gz` tarballs (image is amd64-only; PowerShell uses GitHub tarball because Microsoft apt repo fails on trixie SHA1 policy).
-- Authoritative OpenCode server POR: `plan_docs/plan.md`; dual orchestrator/maestro supervisor spec: `plan_docs/orchestration_supervisor.md`.
-- OpenCode server config source of truth is repo `image/` (`opencode.json`, `AGENTS.md`, `.opencode/agents/`, `.opencode/commands/`); Dockerfile copies those into `/app` (no full-repo `COPY . .`); `.dockerignore` excludes non-image files.
+- Authoritative OpenCode server POR: `plan_docs/plan.md`; dual orchestrator/maestro supervisor spec: `plan_docs/orchestration_supervisor.md`; maestro architecture options and recommendation: `plan_docs/maestro_architecture_options.md`.
+- OpenCode server config source of truth is repo `image/` (`opencode.json`, `AGENTS.md`, `.opencode/agents/`, `.opencode/commands/`); Dockerfile copies those into `/app` (no full-repo `COPY . .`); `scripts/docker-entrypoint.sh` exports `OPENCODE_CONFIG=/app/opencode.json` and `OPENCODE_CONFIG_DIR=/app/.opencode` so `opencode serve` loads image config instead of defaulting to `~/.config/opencode`.
 - Agent sessions run in `/workspace` (compose volume `opencode-workspace`); `/app` is server config only—keep working tree separate from OpenCode install/config.
 - Root repo `AGENTS.md` is Cursor memory plus host-repo validation docs; the container uses `image/AGENTS.md` copied to `/app/AGENTS.md` (overwrites any root copy).
 - Provider auth: `scripts/docker-entrypoint.sh` writes `/root/.local/share/opencode/auth.json` from host/CI env vars before `opencode serve` starts; supported vars include `ZAI_CODING_API_KEY` (or `ZAI_API_KEY`), `OPENROUTER_API_KEY`, and `MODEL_STUDIO_API_KEY`; Alibaba Model Studio Singapore (`bailian-payg`) defaults to `bailian-payg/qwen3.6-plus` with `bailian-payg/qwen3.6-flash` as `small_model`.
