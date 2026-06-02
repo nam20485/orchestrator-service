@@ -109,7 +109,11 @@ try {
 
     if ($All -or $Test) {
         Invoke-ValidateStep -Name 'pytest' -Action {
-            uv run pytest tests/ -q
+            uv run pytest tests/ -q `
+                --cov=webhook_receiver `
+                --cov-report=term-missing `
+                --cov-report=html:htmlcov `
+                --cov-report=xml:coverage.xml
         }
 
         Invoke-ValidateStep -Name 'pester' -Action {

@@ -60,6 +60,19 @@ jobs:
       - name: Test
         run: pwsh -NoProfile -File ./scripts/validate.ps1 -Test
 
+      - name: Coverage summary
+        if: always()
+        run: uv run coverage report --format=markdown >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload coverage HTML report
+        if: always()
+        uses: actions/upload-artifact@65a9144888c436573578578715527c0870b2665e # v4.6.0
+        with:
+          name: coverage-html
+          path: htmlcov/
+          if-no-files-found: ignore
+          retention-days: 14
+
   build:
     name: build
     runs-on: ubuntu-24.04
