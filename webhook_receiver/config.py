@@ -29,10 +29,10 @@ class Settings:
 
     @classmethod
     def from_env(cls) -> Settings:
-        secret = os.environ.get("GITHUB_WEBHOOK_SECRET", "").strip()
+        secret = os.environ.get("OS_WEBHOOK_SECRET", "").strip()
         if not secret:
             raise ValueError(
-                "GITHUB_WEBHOOK_SECRET is required (GitHub App webhook secret)."
+                "OS_WEBHOOK_SECRET is required (GitHub App webhook secret)."
             )
 
         allowed_raw = os.environ.get("WEBHOOK_ALLOWED_EVENTS", "").strip()

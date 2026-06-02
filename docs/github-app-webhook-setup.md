@@ -88,7 +88,7 @@ The receiver implements the **webhook delivery** side of a GitHub App. It does *
 | GitHub App setting | Maps to |
 |--------------------|---------|
 | **Webhook URL** | `https://<host>/webhooks/github` |
-| **Webhook secret** | `GITHUB_WEBHOOK_SECRET` (must match exactly) |
+| **Webhook secret** | `OS_WEBHOOK_SECRET` (must match exactly) |
 | **Subscribe to events** | Which `X-GitHub-Event` values GitHub sends |
 | **Install App** on repos | Without install, no deliveries for that repo |
 
@@ -117,7 +117,7 @@ The receiver implements the **webhook delivery** side of a GitHub App. It does *
 ### Request processing pipeline
 
 1. Read raw body bytes (required for correct signature verification).
-2. `verify_signature(body, X-Hub-Signature-256, GITHUB_WEBHOOK_SECRET)` using constant-time compare.
+2. `verify_signature(body, X-Hub-Signature-256, OS_WEBHOOK_SECRET)` using constant-time compare.
 3. If `event == ping` → return 200.
 4. If `WEBHOOK_ALLOWED_EVENTS` is set and event not in set → return 202 `ignored` (no orchestration).
 5. `json.loads(body)` → `build_orchestrator_prompt(delivery_id, event, payload)`.
@@ -144,7 +144,7 @@ All settings are **environment variables**. In Docker Compose, set them on the h
 
 | Variable | Description |
 |----------|-------------|
-| `GITHUB_WEBHOOK_SECRET` | Same secret as GitHub App → Webhook secret |
+| `OS_WEBHOOK_SECRET` | Same secret as GitHub App → Webhook secret |
 
 #### OpenCode / orchestration
 
@@ -218,7 +218,7 @@ See **[Local development with ngrok + Docker Compose](#local-development-with-ng
 
 ```bash
 uv sync
-export GITHUB_WEBHOOK_SECRET='…'
+export OS_WEBHOOK_SECRET='…'
 export OPENCODE_SERVER_URL=http://localhost:4099
 uv run orchestrator-webhook
 ```
@@ -228,7 +228,7 @@ Requires local `pwsh`, `opencode`, and a running OpenCode server on the URL you 
 ### Security considerations
 
 - **TLS termination** must happen in front of the receiver (reverse proxy, tunnel, or load balancer). GitHub requires a valid HTTPS webhook URL for production apps.
-- **Secret handling:** Never commit `GITHUB_WEBHOOK_SECRET`. Rotate by updating both GitHub App settings and compose env, then restart `webhook-receiver`.
+- **Secret handling:** Never commit `OS_WEBHOOK_SECRET`. Rotate by updating both GitHub App settings and compose env, then restart `webhook-receiver`.
 - **Signature required:** Unsigned or wrong-signature requests are rejected; there is no anonymous orchestration trigger.
 - **No built-in IP allowlist:** Rely on secret verification; optionally restrict ingress at the network layer to GitHub’s [hook IP ranges](https://api.github.com/meta) if you operate a firewall.
 - **Fire-and-forget subprocess:** Failed `opencode` runs do not fail the HTTP response GitHub already received; monitor `last-run.stderr` and OpenCode server logs.
@@ -257,7 +257,7 @@ Requires local `pwsh`, `opencode`, and a running OpenCode server on the URL you 
 - Environment variables set before compose starts:
   - `OPENCODE_SERVER_PASSWORD`
   - At least one provider key (`ZAI_CODING_API_KEY` and/or `OPENROUTER_API_KEY`)
-  - `GITHUB_WEBHOOK_SECRET` — you will choose this when creating the app (or generate one and paste the same value into the app and your shell).
+  - `OS_WEBHOOK_SECRET` — you will choose this when creating the app (or generate one and paste the same value into the app and your shell).
   - `GH_ORCHESTRATION_AGENT_TOKEN` (recommended) — PAT or app installation token so the orchestrator can use `gh` against your repos.
 - A **public HTTPS URL** that reaches **`webhook-proxy`** (ports **80** / **443**). GitHub requires HTTPS for production webhooks.
 
@@ -315,7 +315,7 @@ Export required variables on the host (same values you will use in the GitHub Ap
 ```bash
 export OPENCODE_SERVER_PASSWORD='…'
 export ZAI_CODING_API_KEY='…'                    # and/or OPENROUTER_API_KEY
-export GITHUB_WEBHOOK_SECRET='…'                 # generate now; reuse in GitHub App settings
+export OS_WEBHOOK_SECRET='…'                 # generate now; reuse in GitHub App settings
 export GH_ORCHESTRATION_AGENT_TOKEN='…'          # optional but recommended
 
 # default WEBHOOK_SITE_ADDRESS=:80 — HTTP on port 80; ngrok provides HTTPS
@@ -352,7 +352,7 @@ In your GitHub App settings (Part 1 below):
 | Field | Value |
 |-------|--------|
 | **Webhook URL** | `https://abc123.ngrok-free.app/webhooks/github` |
-| **Webhook secret** | Same string as `GITHUB_WEBHOOK_SECRET` |
+| **Webhook secret** | Same string as `OS_WEBHOOK_SECRET` |
 | **SSL verification** | **Enabled** (default) — ngrok presents a valid certificate |
 
 Save the app. GitHub sends a **ping**; check **Recent Deliveries** for **200**.
@@ -388,7 +388,7 @@ docker compose logs -f webhook-proxy webhook-receiver
 |---------|----------------|-----|
 | GitHub **connection failed** | ngrok not running or wrong port | `ngrok http 80`; confirm compose is up |
 | **502 Bad Gateway** from ngrok | Caddy/receiver not listening | `curl -s http://localhost/health`; restart compose |
-| **401** on delivery | Secret mismatch | `GITHUB_WEBHOOK_SECRET` must match GitHub App webhook secret exactly |
+| **401** on delivery | Secret mismatch | `OS_WEBHOOK_SECRET` must match GitHub App webhook secret exactly |
 | URL worked yesterday, fails today | Free ngrok hostname changed | Copy new URL from ngrok UI; update GitHub App webhook URL |
 | Browser shows ngrok interstitial | ngrok free-tier warning page | `curl` and GitHub deliveries are unaffected; use ngrok dashboard to inspect requests |
 
@@ -413,7 +413,7 @@ docker compose logs -f webhook-proxy webhook-receiver
 | **Homepage URL** | Your docs or repo URL |
 | **Webhook** | **Active** — required |
 | **Webhook URL** | `https://<public-host>/webhooks/github` |
-| **Webhook secret** | Generate a strong random string (32+ chars). **Save it** — this is `GITHUB_WEBHOOK_SECRET`. |
+| **Webhook secret** | Generate a strong random string (32+ chars). **Save it** — this is `OS_WEBHOOK_SECRET`. |
 | **SSL verification** | Enable (default) |
 
 ### 3. Permissions (repository)
@@ -493,14 +493,14 @@ Note the **Installation ID** if you later use the GitHub API with an installatio
 On the machine running compose, export the **same** webhook secret you entered in the app:
 
 ```bash
-export GITHUB_WEBHOOK_SECRET='paste-the-exact-secret-from-step-2'
+export OS_WEBHOOK_SECRET='paste-the-exact-secret-from-step-2'
 export OPENCODE_SERVER_PASSWORD='…'
 export ZAI_CODING_API_KEY='…'
 export GH_ORCHESTRATION_AGENT_TOKEN='…'   # optional but recommended
 docker compose up --build
 ```
 
-Compose passes `GITHUB_WEBHOOK_SECRET` into the `webhook-receiver` service (see `compose.yaml`).
+Compose passes `OS_WEBHOOK_SECRET` into the `webhook-receiver` service (see `compose.yaml`).
 
 ---
 
@@ -560,7 +560,7 @@ Use **repository rules** or **label filters** in your orchestrator instructions 
 
 | Symptom | Likely cause | Fix |
 |---------|----------------|-----|
-| Delivery **401** | Wrong `GITHUB_WEBHOOK_SECRET` | Match app secret and compose env exactly; restart `webhook-receiver` |
+| Delivery **401** | Wrong `OS_WEBHOOK_SECRET` | Match app secret and compose env exactly; restart `webhook-receiver` |
 | Delivery **connection failed** | URL not reachable | Check tunnel/firewall; URL must be HTTPS and path `/webhooks/github` |
 | **202** but no agent activity | OpenCode down or prompt failed | `docker compose logs orchestratorservice`; inspect `last-run.stderr` |
 | Event ignored (`ignored` in body) | Not in `WEBHOOK_ALLOWED_EVENTS` | Unset variable or add the event name |

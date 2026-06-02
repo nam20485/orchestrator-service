@@ -27,7 +27,7 @@ services:
     volumes:
       - opencode-workspace:/workspace
     environment:
-      - GITHUB_WEBHOOK_SECRET=${GITHUB_WEBHOOK_SECRET}
+      - OS_WEBHOOK_SECRET=${OS_WEBHOOK_SECRET}
       - OPENCODE_SERVER_URL=http://orchestratorservice:4099
       - OPENCODE_SERVER_PASSWORD=${OPENCODE_SERVER_PASSWORD}
       - GH_ORCHESTRATION_AGENT_TOKEN=${GH_ORCHESTRATION_AGENT_TOKEN}

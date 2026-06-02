@@ -7,7 +7,7 @@ Dockerized OpenCode server (`opencode serve` on port **4099**) plus client scrip
 ```bash
 export OPENCODE_SERVER_PASSWORD='…'
 export ZAI_CODING_API_KEY='…'   # and/or OPENROUTER_API_KEY
-export GITHUB_WEBHOOK_SECRET='…'   # GitHub App webhook secret
+export OS_WEBHOOK_SECRET='…'   # GitHub App webhook secret
 docker compose up --build
 ```
 
@@ -35,7 +35,7 @@ Python app (managed with **uv**) that validates GitHub App webhooks and dispatch
 
 ```bash
 uv sync
-export GITHUB_WEBHOOK_SECRET='…'   # from GitHub App → Webhook secret
+export OS_WEBHOOK_SECRET='…'   # from GitHub App → Webhook secret
 export OPENCODE_SERVER_URL=http://localhost:4099
 export ORCHESTRATOR_WORKSPACE=/workspace   # or a host path with a clone
 # optional: export GH_ORCHESTRATION_AGENT_TOKEN / GITHUB_TOKEN for gh in the agent
@@ -65,7 +65,7 @@ Content type: `application/json`. Subscribe to the events you need; restrict wit
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `GITHUB_WEBHOOK_SECRET` | *(required)* | Webhook secret for `X-Hub-Signature-256` |
+| `OS_WEBHOOK_SECRET` | *(required)* | Webhook secret for `X-Hub-Signature-256` |
 | `OPENCODE_SERVER_URL` | `http://localhost:4099` | OpenCode server for `prompt.ps1` |
 | `ORCHESTRATOR_WORKSPACE` | `/workspace` | `--dir` passed to `opencode run` |
 | `PROMPT_SCRIPT` | `scripts/prompt.ps1` | PowerShell prompt launcher (requires `pwsh`) |
