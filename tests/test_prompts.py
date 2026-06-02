@@ -1,7 +1,7 @@
 from webhook_receiver.prompts import build_orchestrator_prompt
 
 
-def test_build_prompt_includes_metadata() -> None:
+def test_build_prompt_loads_orchestration_template() -> None:
     payload = {
         "action": "labeled",
         "repository": {"full_name": "org/repo"},
@@ -13,12 +13,16 @@ def test_build_prompt_includes_metadata() -> None:
         payload=payload,
         max_payload_chars=120000,
     )
+    assert "Orchestrator Agent Prompt" in prompt
+    assert "MANDATORY STARTUP" in prompt
+    assert "EVENT_DATA Branching Logic" in prompt
     assert "delivery-1" in prompt
-    assert "issues" in prompt
+    assert '"type": "issues"' in prompt
     assert "labeled" in prompt
     assert "org/repo" in prompt
     assert "alice" in prompt
-    assert "```json" in prompt
+    assert "{{ event_data }}" not in prompt
+    assert "{{event_data}}" not in prompt
 
 
 def test_build_prompt_truncates_large_payload() -> None:

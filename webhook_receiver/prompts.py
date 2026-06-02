@@ -1,7 +1,42 @@
 from __future__ import annotations
 
 import json
+from functools import lru_cache
+from pathlib import Path
 from typing import Any
+
+from jinja2 import Template
+
+_PROMPT_TEMPLATE_PATH = Path(__file__).resolve().parent / "orchestration_prompt.md"
+
+
+@lru_cache(maxsize=1)
+def _prompt_template() -> Template:
+    if not _PROMPT_TEMPLATE_PATH.is_file():
+        raise FileNotFoundError(
+            f"Orchestration prompt template not found: {_PROMPT_TEMPLATE_PATH}"
+        )
+    source = _PROMPT_TEMPLATE_PATH.read_text(encoding="utf-8")
+    return Template(source, keep_trailing_newline=True)
+
+
+def _format_event_data(
+    *,
+    delivery_id: str,
+    event: str,
+    payload: dict[str, Any],
+    max_payload_chars: int,
+) -> tuple[str, bool]:
+    event_data: dict[str, Any] = {
+        "delivery_id": delivery_id,
+        "type": event,
+        **payload,
+    }
+    event_json = json.dumps(event_data, indent=2, sort_keys=True)
+    truncated = len(event_json) > max_payload_chars
+    if truncated:
+        event_json = event_json[:max_payload_chars]
+    return event_json, truncated
 
 
 def build_orchestrator_prompt(
@@ -11,42 +46,16 @@ def build_orchestrator_prompt(
     payload: dict[str, Any],
     max_payload_chars: int,
 ) -> str:
-    action = payload.get("action")
-    repo = payload.get("repository") or {}
-    full_name = repo.get("full_name", "unknown")
-    sender = (payload.get("sender") or {}).get("login", "unknown")
-
-    payload_json = json.dumps(payload, indent=2, sort_keys=True)
-    truncated = False
-    if len(payload_json) > max_payload_chars:
-        payload_json = payload_json[:max_payload_chars]
-        truncated = True
-
-    action_line = f"- Action: `{action}`\n" if action else ""
-    truncate_note = (
-        "\n\n(Payload JSON was truncated for size; use `gh` against the repo for full context.)"
-        if truncated
-        else ""
+    event_json, truncated = _format_event_data(
+        delivery_id=delivery_id,
+        event=event,
+        payload=payload,
+        max_payload_chars=max_payload_chars,
     )
-
-    return f"""# GitHub App webhook — orchestration task
-
-A GitHub App webhook was delivered to the orchestrator service. Analyze the event and
-take appropriate action using the orchestrator agent workflow (delegate to specialists as needed).
-
-## Delivery metadata
-- Delivery ID: `{delivery_id}`
-- Event: `{event}`
-{action_line}- Repository: `{full_name}`
-- Sender: `{sender}`
-
-## Instructions
-- Use the payload below as the source of truth for repo, issue/PR numbers, labels, and comments.
-- Prefer `gh` CLI for GitHub operations when the token is available in the environment.
-- Do not assume files exist on disk unless you clone or verify them under the workspace.
-
-## Payload
-```json
-{payload_json}
-```{truncate_note}
-"""
+    prompt = _prompt_template().render(event_data=event_json)
+    if truncated:
+        prompt += (
+            "\n\n(Payload JSON was truncated for size; use `gh` against the repo "
+            "for full context.)"
+        )
+    return prompt
