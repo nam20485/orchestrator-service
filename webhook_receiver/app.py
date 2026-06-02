@@ -36,6 +36,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         event = request.headers.get("X-GitHub-Event", "").lower()
         signature = request.headers.get("X-Hub-Signature-256")
 
+        if len(body) > cfg.max_body_bytes:
+            logger.warning(
+                "Rejected webhook delivery_id=%s event=%s (body too large: %s bytes)",
+                delivery_id,
+                event,
+                len(body),
+            )
+            raise HTTPException(status_code=413, detail="Request body too large")
+
         if not verify_signature(body, signature, cfg.github_webhook_secret):
             logger.warning(
                 "Rejected webhook delivery_id=%s event=%s (bad signature)",

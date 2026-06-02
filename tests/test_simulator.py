@@ -23,6 +23,7 @@ def _test_settings(*, enable_simulator: bool = True) -> Settings:
         agent="orchestrator",
         allowed_events=None,
         max_payload_chars=120000,
+        max_body_bytes=25 * 1024 * 1024,
         log_level="warning",
         enable_simulator=enable_simulator,
     )
@@ -34,12 +35,15 @@ def test_simulator_disabled_returns_404() -> None:
     assert client.get("/simulator/api/templates").status_code == 404
 
 
-def test_simulator_page_returns_html() -> None:
+def test_simulator_page_returns_html(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("OS_WEBHOOK_SECRET", "test-webhook-secret")
     client = TestClient(create_app(_test_settings(enable_simulator=True)))
     response = client.get("/simulator")
     assert response.status_code == 200
     assert "text/html" in response.headers.get("content-type", "")
+    assert response.headers.get("cache-control") == "no-store"
     assert "GitHub Webhook Simulator" in response.text
+    assert 'const ENV_WEBHOOK_SECRET = "test-webhook-secret"' in response.text
 
 
 def test_simulator_template_list() -> None:

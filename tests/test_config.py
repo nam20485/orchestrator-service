@@ -19,6 +19,7 @@ def test_settings_from_env_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
     assert cfg.opencode_server_url == "http://localhost:4099"
     assert cfg.agent == "orchestrator"
     assert cfg.allowed_events is None
+    assert cfg.max_body_bytes == 25 * 1024 * 1024
 
 
 def test_settings_parses_allowed_events(monkeypatch: pytest.MonkeyPatch) -> None:

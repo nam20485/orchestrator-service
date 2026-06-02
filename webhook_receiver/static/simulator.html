@@ -180,6 +180,7 @@
 
   <script>
     const SECRET_KEY = "os_webhook_secret";
+    const ENV_WEBHOOK_SECRET = __OS_WEBHOOK_SECRET__;
     const ACTIONS = {
       issues: ["opened", "edited", "closed", "labeled", "unlabeled"],
       pull_request: ["opened", "synchronize", "closed", "labeled", "reopened"],
@@ -199,8 +200,12 @@
     }
 
     function loadSecret() {
-      const v = sessionStorage.getItem(SECRET_KEY);
-      if (v) $("secret").value = v;
+      const saved = sessionStorage.getItem(SECRET_KEY);
+      if (saved) {
+        $("secret").value = saved;
+        return;
+      }
+      if (ENV_WEBHOOK_SECRET) $("secret").value = ENV_WEBHOOK_SECRET;
     }
 
     function setResponse(text, ok) {

@@ -13,6 +13,10 @@ def _default_prompt_script() -> Path:
     return _repo_root() / "scripts" / "prompt.ps1"
 
 
+# GitHub webhook payloads are capped at 25 MB.
+_DEFAULT_MAX_BODY_BYTES = 25 * 1024 * 1024
+
+
 @dataclass(frozen=True)
 class Settings:
     host: str
@@ -25,6 +29,7 @@ class Settings:
     agent: str
     allowed_events: frozenset[str] | None
     max_payload_chars: int
+    max_body_bytes: int
     log_level: str
     enable_simulator: bool
 
@@ -59,6 +64,9 @@ class Settings:
             allowed_events=allowed,
             max_payload_chars=int(
                 os.environ.get("WEBHOOK_MAX_PAYLOAD_CHARS", "120000")
+            ),
+            max_body_bytes=int(
+                os.environ.get("WEBHOOK_MAX_BODY_BYTES", str(_DEFAULT_MAX_BODY_BYTES))
             ),
             log_level=os.environ.get("WEBHOOK_LOG_LEVEL", "info").lower(),
             enable_simulator=os.environ.get("WEBHOOK_ENABLE_SIMULATOR", "")

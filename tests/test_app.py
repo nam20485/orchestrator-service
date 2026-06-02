@@ -26,6 +26,7 @@ def _test_settings() -> Settings:
         agent="orchestrator",
         allowed_events=None,
         max_payload_chars=120000,
+        max_body_bytes=25 * 1024 * 1024,
         log_level="warning",
         enable_simulator=False,
     )
@@ -78,6 +79,40 @@ def test_rejects_bad_signature(client: TestClient) -> None:
     assert response.status_code == 401
 
 
+def test_rejects_oversized_body(monkeypatch: pytest.MonkeyPatch) -> None:
+    base = _test_settings()
+    cfg = Settings(
+        host=base.host,
+        port=base.port,
+        github_webhook_secret=base.github_webhook_secret,
+        opencode_server_url=base.opencode_server_url,
+        prompt_script=base.prompt_script,
+        workspace=base.workspace,
+        model=base.model,
+        agent=base.agent,
+        allowed_events=base.allowed_events,
+        max_payload_chars=base.max_payload_chars,
+        max_body_bytes=8,
+        log_level=base.log_level,
+        enable_simulator=base.enable_simulator,
+    )
+    dispatch = MagicMock()
+    monkeypatch.setattr("webhook_receiver.app.dispatch_to_opencode", dispatch)
+    client = TestClient(create_app(cfg))
+    body = b"x" * 9
+    response = client.post(
+        "/webhooks/github",
+        content=body,
+        headers={
+            "X-GitHub-Event": "ping",
+            "X-GitHub-Delivery": "d-big",
+            "X-Hub-Signature-256": _sign(body, "test-webhook-secret"),
+        },
+    )
+    assert response.status_code == 413
+    dispatch.assert_not_called()
+
+
 def test_accepts_issue_event(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -117,6 +152,7 @@ def test_ignores_disallowed_event(monkeypatch: pytest.MonkeyPatch) -> None:
         agent=base.agent,
         allowed_events=frozenset({"pull_request"}),
         max_payload_chars=base.max_payload_chars,
+        max_body_bytes=base.max_body_bytes,
         log_level=base.log_level,
         enable_simulator=base.enable_simulator,
     )

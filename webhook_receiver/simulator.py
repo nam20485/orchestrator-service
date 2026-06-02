@@ -1,13 +1,16 @@
 from __future__ import annotations
 
+import json
+import os
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Query
-from fastapi.responses import FileResponse
+from fastapi.responses import HTMLResponse
 
 from webhook_receiver.simulator_templates import ALL_EVENTS, get_template, list_templates
 
 _STATIC_DIR = Path(__file__).resolve().parent / "static"
+_SECRET_PLACEHOLDER = "__OS_WEBHOOK_SECRET__"
 
 
 def create_simulator_router(*, enabled: bool) -> APIRouter:
@@ -23,11 +26,19 @@ def create_simulator_router(*, enabled: bool) -> APIRouter:
         return router
 
     @router.get("")
-    async def simulator_page() -> FileResponse:
+    async def simulator_page() -> HTMLResponse:
         html_path = _STATIC_DIR / "simulator.html"
         if not html_path.is_file():
             raise HTTPException(status_code=500, detail="Simulator UI not found")
-        return FileResponse(html_path, media_type="text/html")
+        secret = os.environ.get("OS_WEBHOOK_SECRET", "").strip()
+        html = html_path.read_text(encoding="utf-8").replace(
+            _SECRET_PLACEHOLDER, json.dumps(secret)
+        )
+        return HTMLResponse(
+            html,
+            media_type="text/html",
+            headers={"Cache-Control": "no-store"},
+        )
 
     @router.get("/api/templates")
     async def template_list(
