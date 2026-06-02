@@ -7,10 +7,10 @@ name: trivy
 
 on:
   push:
-    branches: [ "main", "development" ]
+    branches: [ "main", "development", "nam20485" ]
   pull_request:
     # The branches below must be a subset of the branches above
-    branches: [ "main", "development" ] 
+    branches: [ "main", "development", "nam20485" ] 
 
 permissions:
   contents: read
