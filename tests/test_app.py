@@ -27,6 +27,7 @@ def _test_settings() -> Settings:
         allowed_events=None,
         max_payload_chars=120000,
         log_level="warning",
+        enable_simulator=False,
     )
 
 
@@ -117,6 +118,7 @@ def test_ignores_disallowed_event(monkeypatch: pytest.MonkeyPatch) -> None:
         allowed_events=frozenset({"pull_request"}),
         max_payload_chars=base.max_payload_chars,
         log_level=base.log_level,
+        enable_simulator=base.enable_simulator,
     )
     dispatch = MagicMock()
     monkeypatch.setattr("webhook_receiver.app.dispatch_to_opencode", dispatch)

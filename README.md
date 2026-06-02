@@ -74,8 +74,22 @@ Content type: `application/json`. Subscribe to the events you need; restrict wit
 | `WEBHOOK_ALLOWED_EVENTS` | *(all)* | Optional comma-separated event filter |
 | `WEBHOOK_MAX_PAYLOAD_CHARS` | `120000` | Max JSON chars embedded in prompt |
 | `WEBHOOK_HOST` / `WEBHOOK_PORT` | `0.0.0.0` / `8080` | HTTP bind |
+| `WEBHOOK_ENABLE_SIMULATOR` | `0` (code) / `1` (compose) | Serve dev UI at `/simulator` when enabled |
 
 Logs for the last dispatched run: `/tmp/orchestrator-webhook/last-prompt.md` and `last-run.stderr`.
+
+### Webhook simulator (local dev)
+
+When `WEBHOOK_ENABLE_SIMULATOR=1` (default in compose), open:
+
+```text
+http://localhost/simulator
+```
+
+- **Safe (ping)** tab — signed `ping` delivery; returns **200**, no orchestration.
+- **Work events** tab — `issues`, `pull_request`, etc.; returns **202** and starts a real OpenCode run.
+
+Enter the same `OS_WEBHOOK_SECRET` as compose uses (stored in browser `sessionStorage` only). Set `WEBHOOK_ENABLE_SIMULATOR=0` for production-like deploys.
 
 ### Health
 

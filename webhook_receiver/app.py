@@ -11,6 +11,7 @@ from webhook_receiver.config import Settings
 from webhook_receiver.github import verify_signature
 from webhook_receiver.prompts import build_orchestrator_prompt
 from webhook_receiver.runner import dispatch_to_opencode
+from webhook_receiver.simulator import create_simulator_router
 
 logger = logging.getLogger(__name__)
 
@@ -93,5 +94,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             },
             status_code=202,
         )
+
+    app.include_router(create_simulator_router(enabled=cfg.enable_simulator))
 
     return app

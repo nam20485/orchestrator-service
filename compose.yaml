@@ -33,6 +33,7 @@ services:
       - GH_ORCHESTRATION_AGENT_TOKEN=${GH_ORCHESTRATION_AGENT_TOKEN}
       - GITHUB_TOKEN=${GITHUB_TOKEN}
       - WEBHOOK_ALLOWED_EVENTS=${WEBHOOK_ALLOWED_EVENTS:-}
+      - WEBHOOK_ENABLE_SIMULATOR=${WEBHOOK_ENABLE_SIMULATOR:-1}
     depends_on:
       - orchestratorservice
     restart: unless-stopped

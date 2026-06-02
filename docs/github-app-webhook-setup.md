@@ -186,6 +186,7 @@ These are **not** used by the webhook HTTP handler; they are inherited by the ch
 |----------|---------|-------------|
 | `WEBHOOK_ALLOWED_EVENTS` | *(empty = allow all)* | Comma-separated `X-GitHub-Event` names, e.g. `issues,pull_request` |
 | `WEBHOOK_MAX_PAYLOAD_CHARS` | `120000` | Max JSON characters embedded in prompt |
+| `WEBHOOK_ENABLE_SIMULATOR` | `0` (code) / `1` (compose) | Dev UI at `GET /simulator`; set `0` in production |
 
 ### Deployment options
 
@@ -392,6 +393,19 @@ docker compose logs -f webhook-proxy webhook-receiver
 | URL worked yesterday, fails today | Free ngrok hostname changed | Copy new URL from ngrok UI; update GitHub App webhook URL |
 | Browser shows ngrok interstitial | ngrok free-tier warning page | `curl` and GitHub deliveries are unaffected; use ngrok dashboard to inspect requests |
 
+### Webhook simulator UI (local dev)
+
+When `WEBHOOK_ENABLE_SIMULATOR=1` (default in compose), open **`http://localhost/simulator`** in a browser (via Caddy on port **80**, or `http://localhost:8080/simulator` when running `uv run orchestrator-webhook` with the flag set).
+
+| Tab | Events | Receiver behavior |
+|-----|--------|-------------------|
+| **Safe (ping)** | `ping` only | **200** — signature check only; no `prompt.ps1` |
+| **Work events** | `issues`, `pull_request`, `issue_comment`, `workflow_run`, custom JSON | **202** — **starts real orchestration** |
+
+Enter `OS_WEBHOOK_SECRET` in the UI (saved in browser `sessionStorage` only). The page signs payloads with HMAC-SHA256 the same way GitHub does and POSTs to `/webhooks/github`.
+
+Disable for production-like hosts: `export WEBHOOK_ENABLE_SIMULATOR=0` before `docker compose up`.
+
 ---
 
 ## Part 1 — Create the GitHub App
@@ -580,6 +594,7 @@ Use **repository rules** or **label filters** in your orchestrator instructions 
 | CLI (local) | `uv run orchestrator-webhook` |
 | Application details | [Webhook receiver application](#webhook-receiver-application) above |
 | Local dev (ngrok) | [Local development with ngrok + Docker Compose](#local-development-with-ngrok--docker-compose) |
+| Local dev (simulator) | [Webhook simulator UI](#webhook-simulator-ui-local-dev) at `/simulator` |
 
 See also the root [README.md](../README.md) for compose and client script usage.
 

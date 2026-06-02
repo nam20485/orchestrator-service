@@ -26,6 +26,7 @@ class Settings:
     allowed_events: frozenset[str] | None
     max_payload_chars: int
     log_level: str
+    enable_simulator: bool
 
     @classmethod
     def from_env(cls) -> Settings:
@@ -60,4 +61,8 @@ class Settings:
                 os.environ.get("WEBHOOK_MAX_PAYLOAD_CHARS", "120000")
             ),
             log_level=os.environ.get("WEBHOOK_LOG_LEVEL", "info").lower(),
+            enable_simulator=os.environ.get("WEBHOOK_ENABLE_SIMULATOR", "")
+            .strip()
+            .lower()
+            in ("1", "true", "yes"),
         )
