@@ -80,7 +80,7 @@ is_allowlisted_line() {
   [[ "$line" =~ \<YOUR_.*\> ]] && return 0
   [[ "$line" =~ changeme|placeholder|redacted|REDACTED ]] && return 0
   [[ "$line" =~ =[[:space:]]*[\"\']…[\"\'] ]] && return 0
-  [[ "$line" =~ \$\{[A-Z0-9_]+\} ]] && return 0
+  [[ "$line" =~ \$\{[A-Za-z_][A-Za-z0-9_]*\} ]] && return 0
   # Lockfile wheel hashes and digest pins are not PII/secrets
   [[ "$line" =~ sha256:[a-f0-9]{16,} ]] && return 0
   return 1
@@ -88,7 +88,7 @@ is_allowlisted_line() {
 
 is_allowlisted_secret_value() {
   local val="$1"
-  [[ "$val" =~ ^\$\{[A-Z0-9_]+\}$ ]] && return 0
+  [[ "$val" =~ ^\$\{[A-Za-z_][A-Za-z0-9_]*\}$ ]] && return 0
   [[ "$val" == "…" ]] && return 0
   [[ "$val" == "..." ]] && return 0
   [[ "$val" =~ FAKE-.+-FOR-TESTING ]] && return 0
@@ -197,21 +197,21 @@ scan_line() {
     report "SECRET" "$f" "$line_no" "Assigned API/secret key" "$line"
   fi
 
-  if [[ "$line" =~ (OS_WEBHOOK_SECRET|OPENCODE_SERVER_PASSWORD|ZAI_CODING_API_KEY|ZAI_API_KEY|OPENROUTER_API_KEY|GH_ORCHESTRATION_AGENT_TOKEN|GITHUB_TOKEN)[[:space:]]*=[[:space:]]*\"([^\"]{8,})\" ]]; then
+  if [[ "$line" =~ (OS_WEBHOOK_SECRET|OPENCODE_SERVER_PASSWORD|ZAI_CODING_API_KEY|ZAI_API_KEY|OPENROUTER_API_KEY|MODEL_STUDIO_API_KEY|GH_ORCHESTRATION_AGENT_TOKEN|GITHUB_TOKEN)[[:space:]]*=[[:space:]]*\"([^\"]{8,})\" ]]; then
     local assigned_val="${BASH_REMATCH[2]}"
     if ! is_allowlisted_secret_value "$assigned_val"; then
       report "SECRET" "$f" "$line_no" "Hardcoded repo credential env var" "$line"
     fi
   fi
 
-  if [[ "$line" =~ (OS_WEBHOOK_SECRET|OPENCODE_SERVER_PASSWORD|ZAI_CODING_API_KEY|ZAI_API_KEY|OPENROUTER_API_KEY|GH_ORCHESTRATION_AGENT_TOKEN|GITHUB_TOKEN)[[:space:]]*=[[:space:]]*\'([^\']{8,})\' ]]; then
+  if [[ "$line" =~ (OS_WEBHOOK_SECRET|OPENCODE_SERVER_PASSWORD|ZAI_CODING_API_KEY|ZAI_API_KEY|OPENROUTER_API_KEY|MODEL_STUDIO_API_KEY|GH_ORCHESTRATION_AGENT_TOKEN|GITHUB_TOKEN)[[:space:]]*=[[:space:]]*\'([^\']{8,})\' ]]; then
     local assigned_val="${BASH_REMATCH[2]}"
     if ! is_allowlisted_secret_value "$assigned_val"; then
       report "SECRET" "$f" "$line_no" "Hardcoded repo credential env var" "$line"
     fi
   fi
 
-  if [[ "$line" =~ (OS_WEBHOOK_SECRET|OPENCODE_SERVER_PASSWORD|ZAI_CODING_API_KEY|ZAI_API_KEY|OPENROUTER_API_KEY|GH_ORCHESTRATION_AGENT_TOKEN|GITHUB_TOKEN)[[:space:]]*=[[:space:]]*([^[:space:]#]+) ]]; then
+  if [[ "$line" =~ (OS_WEBHOOK_SECRET|OPENCODE_SERVER_PASSWORD|ZAI_CODING_API_KEY|ZAI_API_KEY|OPENROUTER_API_KEY|MODEL_STUDIO_API_KEY|GH_ORCHESTRATION_AGENT_TOKEN|GITHUB_TOKEN)[[:space:]]*=[[:space:]]*([^[:space:]#]+) ]]; then
     local bare_val="${BASH_REMATCH[2]}"
     if [[ "$bare_val" =~ ^[\"\'] ]]; then
       :
