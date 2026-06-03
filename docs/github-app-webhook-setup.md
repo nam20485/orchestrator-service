@@ -154,7 +154,7 @@ All settings are **environment variables**. In Docker Compose, set them on the h
 | `OPENCODE_SERVER_PASSWORD` | *(from host)* | Passed into prompt container env for CLI auth |
 | `ORCHESTRATOR_WORKSPACE` | `/workspace` | `--dir` for agent file access |
 | `PROMPT_SCRIPT` | `/app/scripts/prompt.ps1` | PowerShell launcher path in image |
-| `OPENCODE_MODEL` | `bailian-payg/qwen3.6-plus` | Model flag |
+| `OPENCODE_MODEL` | `zai-coding-plan/glm-4.7` | Model flag |
 | `OPENCODE_AGENT` | `orchestrator` | Agent name |
 
 #### GitHub CLI (recommended)
