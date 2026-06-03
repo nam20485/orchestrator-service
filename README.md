@@ -13,9 +13,16 @@ docker compose up --build
 
 - **orchestratorservice** — OpenCode server on port **4099**
 - **webhook-receiver** — internal FastAPI app (`POST /webhooks/github`)
-- **webhook-proxy** — Caddy reverse proxy on ports **80** / **443** in front of the receiver
+- **webhook-proxy** — Caddy on host **:80** (default compose); add **`compose.https.yaml`** for host **:443** when Caddy terminates TLS
 
-Point your GitHub App webhook at `https://<host>/webhooks/github`. For automatic TLS, set `WEBHOOK_SITE_ADDRESS=hooks.example.com` (DNS must point here) before `docker compose up`. Default `:80` is HTTP only (local or TLS terminated elsewhere). Full setup: [docs/github-app-webhook-setup.md](docs/github-app-webhook-setup.md).
+| Environment | Compose command | HTTPS edge |
+|-------------|-----------------|------------|
+| Local + [Tailscale Funnel](docs/github-app-webhook-setup.md#local-development-with-tailscale-funnel--docker-compose) | `docker compose up` | Funnel → `:80` (do **not** use `compose.https.yaml` while Funnel is on) |
+| Production (own domain) | `COMPOSE_FILE=compose.yaml:compose.https.yaml docker compose up` | Caddy + Let's Encrypt on `:443` |
+
+Point your GitHub App webhook at `https://<host>/webhooks/github`. For Caddy TLS, set `WEBHOOK_SITE_ADDRESS=hooks.example.com` (DNS must point here) and include `compose.https.yaml`. Default `:80` is HTTP only (Funnel/ngrok terminate HTTPS upstream).
+
+**Compose overlays:** base `compose.yaml` + optional `compose.https.yaml` merge (see [Docker Compose overlays](docs/github-app-webhook-setup.md#docker-compose-overlays-dev-vs-prod-https) in the webhook setup doc). Full setup: [docs/github-app-webhook-setup.md](docs/github-app-webhook-setup.md).
 
 ## Client prompt (one-shot)
 

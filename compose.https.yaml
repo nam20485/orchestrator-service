@@ -1,0 +1,15 @@
+# Optional overlay: publish host port 443 for Caddy automatic HTTPS (Let's Encrypt).
+#
+# Use when WEBHOOK_SITE_ADDRESS is a real hostname (production) and nothing else
+# (e.g. Tailscale Funnel) already binds host :443.
+#
+#   docker compose -f compose.yaml -f compose.https.yaml up
+#
+# Or set once in prod:  export COMPOSE_FILE=compose.yaml:compose.https.yaml
+#
+# Local dev with Tailscale Funnel (tailscale funnel 80): use compose.yaml only.
+
+services:
+  webhook-proxy:
+    ports:
+      - "443:443"

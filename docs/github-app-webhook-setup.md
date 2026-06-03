@@ -194,20 +194,60 @@ These are **not** used by the webhook HTTP handler; they are inherited by the ch
 
 | Service | Role |
 |---------|------|
-| `webhook-proxy` | Caddy — public **80** / **443**, TLS when `WEBHOOK_SITE_ADDRESS` is a domain |
+| `webhook-proxy` | Caddy on host **:80**; optional **:443** via `compose.https.yaml` when Caddy terminates TLS |
 | `webhook-receiver` | FastAPI — internal **8080** only (not published to host) |
 | `orchestratorservice` | OpenCode server — **4099** |
 
+**Compose files:** `compose.yaml` always publishes **80**. `compose.https.yaml` adds **443** for production Caddy TLS. Do not use the HTTPS overlay while [Tailscale Funnel](#local-development-with-tailscale-funnel--docker-compose) is running — Funnel already binds host **443**.
+
 ```bash
-# HTTP on port 80 (default WEBHOOK_SITE_ADDRESS=:80)
+# HTTP on port 80 (default WEBHOOK_SITE_ADDRESS=:80) — local dev, Funnel, ngrok
 docker compose up --build
 
-# Automatic HTTPS (Let's Encrypt) — DNS must point at this host first
+# Production: Caddy automatic HTTPS (Let's Encrypt) — DNS must point at this host first
 export WEBHOOK_SITE_ADDRESS=hooks.example.com
+export COMPOSE_FILE=compose.yaml:compose.https.yaml
 docker compose up --build
 ```
 
-GitHub webhook URL: `https://hooks.example.com/webhooks/github` (or `http://<host>/webhooks/github` when using `:80` only).
+GitHub webhook URL: `https://hooks.example.com/webhooks/github` (or `http://<host>/webhooks/github` when using `:80` only with external HTTPS).
+
+#### Docker Compose overlays (dev vs prod HTTPS)
+
+This repo uses **multiple Compose files** that **merge** into one stack. You do not edit `compose.yaml` by hand when switching environments.
+
+| File | Purpose |
+|------|---------|
+| `compose.yaml` | Base stack (always). Publishes Caddy on host **:80** only. |
+| `compose.https.yaml` | **Optional overlay**. Adds host **:443** so Caddy can terminate TLS (Let's Encrypt) in production. |
+
+**How merging works:** Compose loads the base file, then applies the overlay. Lists such as `ports` are **appended**, so `compose.yaml` (`80:80`) + `compose.https.yaml` (`443:443`) yields both ports on `webhook-proxy`. Services and settings you do not mention in the overlay are unchanged.
+
+**Two ways to enable the overlay** (equivalent):
+
+```bash
+# Explicit files (good for one-off commands)
+docker compose -f compose.yaml -f compose.https.yaml up --build
+
+# Environment variable (good for prod — set once on the server)
+export COMPOSE_FILE=compose.yaml:compose.https.yaml
+docker compose up --build
+```
+
+**Inspect the merged result** (no containers started):
+
+```bash
+docker compose -f compose.yaml config                    # dev: port 80 only
+docker compose -f compose.yaml -f compose.https.yaml config   # prod: 80 + 443
+```
+
+| You are… | Command | Who provides HTTPS |
+|----------|---------|-------------------|
+| Local dev + Tailscale Funnel | `docker compose up` | Funnel (`tailscale funnel 80` → localhost:80) |
+| Local dev + ngrok | `docker compose up` | ngrok (`ngrok http 80`) |
+| Production (your domain) | `COMPOSE_FILE=compose.yaml:compose.https.yaml` + `WEBHOOK_SITE_ADDRESS=hooks.example.com` | Caddy on **:443** |
+
+**Common mistake:** Running Funnel **and** `compose.https.yaml` together. Both need host port **443**; Compose fails with `address already in use`. With Funnel, use **`compose.yaml` only**.
 
 Config file: `deploy/caddy/Caddyfile`. Logs: `docker compose logs -f webhook-proxy webhook-receiver`
 
@@ -523,12 +563,12 @@ tailscale funnel off
 
 | Topic | Detail |
 |-------|--------|
-| **Port** | Always `tailscale funnel 80` with Compose. Do not funnel **8080** unless you run `uv run orchestrator-webhook` without Caddy. |
+| **Port** | Always `tailscale funnel 80` with Compose (`compose.yaml` only — **no** `compose.https.yaml`). Do not funnel **8080** unless you run `uv run orchestrator-webhook` without Caddy. |
 | **Stable URL** | Same machine + tailnet → same `*.ts.net` hostname. You usually **do not** update the GitHub App URL on every dev session (unlike free ngrok). |
 | **Stack order** | Start `docker compose` first, then Funnel. If compose is down, Funnel returns errors and GitHub deliveries fail. |
 | **Background mode** | `tailscale funnel --bg 80` persists until `tailscale funnel off` or reboot (verify with `tailscale funnel status`). |
 | **vs ngrok** | Prefer Tailscale when you already use it for LAN/Tailscale access; prefer ngrok for quick one-off tests without tailnet admin setup. |
-| **Production** | Funnel is for dev/demo. For always-on production, use **Option A** (`WEBHOOK_SITE_ADDRESS=hooks.yourdomain.com`) on a reachable host. |
+| **Production** | Funnel is for dev/demo. For always-on production, use **Option A** (`WEBHOOK_SITE_ADDRESS=hooks.yourdomain.com`, `COMPOSE_FILE=compose.yaml:compose.https.yaml`) on a reachable host. |
 
 ### Tailscale troubleshooting
 
@@ -540,6 +580,7 @@ tailscale funnel off
 | **401** on delivery | Secret mismatch | `OS_WEBHOOK_SECRET` must match GitHub App webhook secret exactly |
 | URL unreachable after reboot | Funnel not restarted | Re-run `tailscale funnel --bg 80` (or automate on login) |
 | Wrong hostname | Multiple machines | Use `tailscale funnel status` on the machine running compose; URL is per-node |
+| **`address already in use` on :443** | Funnel + `compose.https.yaml` both bind **443** | Use `docker compose up` without `compose.https.yaml` while Funnel is on |
 
 ---
 

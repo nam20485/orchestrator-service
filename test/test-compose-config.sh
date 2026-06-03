@@ -11,3 +11,6 @@ export WEBHOOK_SITE_ADDRESS=":80"
 
 docker compose -f compose.yaml config --quiet
 echo "compose config: ok"
+
+docker compose -f compose.yaml -f compose.https.yaml config --quiet
+echo "compose https overlay: ok"
