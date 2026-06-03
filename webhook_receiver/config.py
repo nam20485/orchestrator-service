@@ -59,7 +59,7 @@ class Settings:
                 os.environ.get("PROMPT_SCRIPT", str(_default_prompt_script()))
             ).resolve(),
             workspace=os.environ.get("ORCHESTRATOR_WORKSPACE", "/workspace"),
-            model=os.environ.get("OPENCODE_MODEL", "bailian-payg/qwen3.6-plus"),
+            model=os.environ.get("OPENCODE_MODEL", "zai-coding-plan/glm-4.7"),
             agent=os.environ.get("OPENCODE_AGENT", "orchestrator"),
             allowed_events=allowed,
             max_payload_chars=int(
