@@ -141,6 +141,13 @@ When complete, report success or failure, relevant run details, and bounded logs
 The regular orchestrator then executes the original prompt as it would today. At the end, it uses the
 maestro address embedded in the envelope to prompt the maestro service with a result report.
 
+Result report is a structured template output:
+
+- orchestrator emits structured JSON on success or failure
+- wrapper captures logs, exit code, run metadata, and GitHub context
+- unreachable maestro produces warnings but does not block the run
+- template return result can be specified in the envelope 
+
 ```mermaid
 sequenceDiagram
   participant Receiver
@@ -401,8 +408,10 @@ This should be the first implementation phase regardless of the final maestro to
 
 ## Recommendation
 
-Use **Option 3: Always-On Maestro With Orchestrator Polling** as the target architecture, preceded by
-**Option 5: Structured Status Reporting Only** as the first implementation phase.
+Option 1A is the chosen option.
+
+~~Use **Option 3: Always-On Maestro With Orchestrator Polling** as the target architecture, preceded by
+**Option 5: Structured Status Reporting Only** as the first implementation phase.~~
 
 The direct callback and maestro-first envelope models are conceptually clean, but they make service
 reachability and prompt compliance central risks. Those risks grow as soon as orchestrators move
