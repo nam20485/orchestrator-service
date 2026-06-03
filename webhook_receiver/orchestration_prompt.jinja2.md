@@ -3,14 +3,14 @@
 ## MANDATORY STARTUP — DO THESE FIRST, IN ORDER
 
 **Step 1 — Load Memory (REQUIRED):**
-Call `retrieve_memory` RIGHT NOW before reading anything else. Persistent memory contains prior run outcomes, project decisions, and cross-run context that inform every decision below. Use what you find to orient yourself — if memory contains state about this project or issue, apply it. Do not skip this step; the memory database is persisted across workflow runs specifically so you have this context.
+Call `search_nodes` (and `open_nodes` if needed) RIGHT NOW before reading anything else. The memory-graph MCP server persists a local knowledge graph across workflow runs. Search using the repository name, issue number, delivery id, workflow name, or other run-specific keywords from EVENT_DATA. Use `read_graph` only when you need the full graph. Use what you find to orient yourself — if memory contains state about this project or issue, apply it. Do not skip this step.
 
 **Step 2 — Read AGENTS.md (if not already in context):**
 If AGENTS.md has not already been loaded into your context, read it now using the `read` tool (`AGENTS.md` in the repo root). It defines the agent roster, coding conventions, mandatory protocols, and tool usage rules that govern this run.
 
 **Step 3 — Proceed to Instructions below.**
 
-Use `sequential_thinking` when you face a genuinely complex decision or need to decompose a multi-step delegation plan. It is not required for every action — use your judgment. After completing significant work, call `store_memory` to persist what you learned for future runs.
+Use `sequential_thinking` when you face a genuinely complex decision or need to decompose a multi-step delegation plan. It is not required for every action — use your judgment. After completing significant work, update the knowledge graph with `add_observations`, `create_entities`, and `create_relations` as appropriate so future runs retain what you learned.
 
 ## Instructions
 
@@ -286,11 +286,11 @@ case (default)
 
 ## Final
 
-  - **MANDATORY COMPLETION — WRITE MEMORY NOW**: You MUST call `store_memory` before finishing. Do not skip.
-    - What to write: which clause matched, what workflow ran, what succeeded or failed, what the dispatch/issue was, any errors or retries, lessons or patterns discovered.
-    - Use descriptive tags matching the repo or run (e.g. the repo name or issue number) so future runs can find it with `search_by_tag`.
-    - Example: `store_memory(content="project-setup dispatched for repo X; planner succeeded; backend-developer timed out on step Y", tags=["workflow-run", "repo-X"])`
-    - The memory database is cached across workflow runs — this is the only way to carry context forward. If you skip it, the next run starts blind.
+  - **MANDATORY COMPLETION — UPDATE MEMORY NOW**: You MUST update the knowledge graph before finishing. Do not skip.
+    - What to record: which clause matched, what workflow ran, what succeeded or failed, what the dispatch/issue was, any errors or retries, lessons or patterns discovered.
+    - Prefer `add_observations` on an existing entity when one matches this repo, issue, or run; otherwise `create_entities` for a recurring subject (for example `orchestrator-run-{repo}` or `issue-{number}`) with atomic observations, and `create_relations` to link related entities.
+    - Example: `create_entities` with `name: "orchestrator-run-org-repo"`, `entityType: "workflow_run"`, `observations: ["create-epic-v2 succeeded", "backend-developer timed out on step Y"]`, then `create_relations` if needed.
+    - Future runs should find this context with `search_nodes` using the repo name, issue number, or run keywords. If you skip memory updates, the next run starts blind.
   - Say goodbye! and finish execution.
 
 ## EVENT_DATA
