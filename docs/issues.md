@@ -36,3 +36,13 @@ Need to dispaly the out put of the webhook_reciever's prompt.ps1 call (it will s
 
 So less than successful runs can be traced and diagnosed
 
+### I4 
+
+k8s reousrces for deployment to cluster- use IaC to make it provider/on-prem agnodtic and so dont have to maintan 10 reousrces files- easy deploy
+
+### I5 - Idle timeout
+
+- detection (> x s since activity timer was reset)
+- kill the run if timer fires
+
+- makee sure subagent delegation activity resets timer (otherwise timer wil fire while subagent delegations are executing)
