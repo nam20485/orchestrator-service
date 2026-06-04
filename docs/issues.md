@@ -4,7 +4,7 @@
 
 ### I1
 
-exsint gtracing implmentation is stripping everything away.
+existing github tracing implmentation is stripping everything away.
 
 Need to only strip away seletive lines, e.g.
 
@@ -20,6 +20,10 @@ orchestratorservice-1  | INFO  2026-06-03T16:49:15 +0ms service=bus type=message
 orchestratorservice-1  | INFO  2026-06-03T16:49:15 +1ms service=bus type=message.part.delta publishing
 orchestratorservice-1  | INFO  2026-06-03T16:49:15 +0ms service=bus type=message.part.delta publishing
 ```
+
+Create new implementaiton for this with very small blacklist of lines to strip away. (or keep existing and remove most entries from the blacklist)
+- We can add more entries to the blacklist over time as we identify more lines to strip away.
+- Validate it works by running the code and checking the output.
 
 ### I2
 
