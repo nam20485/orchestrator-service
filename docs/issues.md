@@ -10,7 +10,7 @@ Need to only strip away seletive lines, e.g.
 
 `service=bus type=message.part.delta publishing` ==>
 
-```
+```sh
 INFO  2026-06-03T16:49:15 +1ms service=bus type=message.part.delta publishing
 orchestratorservice-1  | INFO  2026-06-03T16:49:15 +0ms service=bus type=message.part.delta publishing
 orchestratorservice-1  | INFO  2026-06-03T16:49:15 +1ms service=bus type=message.part.delta publishing
@@ -22,6 +22,7 @@ orchestratorservice-1  | INFO  2026-06-03T16:49:15 +0ms service=bus type=message
 ```
 
 Create new implementaiton for this with very small blacklist of lines to strip away. (or keep existing and remove most entries from the blacklist)
+
 - We can add more entries to the blacklist over time as we identify more lines to strip away.
 - Validate it works by running the code and checking the output.
 
@@ -40,7 +41,7 @@ Need to dispaly the out put of the webhook_reciever's prompt.ps1 call (it will s
 
 So less than successful runs can be traced and diagnosed
 
-### I4 
+### I4
 
 k8s reousrces for deployment to cluster- use IaC to make it provider/on-prem agnodtic and so dont have to maintan 10 reousrces files- easy deploy
 
