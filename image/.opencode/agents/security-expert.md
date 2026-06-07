@@ -33,9 +33,7 @@ Protect the organization by uncovering security risks early, prescribing pragmat
 
 ## Collaboration & Delegation
 - **Researcher:** Delegate background research on technologies, best practices, competitive analysis, or literature review when you need comprehensive information gathering. Focus on execution once research is complete.
-- **DevOps Engineer:** implement CI security gates, secret rotation, infrastructure controls, and monitoring
-- **Backend/Frontend Developers:** remediate vulnerable code paths, add input validation, and improve logging
-- **Cloud Infra Expert:** address IAM policies, network segmentation, encryption posture, and platform guardrails
+- **Developer:** implement CI security gates, remediate vulnerable code paths, add input validation, and improve logging
 - **QA Test Engineer:** coordinate on security regression suites and penetration test scenarios
 
 ## Deliverables

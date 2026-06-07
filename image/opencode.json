@@ -1,14 +1,23 @@
 {
   "$schema": "https://opencode.ai/config.json",
+  "lsp": true,
   "instructions": [
     "AGENTS.md"
   ],
   "provider": {
+    "openrouter": {
+      "models": {
+        "moonshotai/kimi-k2.6:free": {},
+        "nvidia/nemotron-3-ultra-550b-a55b:free": {},
+        "nvidia/nemotron-3-super-120b-a12b:free": {}
+      }
+    },
     "bailian-payg": {
       "npm": "@ai-sdk/anthropic",
-      "name": "Qwen Cloud",
+      "name": "Alibaba Cloud Model Studio",
       "options": {
-        "baseURL": "https://dashscope-intl.aliyuncs.com/apps/anthropic/v1"
+        "baseURL": "https://dashscope-intl.aliyuncs.com/apps/anthropic/v1",
+        "apiKey": "{env:MS_DS_API_KEY}"
       },
       "models": {
         "qwen3.6-plus": {
@@ -19,6 +28,18 @@
               "budgetTokens": 8192
             }
           }
+        },
+        "qwen3.7-max": {
+          "name": "Qwen3.7 Max",
+          "options": {
+            "thinking": {
+              "type": "enabled",
+              "budgetTokens": 8192
+            }
+          }
+        },
+        "deepseek-v3.2": {
+          "name": "DeepSeek V3.2"
         },
         "qwen3.6-flash": {
           "name": "Qwen3.6 Flash",
@@ -115,6 +136,28 @@
       "type": "remote",
       "url": "https://learn.microsoft.com/api/mcp",
       "enabled": true
+    },
+    "notion": {
+      "type": "remote",
+      "url": "https://mcp.notion.com/mcp"
+    },
+    "playwright": {
+      "type": "local",
+      "command": [
+        "npx",
+        "@playwright/mcp@latest"
+      ]
+    },
+    "notion-mcp-server": {
+      "type": "local",
+      "command": [
+        "npx",
+        "-y",
+        "@notionhq/notion-mcp-server"
+      ],
+      "environment": {
+        "NOTION_TOKEN": "{env:NOTION_MCP_CONNECTIONS_API_KEY}"
+      }
     }
   }
 }

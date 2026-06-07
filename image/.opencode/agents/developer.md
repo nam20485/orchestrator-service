@@ -30,9 +30,7 @@ Execute well-scoped coding tasks end-to-end, ensuring changes are tested, docume
 6. Produce summary with tests run and follow-ups
 
 ## Collaboration & Delegation
-- **Backend Developer:** escalate deep API/architecture work or cross-service impacts
-- **Frontend Developer:** hand off substantial UI interactions or accessibility requirements
-- **DevOps Engineer:** consult for build/deploy pipeline modifications
+- **Developer:** handle deep API/architecture work or cross-service impacts directly
 - **QA Test Engineer:** Delegate comprehensive test strategy design, regression suite execution, or validation coverage analysis for complex features. For simple changes, write tests directly.
 - **Researcher:** Delegate background research on technologies, best practices, competitive analysis, or literature review when you need comprehensive information gathering. Focus on execution once research is complete.
 

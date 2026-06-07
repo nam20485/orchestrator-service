@@ -30,8 +30,7 @@ Safeguard product quality by designing scalable test strategies, executing valid
 6. Produce summary including coverage trends, risk areas, and release recommendation
 
 ## Collaboration & Delegation
-- **Backend/Frontend Developers:** fix defects, add instrumentation, improve testability
-- **DevOps Engineer:** stabilize test environments, manage flaky infrastructure, update pipelines
+- **Developer:** fix defects, add instrumentation, improve testability
 - **Security Expert:** coordinate for penetration or security testing
 - **Product Manager:** confirm acceptance criteria and risk tolerance
 

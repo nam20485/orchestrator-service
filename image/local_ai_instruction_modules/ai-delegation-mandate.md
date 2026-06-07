@@ -22,17 +22,15 @@ This document provides mandatory delegation requirements that enhance the orches
 
 ### Agent-Task Mapping Matrix
 
-| Task Category     | Primary Agent                         | Secondary Agent      | Justification Required        |
-| ----------------- | ------------------------------------- | -------------------- | ----------------------------- |
-| Repository Setup  | `devops-engineer`, `github-ops-agent` | `backend-developer`  | If tools unavailable          |
-| GitHub Operations | `github-ops-agent`                    | `devops-engineer`    | If org-level changes required |
-| Project Planning  | `product-manager`                     | `planner`            | Never                         |
-| Code Structure    | `backend-developer`                   | `developer`          | If specialized needs          |
-| Documentation     | `documentation-expert`                | `developer`          | If expert unavailable         |
-| Testing           | `qa-test-engineer`                    | `developer`          | If QA unavailable             |
-| Infrastructure    | `devops-engineer`                     | `cloud-infra-expert` | If cloud-specific             |
-| Security          | `security-expert`                     | `backend-developer`  | Never                         |
-| Frontend          | `frontend-developer`                  | `ux-ui-designer`     | If UI-heavy                   |
+| Task Category     | Primary Agent          | Secondary Agent    | Justification Required        |
+| ----------------- | ---------------------- | ------------------ | ----------------------------- |
+| Repository Setup  | `developer`            | `github-expert`    | If tools unavailable          |
+| GitHub Operations | `github-expert`        | `developer`        | If org-level changes required |
+| Project Planning  | `product-manager`      | `planner`          | Never                         |
+| Code Structure    | `developer`            | —                  | If specialized needs          |
+| Documentation     | `documentation-expert` | `developer`        | If expert unavailable         |
+| Testing           | `qa-test-engineer`     | `developer`        | If QA unavailable             |
+| Security          | `security-expert`      | `developer`        | Never                         |
 
 ### Verification Checkpoints
 
@@ -64,9 +62,9 @@ Direct Execution Justification: [Only if not delegated - must be tool limitation
 
 Each assignment MUST be delegated to specialized agents **-OR-** broken down by task type according to section #Delegation Strategies:
 
-- `init-existing-repository` → delegate to `devops-engineer` AND `backend-developer` AND `github-ops-agent`
+- `init-existing-repository` → delegate to `developer` AND `github-expert`
 - `create-app-plan` → delegate to `product-manager` AND `planner`
-- `create-project-structure` → delegate to `backend-developer` AND `devops-engineer` AND `github-ops-agent`
+- `create-project-structure` → delegate to `developer` AND `github-expert`
 
 ### Delegation Strategies
 
@@ -83,16 +81,12 @@ Each assignment MUST be delegated to specialized agents **-OR-** broken down by 
 
 | Task                       | Primary Agents                         | Supporting Agents                       | Notes                                                       |
 | -------------------------- | -------------------------------------- | --------------------------------------- | ----------------------------------------------------------- |
-| `init-existing-repository` | `devops-engineer`, `backend-developer` | `github-ops-agent`                      | Configure remotes, branches, and automation scripts.        |
-| `create-app-plan`          | `product-manager`, `planner`           | `documentation-expert`                  | Define roadmap, milestones, and success metrics.            |
-| `create-project-structure` | `backend-developer`, `devops-engineer` | `github-ops-agent`, `qa-test-engineer`  | Scaffold services, CI/CD, and baseline tests.               |
-| `update-documentation`     | `documentation-expert`                 | `product-manager`, `developer`          | Capture decisions, runbooks, and onboarding guides.         |
-| `expand-test-suite`        | `qa-test-engineer`                     | `developer`, `backend-developer`        | Add regression, integration, and edge-case coverage.        |
-| `frontend-feature`         | `frontend-developer`                   | `ux-ui-designer`, `qa-test-engineer`    | Build UI components and validate accessibility.             |
-| `infrastructure-hardening` | `devops-engineer`                      | `cloud-infra-expert`, `security-expert` | Harden pipelines, observability, and runtime guardrails.    |
-| `security-audit`           | `security-expert`                      | `backend-developer`, `devops-engineer`  | Review threat models, secrets hygiene, and dependency risk. |
-| `data-workflow`            | `data-scientist`                       | `ml-engineer`, `database-admin`         | Design pipelines, storage strategy, and evaluation loops.   |
-| `performance-optimization` | `performance-optimizer`                | `backend-developer`, `devops-engineer`  | Profile bottlenecks and tune resource usage.                |
+| `init-existing-repository` | `developer`            | `github-expert`                    | Configure remotes, branches, and automation scripts.        |
+| `create-app-plan`          | `product-manager`, `planner` | `documentation-expert`         | Define roadmap, milestones, and success metrics.            |
+| `create-project-structure` | `developer`            | `github-expert`, `qa-test-engineer` | Scaffold services, CI/CD, and baseline tests.               |
+| `update-documentation`     | `documentation-expert` | `product-manager`, `developer`   | Capture decisions, runbooks, and onboarding guides.         |
+| `expand-test-suite`        | `qa-test-engineer`     | `developer`                      | Add regression, integration, and edge-case coverage.        |
+| `security-audit`           | `security-expert`      | `developer`                      | Review threat models, secrets hygiene, and dependency risk. |
 
 ### Execution Rules
 
@@ -119,8 +113,8 @@ For each `$assignment_name` in `$assignments`, you will:
 ### Automatic Delegation Triggers
 
 - Any mention of file creation → MUST delegate to appropriate agent
-- Any build/test operation → MUST delegate to `qa-test-engineer` or `backend-developer`
-- Any infrastructure setup → MUST delegate to `devops-engineer`
+- Any build/test operation → MUST delegate to `qa-test-engineer` or `developer`
+- Any infrastructure setup → MUST delegate to `developer`
 - Any documentation → MUST delegate to `documentation-expert`
 
 ### Violation Reporting

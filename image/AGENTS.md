@@ -70,7 +70,7 @@ scope: repository
     <entry><path>.github/workflows/prompts/orchestrator-agent-prompt.md</path><description>Prompt template with `__EVENT_DATA__` placeholder (sed-substituted at runtime)</description></entry>
     <!-- Agent definitions -->
     <entry><path>.opencode/agents/orchestrator.md</path><description>Orchestrator — coordinates specialists, never writes code directly. Enforces delegation-depth ≤2.</description></entry>
-    <entry><path>.opencode/agents/</path><description>18 specialist agents: agent-instructions-expert, backend-developer, cloud-infra-expert, code-reviewer, database-admin, debugger, developer, devops-engineer, documentation-expert, frontend-developer, github-expert, odbplusplus-expert, planner, product-manager, qa-test-engineer, researcher, ux-ui-designer (and orchestrator).</description></entry>
+    <entry><path>.opencode/agents/</path><description>15 specialist agents: agent-instructions-expert, code-reviewer, database-admin, debugger, developer, documentation-expert, github-expert, odbplusplus-expert, orchestrator, planner, product-manager, prompt-engineer, qa-test-engineer, researcher, security-expert.</description></entry>
     <entry><path>.opencode/commands/</path><description>19 reusable command prompts including: orchestrate-new-project, grind-pr-reviews, fix-failing-workflows, create-application, create-app-plan, orchestrate-dynamic-workflow, orchestrate-project-setup, resolve-pr-comments, optimize-prompt, and more.</description></entry>
     <entry><path>opencode.json</path><description>opencode config (root level) — multi-provider model definitions (ZhipuAI, OpenAI, Kimi, Google), default model, MCP server definitions, and tool permissions.</description></entry>
     <!-- Devcontainer -->

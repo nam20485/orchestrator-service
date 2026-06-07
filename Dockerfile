@@ -74,11 +74,8 @@ ENV PATH="/root/.opencode/bin:${PATH}"
 RUN mkdir -p /workspace && chmod 755 /workspace
 
 WORKDIR /app
-COPY image/opencode.json image/AGENTS.md /app/
-COPY image/.github /app/.github
-COPY image/local_ai_instruction_modules /app/local_ai_instruction_modules
-COPY scripts /app/scripts
-COPY image/.opencode /app/.opencode
+COPY image/ /app/
+
 
 COPY scripts/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh
