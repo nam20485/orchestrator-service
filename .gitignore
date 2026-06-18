@@ -219,3 +219,6 @@ __marimo__/
 auth/auth.json
 .cursor/hooks/state/continual-learning-index.json
 .cursor/hooks/state/continual-learning.json
+
+# Kilo CLI machine-local state (plans, session caches)
+.kilo/
