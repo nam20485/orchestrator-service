@@ -44,6 +44,7 @@ Python app (managed with **uv**) that validates GitHub App webhooks and dispatch
 uv sync
 export OS_WEBHOOK_SECRET='…'   # from GitHub App → Webhook secret
 export OPENCODE_SERVER_URL=http://localhost:4099
+export OPENCODE_SERVER_PASSWORD='…'   # required when the target OpenCode server is password-protected
 export ORCHESTRATOR_WORKSPACE=/workspace   # or a host path with a clone
 # optional: export GH_ORCHESTRATION_AGENT_TOKEN / GITHUB_TOKEN for gh in the agent
 ```
@@ -84,7 +85,7 @@ Content type: `application/json`. Subscribe to the events you need; restrict wit
 | `WEBHOOK_HOST` / `WEBHOOK_PORT` | `0.0.0.0` / `8080` | HTTP bind |
 | `WEBHOOK_ENABLE_SIMULATOR` | `0` | Serve dev UI at `/simulator` when set to `1` |
 
-Logs for the last dispatched run: `/tmp/orchestrator-webhook/last-prompt.md` and `last-run.stderr`.
+Per-dispatch run logs: `/tmp/orchestrator-webhook/prompt-*.md` (the prompt) and `prompt-*.stderr` (pwsh stderr).
 
 ### Webhook simulator (local dev)
 
