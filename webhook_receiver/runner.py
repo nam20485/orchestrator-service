@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import subprocess
 import tempfile
 from pathlib import Path
@@ -43,8 +44,11 @@ def dispatch_to_opencode(settings: Settings, prompt: str) -> None:
     log_dir = Path(tempfile.gettempdir()) / "orchestrator-webhook"
     log_dir.mkdir(parents=True, exist_ok=True)
 
-    prompt_path = log_dir / "last-prompt.md"
-    _ = prompt_path.write_text(prompt, encoding="utf-8")
+    # Unique per-dispatch files so concurrent webhooks don't clobber each other.
+    fd, prompt_name = tempfile.mkstemp(prefix="prompt-", suffix=".md", dir=log_dir)
+    prompt_path = Path(prompt_name)
+    with os.fdopen(fd, "w", encoding="utf-8") as fh:
+        fh.write(prompt)
 
     cmd = _prompt_script_invocation(settings, prompt_path)
 
@@ -56,9 +60,15 @@ def dispatch_to_opencode(settings: Settings, prompt: str) -> None:
         len(prompt.encode("utf-8")),
     )
 
-    subprocess.Popen(
-        cmd,
-        stdout=subprocess.DEVNULL,
-        stderr=open(log_dir / "last-run.stderr", "w", encoding="utf-8"),
-        start_new_session=True,
-    )
+    stderr_path = log_dir / f"{prompt_path.stem}.stderr"
+    stderr_file = open(stderr_path, "w", encoding="utf-8")
+    try:
+        subprocess.Popen(
+            cmd,
+            stdout=subprocess.DEVNULL,
+            stderr=stderr_file,
+            start_new_session=True,
+        )
+    finally:
+        # The child inherited the FD; close the parent-side handle to avoid leaks.
+        stderr_file.close()

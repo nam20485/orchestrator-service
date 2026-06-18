@@ -72,7 +72,8 @@ should_skip_file() {
 }
 
 is_allowlisted_line() {
-  local line="$1"
+  local f="$1"
+  local line="$2"
   [[ "$line" =~ FAKE-.+-FOR-TESTING ]] && return 0
   [[ "$line" =~ example\.(com|org|net) ]] && return 0
   [[ "$line" =~ @example\. ]] && return 0
@@ -81,8 +82,9 @@ is_allowlisted_line() {
   [[ "$line" =~ changeme|placeholder|redacted|REDACTED ]] && return 0
   [[ "$line" =~ =[[:space:]]*[\"\']…[\"\'] ]] && return 0
   [[ "$line" =~ \$\{[A-Za-z_][A-Za-z0-9_]*\} ]] && return 0
-  # Lockfile wheel hashes and digest pins are not PII/secrets
-  [[ "$line" =~ sha256:[a-f0-9]{16,} ]] && return 0
+  # Lockfile wheel/package digest pins (exact 64-hex SHA-256) are not secrets.
+  # Scoped to lockfiles so a real secret sharing a digest-like line elsewhere is still caught.
+  is_lockfile "$f" && [[ "$line" =~ sha256:[a-f0-9]{64} ]] && return 0
   return 1
 }
 
@@ -127,7 +129,7 @@ scan_line() {
   local line="$3"
   local skip_pii="$4"
 
-  is_allowlisted_line "$line" && return 0
+  is_allowlisted_line "$f" "$line" && return 0
 
   if [[ "$line" =~ (AKIA[0-9A-Z]{16}) ]]; then
     report "API_KEY" "$f" "$line_no" "AWS access key id" "$line"
