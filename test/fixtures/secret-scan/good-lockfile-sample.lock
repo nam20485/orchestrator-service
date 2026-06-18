@@ -1,0 +1,6 @@
+version = 1
+[[package]]
+name = "example"
+wheels = [
+    { url = "https://example.com/pkg-6016415861234.whl", hash = "sha256:86e1a4418c6cd97d60c95c71164158eaf7324fae7b0923264016baa993eba6fc", size = 2361286 },
+]

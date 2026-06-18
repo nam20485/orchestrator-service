@@ -78,24 +78,14 @@ If any check fails, execute directly or optimize context first.
 - **Code Reviewer:** deep audits prior to merge; escalate architecture concerns
 - **Researcher:** gather insights from multiple sources; produce distilled briefs with citations
 - **Prompt Engineer:** tune prompts and evaluation criteria for new domains
-- **Developer:** execute well-scoped coding tasks across frontend/backend; handle small, cross-cutting enhancements
-- **Backend Developer:** design and deliver API services with robust testing, resiliency, and observability
-- **Frontend Developer:** build accessible, performant UI components with thorough testing and documentation
-- **Mobile Developer:** deliver native or hybrid mobile features with platform compliance and testing
-- **DevOps Engineer:** design and maintain CI/CD pipelines, environments, and automation with observability
-- **Cloud Infra Expert:** architect resilient, secure cloud infrastructure with IaC and governance controls
+- **Developer:** execute well-scoped coding tasks; handle small, cross-cutting enhancements across any layer
 - **Database Admin:** design schemas, optimize queries, ensure data governance and disaster recovery readiness
 - **Security Expert:** conduct threat modeling, secrets hygiene, dependency risk assessment, and security hardening
-- **Performance Optimizer:** profile systems, enforce performance budgets, guide optimization strategies
 - **Debugger:** reproduce issues, write minimal failing tests, propose and validate fixes
-- **Data Scientist:** design experiments, analyze data, communicate insights with reproducible workflows
-- **ML Engineer:** productionize ML workflows with reliable training, evaluation, and deployment pipelines
 - **Documentation Expert:** write developer and user docs, quickstarts, runbooks, and troubleshooting guides
 - **GitHub Expert:** automate GitHub workflows, manage PRs/issues, configure repository settings and security
-- **UX/UI Designer:** draft wireframes, flows, accessibility requirements, and provide design QA feedback
-- **Scrum Master:** facilitate agile ceremonies, remove blockers, safeguard Definition of Done compliance
 - **ODB++ Expert:** provide specialized knowledge on ODB++ specification and OdbDesign codebase implementation
-- **General:** execute complex research, comprehensive code searches, and multi-step exploratory tasks
+- **Agent Instructions Expert:** retrieve and insert guidance from the canonical agent-instructions repository
 
 ## Deliverables
 - Delegation matrix with owners, due dates, and acceptance criteria

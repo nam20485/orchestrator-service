@@ -1,17 +1,19 @@
 #!/bin/sh
 set -e
 
-AUTH_DEST="/root/.local/share/opencode/auth.json"
+HOME_DIR="${HOME:-/root}"
+AUTH_DEST="${HOME_DIR}/.local/share/opencode/auth.json"
 
 mkdir -p "$(dirname "$AUTH_DEST")"
 
-if [ -n "${ZAI_CODING_API_KEY:-}${ZAI_API_KEY:-}${ZHIPUAI_CODING_API_KEY:-}${OPENROUTER_API_KEY:-}${ALIBABA_API_KEY:-}" ]; then
+if [ -n "${ZAI_CODING_API_KEY:-}${ZAI_API_KEY:-}${OPENROUTER_API_KEY:-}${MODEL_STUDIO_API_KEY:-}" ]; then
   python3 - <<'PY'
 import json
 import os
 import pathlib
 
-auth_path = pathlib.Path("/root/.local/share/opencode/auth.json")
+home = pathlib.Path(os.environ.get("HOME", "/root"))
+auth_path = home / ".local/share/opencode/auth.json"
 auth_path.parent.mkdir(parents=True, exist_ok=True)
 
 auth = {}
@@ -20,17 +22,13 @@ zai_key = os.environ.get("ZAI_CODING_API_KEY") or os.environ.get("ZAI_API_KEY")
 if zai_key:
     auth["zai-coding-plan"] = {"type": "api", "key": zai_key}
 
-zhipuai_key = os.environ.get("ZHIPUAI_CODING_API_KEY") or zai_key
-if zhipuai_key:
-    auth["zhipuai-coding-plan"] = {"type": "api", "key": zhipuai_key}
-
 openrouter_key = os.environ.get("OPENROUTER_API_KEY")
 if openrouter_key:
     auth["openrouter"] = {"type": "api", "key": openrouter_key}
 
-alibaba_key = os.environ.get("ALIBABA_API_KEY")
-if alibaba_key:
-    auth["alibaba"] = {"type": "api", "key": alibaba_key}
+model_studio_key = os.environ.get("MODEL_STUDIO_API_KEY")
+if model_studio_key:
+    auth["bailian-payg"] = {"type": "api", "key": model_studio_key}
 
 if not auth:
     raise SystemExit("No provider API keys found in environment.")
@@ -38,8 +36,12 @@ if not auth:
 auth_path.write_text(json.dumps(auth, indent=2) + "\n")
 PY
 else
-  echo "ERROR: No OpenCode provider credentials found. Set one or more of: ZAI_CODING_API_KEY, ZHIPUAI_CODING_API_KEY, OPENROUTER_API_KEY, ALIBABA_API_KEY." >&2
+  echo "ERROR: No OpenCode provider credentials found. Set one or more of: ZAI_CODING_API_KEY, ZAI_API_KEY, OPENROUTER_API_KEY, MODEL_STUDIO_API_KEY." >&2
   exit 1
 fi
+
+# opencode serve reads ~/.config/opencode by default; image config lives under /app.
+export OPENCODE_CONFIG=/app/opencode.json
+export OPENCODE_CONFIG_DIR=/app/.opencode
 
 exec "$@"

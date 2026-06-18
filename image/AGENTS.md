@@ -70,7 +70,7 @@ scope: repository
     <entry><path>.github/workflows/prompts/orchestrator-agent-prompt.md</path><description>Prompt template with `__EVENT_DATA__` placeholder (sed-substituted at runtime)</description></entry>
     <!-- Agent definitions -->
     <entry><path>.opencode/agents/orchestrator.md</path><description>Orchestrator — coordinates specialists, never writes code directly. Enforces delegation-depth ≤2.</description></entry>
-    <entry><path>.opencode/agents/</path><description>18 specialist agents: agent-instructions-expert, backend-developer, cloud-infra-expert, code-reviewer, database-admin, debugger, developer, devops-engineer, documentation-expert, frontend-developer, github-expert, odbplusplus-expert, planner, product-manager, qa-test-engineer, researcher, ux-ui-designer (and orchestrator).</description></entry>
+    <entry><path>.opencode/agents/</path><description>15 specialist agents: agent-instructions-expert, code-reviewer, database-admin, debugger, developer, documentation-expert, github-expert, odbplusplus-expert, orchestrator, planner, product-manager, prompt-engineer, qa-test-engineer, researcher, security-expert.</description></entry>
     <entry><path>.opencode/commands/</path><description>19 reusable command prompts including: orchestrate-new-project, grind-pr-reviews, fix-failing-workflows, create-application, create-app-plan, orchestrate-dynamic-workflow, orchestrate-project-setup, resolve-pr-comments, optimize-prompt, and more.</description></entry>
     <entry><path>opencode.json</path><description>opencode config (root level) — multi-provider model definitions (ZhipuAI, OpenAI, Kimi, Google), default model, MCP server definitions, and tool permissions.</description></entry>
     <!-- Devcontainer -->
@@ -138,16 +138,18 @@ scope: repository
   </environment_setup>
 
   <testing>
-    <guidance>Tests include both shell scripts (`bash`) and Pester scripts (`pwsh`) in `test/`. The full suite is invoked via `./scripts/validate.ps1 -Test`.</guidance>
+    <guidance>Host repo tests live under `tests/` (pytest), `test/*.sh` (bash), and `test/*.Tests.ps1` (Pester). Invoke via `./scripts/validate.ps1 -Test` or `-All` on the orchestrator-service clone.</guidance>
     <commands>
-      <command>All tests (preferred): `pwsh -NoProfile -File ./scripts/validate.ps1 -Test`</command>
-      <command>Prompt assembly: `bash test/test-prompt-assembly.sh`</command>
-      <command>Tool availability: `bash test/test-devcontainer-tools.sh`</command>
-      <command>Image tag logic: `bash test/test-image-tag-logic.sh`</command>
-      <command>Pester tests: `pwsh -NoProfile -File ./test/run-pester-tests.ps1`</command>
-      <command>Agent validation: `pwsh -NoProfile -File ./test/validate-agents.ps1`</command>
+      <command>All validation (preferred): `pwsh -NoProfile -File ./scripts/validate.ps1 -All`</command>
+      <command>Tests only: `pwsh -NoProfile -File ./scripts/validate.ps1 -Test`</command>
+      <command>Python: `uv run pytest tests/ -q`</command>
+      <command>Pester: `pwsh -NoProfile -File ./test/run-pester-tests.ps1`</command>
+      <command>Docker entrypoint: `bash test/test-docker-entrypoint.sh`</command>
+      <command>Compose config: `bash test/test-compose-config.sh`</command>
+      <command>Caddyfile: `bash test/test-caddyfile.sh`</command>
+      <command>opencode.json: `bash test/test-opencode-json.sh`</command>
     </commands>
-    <guidance>Add new fixture payloads to `test/fixtures/` when testing new event types.</guidance>
+    <guidance>Add webhook fixture payloads to `test/fixtures/github/` when testing new event types. Use synthetic secrets only (`FAKE-KEY-FOR-TESTING-…`).</guidance>
   </testing>
 
   <coding_conventions>
@@ -195,25 +197,30 @@ scope: repository
     <protocol id="persistent_memory" enforcement="MANDATORY">
       <title>Persistent Memory — ALWAYS USE</title>
       <tools>
-        <tool>store_memory</tool>
-        <tool>retrieve_memory</tool>
-        <tool>search_by_tag</tool>
-        <tool>delete_memory</tool>
-        <tool>check_database_health</tool>
+        <tool>create_entities</tool>
+        <tool>create_relations</tool>
+        <tool>add_observations</tool>
+        <tool>delete_entities</tool>
+        <tool>delete_observations</tool>
+        <tool>delete_relations</tool>
+        <tool>read_graph</tool>
+        <tool>search_nodes</tool>
+        <tool>open_nodes</tool>
       </tools>
       <required_usage_points>
-        <point>At task START: Call `retrieve_memory` or `search_by_tag` to retrieve existing context about the project, user preferences, prior decisions, and known patterns BEFORE planning or acting.</point>
-        <point>After SIGNIFICANT WORK: Call `store_memory` to persist important findings, decisions, patterns discovered, and context for future tasks.</point>
-        <point>After COMPLETING a task: Store the outcome, any lessons learned, and follow-up items in the knowledge graph.</point>
-        <point>When STARTING a new workflow or assignment: Search for prior related work, decisions, and context.</point>
+        <point>At task START: Call `search_nodes` and/or `open_nodes` to retrieve existing context about the project, user preferences, prior decisions, and known patterns BEFORE planning or acting. Use `read_graph` only when a full-graph view is required.</point>
+        <point>After SIGNIFICANT WORK: Use `add_observations` on existing entities, or `create_entities` plus `create_relations` for new recurring subjects.</point>
+        <point>After COMPLETING a task: Record outcomes, lessons learned, and follow-up items as atomic observations in the knowledge graph.</point>
+        <point>When STARTING a new workflow or assignment: Search for prior related work, decisions, and context with `search_nodes` using repo, issue, workflow, or run keywords.</point>
       </required_usage_points>
       <what_to_store>
-        <item>Project-specific patterns and conventions discovered during work</item>
+        <item>Entities for recurring organizations, repos, issues, workflow runs, or significant events</item>
+        <item>Relations between related entities (active voice)</item>
+        <item>Atomic observations: one fact per observation string</item>
         <item>User preferences and decisions that affect future tasks</item>
         <item>Architectural decisions and their rationale</item>
         <item>Error patterns and their resolutions</item>
         <item>Cross-task context that would otherwise be lost between sessions</item>
-        <item>Workflow state and progress checkpoints</item>
       </what_to_store>
       <violation>Failing to read existing memory at task start or failing to persist important findings after task completion is a protocol violation.</violation>
     </protocol>
@@ -248,7 +255,7 @@ scope: repository
     <agent_checklist>
       <!-- Agents: verify you have completed these items on every non-trivial task -->
       <item>☐ Called sequential_thinking at task start to plan approach</item>
-      <item>☐ Called retrieve_memory / search_by_tag to retrieve prior context</item>
+      <item>☐ Called search_nodes / open_nodes (or read_graph) to retrieve prior context</item>
       <item>☐ Used sequential_thinking at key decision points during work</item>
       <item>☐ Ran validation (./scripts/validate.ps1 -All) before commit/push</item>
       <item>☐ Fixed all validation failures and re-verified clean</item>
@@ -259,7 +266,7 @@ scope: repository
 
   <agent_specific_guardrails>
     <rule>The Orchestrator agent delegates to specialists via the `task` tool — never writes code directly.</rule>
-    <rule>The Orchestrator MUST invoke `sequential_thinking` before planning any delegation and `retrieve_memory` before every new task to load prior project context.</rule>
+    <rule>The Orchestrator MUST invoke `sequential_thinking` before planning any delegation and `search_nodes` (or `open_nodes`) before every new task to load prior project context from the memory-graph MCP server.</rule>
     <rule>ALL agents MUST follow the mandatory_tool_protocols defined above — sequential thinking, memory, and change validation are not optional.</rule>
     <rule>Prompt assembly pipeline:
       1. Read template from `.github/workflows/prompts/orchestrator-agent-prompt.md`.
@@ -347,11 +354,21 @@ scope: repository
     <instruction id="memory_default_usage" enforcement="MANDATORY">
       <applyTo>*</applyTo>
       <title>Persistent Memory — MANDATORY for all non-trivial tasks</title>
-      <tools><tool>store_memory</tool><tool>retrieve_memory</tool><tool>search_by_tag</tool><tool>delete_memory</tool><tool>check_database_health</tool></tools>
+      <tools>
+        <tool>create_entities</tool>
+        <tool>create_relations</tool>
+        <tool>add_observations</tool>
+        <tool>delete_entities</tool>
+        <tool>delete_observations</tool>
+        <tool>delete_relations</tool>
+        <tool>read_graph</tool>
+        <tool>search_nodes</tool>
+        <tool>open_nodes</tool>
+      </tools>
       <guidance>
         **MUST USE** for all non-trivial requests. This is a mandatory protocol, not a suggestion.
         See `mandatory_tool_protocols.persistent_memory` for full requirements.
-        Invoke at: task start (retrieve_memory/search_by_tag), after significant work (store_memory),
+        Invoke at: task start (`search_nodes` / `open_nodes`), after significant work (`add_observations` / `create_entities` / `create_relations`),
         and after task completion (persist outcomes and lessons learned).
         Skipping memory operations is a protocol violation.
       </guidance>

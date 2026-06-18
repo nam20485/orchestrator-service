@@ -34,7 +34,7 @@ Translate business goals into actionable roadmaps with clear user value, ensurin
 ## Collaboration & Delegation
 - **Researcher:** Delegate market research, competitive analysis, user behavior studies, or regulatory research
 - **Planner:** Delegate work breakdown, timeline estimation, and dependency mapping once requirements are clear
-- **UX/UI Designer:** Delegate user journey mapping, wireframe creation, and accessibility requirement definition
+- **Developer:** Delegate user journey mapping and accessibility requirement definition when UI work is needed
 - **QA Test Engineer:** Delegate acceptance test design and validation coverage planning
 - **Orchestrator:** Escalate when cross-team coordination needed or resource conflicts arise
 - **Documentation Expert:** ensure user-facing materials stay accurate

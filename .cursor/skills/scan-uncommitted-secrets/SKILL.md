@@ -46,13 +46,17 @@ Confirm dry-run would not add credential files or `.env`.
 
 | Category | Examples |
 |----------|----------|
-| API keys | `AKIA…`, `sk-or-v1-…`, `sk-…` |
-| Tokens | `ghp_…`, `ghs_…`, `github_pat_…`, `xox…`, `Bearer …` |
+| Blocked filenames | `.env*`, `auth.json`, `secrets.toml`, `credentials.json`, `*.pem`, `*.p12`, `id_rsa`, … |
+| API keys | `AKIA…`, `sk-or-v1-…`, `sk-proj-…`, `sk-…` |
+| Tokens | `ghp_…`, `ghs_…`, `gho_…`, `ghu_…`, `ghr_…`, `github_pat_…`, `glpat-…`, `xox…`, `Bearer …`, JWT (`eyJ…`) |
 | Passwords | `--password "…"`, `password = "…"` |
-| Secrets | Private key blocks, `api_key = "…"`, auth.json `"key": "…"` entries |
-| PII | SSN patterns, email addresses, phone numbers |
+| Secrets | Private key blocks, generic `api_key = "…"`, auth.json `"key": "…"` entries |
+| Repo env vars | Hardcoded `OS_WEBHOOK_SECRET`, `OPENCODE_SERVER_PASSWORD`, `ZAI_CODING_API_KEY`, `ZAI_API_KEY`, `OPENROUTER_API_KEY`, `MODEL_STUDIO_API_KEY`, `GH_ORCHESTRATION_AGENT_TOKEN`, `GITHUB_TOKEN` (8+ char values) |
+| PII | SSN patterns, email addresses, phone numbers (skipped in `*.lock` files) |
 
-Allowlisted placeholders (for example `FAKE-KEY-FOR-TESTING`, `example.com`) are skipped.
+Allowlisted placeholders (for example `FAKE-*-FOR-TESTING`, `example.com`, `'…'`, `${VAR}` compose interpolation) are skipped.
+
+Regression tests: `bash test/test-scan-secrets.sh` (also run via `validate.ps1 -Test`).
 
 ## Response format when findings exist
 
@@ -75,9 +79,18 @@ Found **N** issue(s) in changed/untracked files:
 
 ## Repo-specific reminders
 
-- Provider credentials belong in host or CI environment variables (`ZAI_CODING_API_KEY`, etc.), not committed files
+- Provider credentials belong in host or CI environment variables (`ZAI_CODING_API_KEY`, `MODEL_STUDIO_API_KEY`, `OS_WEBHOOK_SECRET`, etc.), not committed files
 - Client scripts should use `$env:OPENCODE_SERVER_PASSWORD`, not hardcoded passwords
+- Compose should use `${VAR}` interpolation, not literal secret values
 - Scan results are advisory; review false positives (documentation mentioning `password` without values is usually fine)
+
+## Blocked credential filenames
+
+The scanner fails immediately (before line scan) if a changed file path matches:
+
+`.env`, `.env.*`, `.envrc`, `auth.json`, `secrets.toml`, `.pypirc`, `credentials.json`, `id_rsa`, `id_dsa`, `id_ecdsa`, `id_ed25519`, `*.pem`, `*.p12`
+
+These must not be committed even when gitignored locally.
 
 ## Do not
 

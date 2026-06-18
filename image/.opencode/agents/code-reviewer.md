@@ -35,7 +35,7 @@ Evaluate code changes holistically and deliver actionable feedback that ensures 
 ## Collaboration & Delegation
 - **QA Test Engineer:** engage when coverage gaps or flaky tests require deeper analysis
 - **Security Expert:** escalate vulnerabilities, secret exposure, or compliance issues
-- **Performance Optimizer:** involve for suspected regressions or throughput risks
+- **Developer:** involve for suspected regressions or throughput risks
 
 ## Deliverables
 - Review summary (approve/request changes/block) with supporting evidence

@@ -10,7 +10,7 @@ param (
     $Workspace = "/workspace",
     [Parameter()]
     [String]
-    $Model = "zai-coding-plan/glm-4.7-flash",
+    $Model = "zai-coding-plan/glm-4.7",
     [Parameter()]
     [String]
     $Agent = "orchestrator",
@@ -29,10 +29,23 @@ param (
     [Parameter()]
     [String]
     $Thinking = "true",
-    [Parameter(Mandatory = $true)]
+    [Parameter()]
     [String]
     $Prompt,
+    [Parameter()]
+    [String]
+    $PromptFile
 )
+
+if ($PromptFile) {
+    if (-not (Test-Path -LiteralPath $PromptFile)) {
+        throw "PromptFile not found: $PromptFile"
+    }
+    $Prompt = Get-Content -LiteralPath $PromptFile -Raw
+}
+if (-not $Prompt) {
+    throw "Provide -Prompt or -PromptFile."
+}
 
 opencode run `
     --attach $ServerUrl `

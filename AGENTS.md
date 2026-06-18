@@ -2,6 +2,7 @@
 
 - Wants repo-visible POR/spec documents (e.g. `plan_docs/plan.md`) with requirements, acceptance criteria, validation plan, and phased development—not Cursor-internal plan files alone for approval.
 - Does not want RFC-style planning writeups; wants a formal spec the user can see, save, and approve before implementation.
+- GitHub App webhooks: App handles signed delivery and event subscriptions; orchestration `gh`/API stays on `GH_ORCHESTRATION_AGENT_TOKEN` (PAT). The receiver does not mint installation tokens—app installation tokens are optional, not required for the current design.
 - OpenCode server containers should be generic and workspace-agnostic; do not mount the host repo by default—clients, prompts, or launchers define code access via `--dir` (default `/workspace` in `scripts/prompt.ps1`).
 - Client wrapper scripts (`scripts/prompt.ps1`, `scripts/attach.ps1`) should be thin pass-throughs that require a local `opencode` CLI; no auto-install or Docker client fallback in the first implementation.
 - When the server is network-reachable (e.g. Tailscale/LAN), publish port `4099` and require `OPENCODE_SERVER_PASSWORD` at Compose startup.
@@ -9,21 +10,62 @@
 - Client scripts should rely on host `OPENCODE_SERVER_PASSWORD` (opencode CLI default); never hardcode server passwords in committed scripts.
 - Before commit, scan changed files for secrets (API keys, hardcoded passwords); never commit API keys or provider credentials.
 - Use `.cursor/skills/scan-uncommitted-secrets` for pre-commit secret checks; use `.cursor/skills/safe-commit` for grouped commits after a clean scan.
+- For webhook simulator secrets, avoid new config endpoints; read `OS_WEBHOOK_SECRET` from the server process environment and inject it when serving simulator HTML.
+- When describing fixes, distinguish uncommitted local edits from committed repo state and from what a rebuilt/running container image actually contains.
+- For local GitHub webhook development, tunnel public HTTPS to host port **80** (Caddy), not receiver **8080**; use **ngrok** or **Tailscale Funnel** (`tailscale funnel 80`; stable `*.ts.net` URL, less churn than free ngrok). With Funnel active, use `compose.yaml` only—do not add `compose.https.yaml` (Funnel and Caddy both bind host **443**).
 
 ## Learned Workspace Facts
 
-- Docker image uses `debian:trixie-20260518-slim`, runs `opencode serve` on `0.0.0.0:4099`, and bundles Node.js 24.14.0, pwsh 7.6.2 LTS, uv, gh CLI, Python3, ripgrep, jq, and agent utilities (git, make, openssh-client, gnupg, patch, xz-utils, file, procps); Node and pwsh use linux-x64 tarballs (image is amd64-only for now).
-- Install Node and PowerShell via official `.tar.gz` tarballs; PowerShell uses GitHub tarball because Microsoft apt repo fails on trixie (SHA1 key policy).
-- Authoritative OpenCode server planning spec for this repo: `plan_docs/plan.md`.
-- OpenCode server config source of truth is repo `image/` (`opencode.json`, `AGENTS.md`, `.opencode/agents/`, `.opencode/commands/`); Dockerfile copies those into `/app` (no full-repo `COPY . .`); `.dockerignore` excludes non-image files.
+- Docker image uses `debian:trixie-20260518-slim`, runs `opencode serve` on `0.0.0.0:4099`, and bundles Node.js 24.14.0, pwsh 7.6.2 LTS, uv, gh CLI, Python3, ripgrep, jq, and agent utilities (git, make, openssh-client, gnupg, patch, xz-utils, file, procps); Node and pwsh install from linux-x64 `.tar.gz` tarballs (image is amd64-only; PowerShell uses GitHub tarball because Microsoft apt repo fails on trixie SHA1 policy).
+- Authoritative OpenCode server POR: `plan_docs/plan.md`; dual orchestrator/maestro supervisor spec: `plan_docs/orchestration_supervisor.md`; maestro architecture options and recommendation: `plan_docs/maestro_architecture_options.md`.
+- OpenCode server config source of truth is repo `image/` (`opencode.json`, `AGENTS.md`, `.opencode/agents/`, `.opencode/commands/`); Dockerfile copies those into `/app` (no full-repo `COPY . .`); `scripts/docker-entrypoint.sh` exports `OPENCODE_CONFIG=/app/opencode.json` and `OPENCODE_CONFIG_DIR=/app/.opencode` so `opencode serve` loads image config instead of defaulting to `~/.config/opencode`.
 - Agent sessions run in `/workspace` (compose volume `opencode-workspace`); `/app` is server config only—keep working tree separate from OpenCode install/config.
-- Root repo `AGENTS.md` is Cursor continual-learning memory only; the container uses `image/AGENTS.md` copied to `/app/AGENTS.md` (overwrites any root copy).
-- Provider auth: `scripts/docker-entrypoint.sh` writes `/root/.local/share/opencode/auth.json` from host/CI env vars before `opencode serve` starts; supported vars: `ZAI_CODING_API_KEY` (or `ZAI_API_KEY`), `ZHIPUAI_CODING_API_KEY`, `OPENROUTER_API_KEY`, `ALIBABA_API_KEY` (at least one required).
+- Root repo `AGENTS.md` is Cursor memory plus host-repo validation docs; the container uses `image/AGENTS.md` copied to `/app/AGENTS.md` (overwrites any root copy).
+- Provider auth: `scripts/docker-entrypoint.sh` writes `/root/.local/share/opencode/auth.json` from host/CI env vars before `opencode serve` starts; supported vars include `ZAI_CODING_API_KEY` (or `ZAI_API_KEY`), `OPENROUTER_API_KEY`, and `MODEL_STUDIO_API_KEY`; Alibaba Model Studio Singapore (`bailian-payg`) defaults to `bailian-payg/qwen3.6-plus` with `bailian-payg/qwen3.6-flash` as `small_model`.
 - `zai-coding-plan/glm-4.7` needs `ZAI_CODING_API_KEY`; `OPENROUTER_API_KEY` alone does not authenticate that provider.
 - MCP `memory-graph` in `image/opencode.json` uses `@modelcontextprotocol/server-memory` with `MEMORY_FILE_PATH=/app/.memory/memory.jsonl`; compose volume `opencode-memory` persists it.
 - OpenCode config: use `default_agent` (not `agent`); remote MCPs like `microsoft-learn` need `type: "remote"` and `enabled: true`.
 - Compose `environment: - VAR` passes host shell env into the container; `${VAR}` adds `.env` interpolation—this project does not use `.env`.
-- Host client scripts: `scripts/prompt.ps1`, `scripts/attach.ps1` (PowerShell thin wrappers to local `opencode`); one-shot via `opencode run --attach <url>`, interactive via `opencode attach <url>`.
+- Host client scripts: `scripts/prompt.ps1`, `scripts/attach.ps1` (PowerShell thin wrappers to local `opencode`; pwsh is a host prerequisite); one-shot via `opencode run --attach <url>`, interactive via `opencode attach <url>`.
+- GitHub webhook stack: `webhook_receiver/` FastAPI validates App webhooks with `OS_WEBHOOK_SECRET` and dispatches OpenCode via `scripts/prompt.ps1` (`-PromptFile` for large payloads); `webhook-receiver` (internal :8080) behind `webhook-proxy` (Caddy on host :80; prod TLS via `compose.https.yaml` for :443); path `/webhooks/github`. Hybrid auth: App for delivery/subscriptions; agent `gh`/API uses `GH_ORCHESTRATION_AGENT_TOKEN` (PAT), not installation JWT. Subscribing to `issues` requires App **Issues: Read** (read is enough for webhook delivery). Dev simulator at `/simulator` when `WEBHOOK_ENABLE_SIMULATOR=1` (off by default), `OS_WEBHOOK_SECRET` injected server-side. Local Funnel: `compose.yaml` only; prod: `COMPOSE_FILE=compose.yaml:compose.https.yaml`.
+
+## Testing
+
+- Full suite: `pwsh -NoProfile -File ./scripts/validate.ps1 -Test` (or `-All` for lint + scan + test).
+- Python: `uv sync --group dev` then `uv run pytest tests/ -q`.
+- Pester: `pwsh -NoProfile -File ./test/run-pester-tests.ps1`.
+- Bash: `test/test-docker-entrypoint.sh`, `test/test-compose-config.sh`, `test/test-caddyfile.sh`, `test/test-opencode-json.sh`.
+- Webhook fixtures: `test/fixtures/github/` (use `FAKE-KEY-FOR-TESTING-…` only; never `ghp_`, `sk-`, `AKIA`, etc. in fixtures).
+
+## Change validation (mandatory)
+
+After any non-trivial change (code, config, workflows, Docker):
+
+1. Run `pwsh -NoProfile -File ./scripts/validate.ps1 -All`.
+2. Fix all failures; re-run until clean.
+3. Only then commit and push.
+
+Missing local tools: `pwsh -NoProfile -File ./scripts/install-dev-tools.ps1`.
+
+## Validation commands
+
+| Check | Command | CI job (`validate.yml`) |
+|-------|---------|-------------------------|
+| All (local) | `./scripts/validate.ps1 -All` | lint + scan + test (not build) |
+| Lint | `./scripts/validate.ps1 -Lint` | `lint` |
+| Secret scan | `./scripts/validate.ps1 -Scan` | `scan` |
+| Tests | `./scripts/validate.ps1 -Test` | `test` |
+| Docker image build | *(CI only)* | `build` |
+
+## Pre-commit checklist
+
+- Ran `./scripts/validate.ps1 -All` (or the relevant `-Lint` / `-Scan` / `-Test` subset).
+- Secret scan clean (`.cursor/skills/scan-uncommitted-secrets` or `validate.ps1 -Scan`).
+- No real API keys or tokens in committed files.
+
+## After push
+
+Monitor CI until green: `gh run list --limit 5`, `gh run watch <id>`, `gh run view <id> --log-failed`. Required workflow: **validate** (lint, scan, test, build). Do not mark work complete while CI is red.
 
 ## Agent Instructions
 

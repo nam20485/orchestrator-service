@@ -1,6 +1,7 @@
 services:
   orchestratorservice:
     image: orchestratorservice
+    platform: linux/amd64
     build:
       context: .
       dockerfile: ./Dockerfile
@@ -9,15 +10,59 @@ services:
     volumes:
       - opencode-memory:/app/.memory
       - opencode-workspace:/workspace
+    restart: always
     environment:
-      - ZAI_CODING_API_KEY
-      - ZHIPUAI_CODING_API_KEY
-      - OPENROUTER_API_KEY
-      - ALIBABA_API_KEY
-      - GH_ORCHESTRATION_AGENT_TOKEN
-      - GITHUB_TOKEN
-      - OPENCODE_SERVER_PASSWORD
+      - ZAI_CODING_API_KEY=${ZAI_CODING_API_KEY}
+      - ZAI_API_KEY=${ZAI_API_KEY}
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
+      - MODEL_STUDIO_API_KEY=${MODEL_STUDIO_API_KEY}
+      - MS_DS_API_KEY=${MS_DS_API_KEY}
+      - NOTION_MCP_CONNECTIONS_API_KEY=${NOTION_MCP_CONNECTIONS_API_KEY}
+      - GH_ORCHESTRATION_AGENT_TOKEN=${GH_ORCHESTRATION_AGENT_TOKEN}
+      - GITHUB_TOKEN=${GITHUB_TOKEN}
+      - OPENCODE_SERVER_PASSWORD=${OPENCODE_SERVER_PASSWORD}
+
+  webhook-receiver:
+    image: orchestrator-webhook
+    platform: linux/amd64
+    build:
+      context: .
+      dockerfile: ./Dockerfile.webhook
+    expose:
+      - "8080"
+    volumes:
+      - opencode-workspace:/workspace
+    environment:
+      - OS_WEBHOOK_SECRET=${OS_WEBHOOK_SECRET}
+      - OPENCODE_SERVER_URL=http://orchestratorservice:4099
+      - OPENCODE_SERVER_PASSWORD=${OPENCODE_SERVER_PASSWORD}
+      - GH_ORCHESTRATION_AGENT_TOKEN=${GH_ORCHESTRATION_AGENT_TOKEN}
+      - GITHUB_TOKEN=${GITHUB_TOKEN}
+      - WEBHOOK_ALLOWED_EVENTS=${WEBHOOK_ALLOWED_EVENTS:-}
+      - WEBHOOK_ENABLE_SIMULATOR=${WEBHOOK_ENABLE_SIMULATOR:-0}
+    depends_on:
+      - orchestratorservice
+    restart: unless-stopped
+
+  webhook-proxy:
+    image: caddy:2.10.0-alpine@sha256:ae4458638da8e1a91aafffb231c5f8778e964bca650c8a8cb23a7e8ac557aa3c
+    # Host :80 — HTTP (local dev, Tailscale Funnel, ACME). For Caddy TLS on :443 in prod,
+    # also use compose.https.yaml (see README) or COMPOSE_FILE=compose.yaml:compose.https.yaml
+    ports:
+      - "80:80"
+    environment:
+      # :80 = HTTP only; set to your hostname (e.g. hooks.example.com) for automatic HTTPS
+      - WEBHOOK_SITE_ADDRESS=${WEBHOOK_SITE_ADDRESS:-:80}
+    volumes:
+      - ./deploy/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - webhook-receiver
+    restart: unless-stopped
 
 volumes:
   opencode-memory:
   opencode-workspace:
+  caddy_data:
+  caddy_config:

@@ -32,10 +32,9 @@ Ensure data systems are resilient, performant, secure, and aligned with applicat
 6. Update documentation (ERDs, data dictionary) and communicate changes to stakeholders
 
 ## Collaboration & Delegation
-- **Backend Developer:** coordinate application layer adjustments and ORM updates
-- **DevOps Engineer:** automate migration execution, backup jobs, and monitoring alerts
+- **Developer:** coordinate application layer adjustments and ORM updates
 - **Security Expert:** review access policies, encryption, and compliance requirements
-- **Data Scientist:** support analytical workloads with materialized views or data marts
+- **Researcher:** support analytical workloads with materialized views or data marts when domain research is needed
 
 ## Deliverables
 - Migration plans, scripts, and rollback procedures
