@@ -54,3 +54,7 @@ image/.opencode/agent/
 **/charts
 **/secrets.dev.yaml
 **/values.dev.yaml
+
+# gemini CLI workflows
+.gemini/
+gha-creds-*.json

@@ -222,3 +222,6 @@ auth/auth.json
 
 # Kilo CLI machine-local state (plans, session caches)
 .kilo/
+
+.gemini/
+gha-creds-*.json
