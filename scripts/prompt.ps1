@@ -4,7 +4,7 @@
 param (    
     [Parameter()]
     [String]
-    $ServerUrl = "http://localhost:4099",
+    $ServerUrl,
     [Parameter()]
     [String]
     $Workspace = "/workspace",
@@ -36,6 +36,18 @@ param (
     [String]
     $PromptFile
 )
+
+if (-not $ServerUrl) {
+    if ($env:OPENCODE_SERVER_URL) {
+        $ServerUrl = $env:OPENCODE_SERVER_URL
+    } elseif ($env:OPENCODE_HOST -or $env:OPENCODE_PORT) {
+        $host_ = if ($env:OPENCODE_HOST) { $env:OPENCODE_HOST } else { "localhost" }
+        $port_ = if ($env:OPENCODE_PORT) { $env:OPENCODE_PORT } else { "4099" }
+        $ServerUrl = "http://${host_}:${port_}"
+    } else {
+        $ServerUrl = "http://localhost:4099"
+    }
+}
 
 if ($PromptFile) {
     if (-not (Test-Path -LiteralPath $PromptFile)) {
