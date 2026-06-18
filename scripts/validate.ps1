@@ -82,13 +82,12 @@ try {
             }
         }
 
-        Invoke-BashStep -Name 'compose config' -ScriptPath './test/test-compose-config.sh'
-
         if (Get-Command docker -ErrorAction SilentlyContinue) {
+            Invoke-BashStep -Name 'compose config' -ScriptPath './test/test-compose-config.sh'
             Invoke-BashStep -Name 'caddyfile' -ScriptPath './test/test-caddyfile.sh'
         }
         else {
-            Write-Warning 'Skipping caddyfile: docker not available.'
+            Write-Warning 'Skipping compose config and caddyfile: docker not available.'
         }
 
         Invoke-BashStep -Name 'opencode.json' -ScriptPath './test/test-opencode-json.sh'
@@ -122,9 +121,12 @@ try {
 
         Invoke-BashStep -Name 'docker-entrypoint' -ScriptPath './test/test-docker-entrypoint.sh'
         Invoke-BashStep -Name 'secret scan (regression)' -ScriptPath './test/test-scan-secrets.sh'
-        Invoke-BashStep -Name 'compose config (test)' -ScriptPath './test/test-compose-config.sh'
         if (Get-Command docker -ErrorAction SilentlyContinue) {
+            Invoke-BashStep -Name 'compose config (test)' -ScriptPath './test/test-compose-config.sh'
             Invoke-BashStep -Name 'caddyfile (test)' -ScriptPath './test/test-caddyfile.sh'
+        }
+        else {
+            Write-Warning 'Skipping compose config and caddyfile (test): docker not available.'
         }
         Invoke-BashStep -Name 'opencode.json (test)' -ScriptPath './test/test-opencode-json.sh'
     }

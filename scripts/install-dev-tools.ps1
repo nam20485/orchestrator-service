@@ -13,6 +13,14 @@ $ErrorActionPreference = 'Stop'
 $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 Push-Location $RepoRoot
 try {
+    if (-not (Get-Command uv -ErrorAction SilentlyContinue)) {
+        throw @'
+uv is required but was not found on PATH. Install it first, then rerun this script:
+  - Linux/macOS:  curl -LsSf https://astral.sh/uv/install.sh | sh
+  - Windows:      powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+'@
+    }
+
     Write-Host 'Syncing Python dev dependencies (pytest, ruff, httpx)...' -ForegroundColor Cyan
     uv sync --group dev
 
