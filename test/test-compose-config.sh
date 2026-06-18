@@ -14,3 +14,11 @@ echo "compose config: ok"
 
 docker compose -f compose.yaml -f compose.https.yaml config --quiet
 echo "compose https overlay: ok"
+
+# Verify enforcement: compose config should fail without OPENCODE_SERVER_PASSWORD
+if (unset OPENCODE_SERVER_PASSWORD && docker compose -f compose.yaml config --quiet 2>/dev/null); then
+  echo "FAIL: compose should require OPENCODE_SERVER_PASSWORD"
+  exit 1
+else
+  echo "compose enforces OPENCODE_SERVER_PASSWORD: ok"
+fi
