@@ -52,6 +52,32 @@ actionlint is not installed. Options:
         Write-Host 'docker: required for compose/caddy tests and CI build job' -ForegroundColor Yellow
     }
 
+    # Beads ecosystem (br + bvr) — required for the graph-backed agent loop.
+    if (-not (Get-Command cargo -ErrorAction SilentlyContinue)) {
+        Write-Host @'
+cargo is not installed. Install Rust via https://rustup.rs/ to compile the Beads ecosystem (br, bvr).
+  br:  cargo install --git https://github.com/Dicklesworthstone/beads_rust.git
+  bvr: cargo install --git https://github.com/Dicklesworthstone/beads_viewer_rust.git bvr
+'@ -ForegroundColor Yellow
+    }
+    else {
+        if (-not (Get-Command br -ErrorAction SilentlyContinue)) {
+            Write-Host 'Compiling and installing br (beads_rust)...' -ForegroundColor Cyan
+            cargo install --git https://github.com/Dicklesworthstone/beads_rust.git
+        }
+        else {
+            Write-Host 'br already installed.' -ForegroundColor Green
+        }
+
+        if (-not (Get-Command bvr -ErrorAction SilentlyContinue)) {
+            Write-Host 'Compiling and installing bvr (beads_viewer_rust)...' -ForegroundColor Cyan
+            cargo install --git https://github.com/Dicklesworthstone/beads_viewer_rust.git bvr
+        }
+        else {
+            Write-Host 'bvr already installed.' -ForegroundColor Green
+        }
+    }
+
     Write-Host ''
     Write-Host 'Done. Run: pwsh -NoProfile -File ./scripts/validate.ps1 -All' -ForegroundColor Green
 }
