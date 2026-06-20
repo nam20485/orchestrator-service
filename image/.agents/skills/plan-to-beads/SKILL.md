@@ -14,7 +14,7 @@ Translate an application plan into a graph of atomic execution tasks inside the 
 <prerequisites>
 The `br` CLI must be installed. Verify with `br --version`. If missing, install via:
 ```
-cargo install --git https://github.com/Dicklesworthstone/beads_rust.git beads_rust
+cargo install --git https://github.com/Dicklesworthstone/beads_rust.git --tag v0.2.15 beads_rust
 ```
 </prerequisites>
 
