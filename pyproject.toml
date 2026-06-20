@@ -40,6 +40,9 @@ testpaths = ["tests"]
 
 [tool.coverage.run]
 source = ["webhook_receiver"]
+omit = [
+    "webhook_receiver/__main__.py",
+]
 
 [tool.coverage.report]
 show_missing = true

@@ -32,6 +32,11 @@ class Settings:
     max_body_bytes: int
     log_level: str
     enable_simulator: bool
+    beads_enabled: bool
+    beads_poll_interval: int
+    beads_max_retries: int
+    beads_workspace_root: str
+    beads_target_repo: str
 
     @classmethod
     def from_env(cls) -> Settings:
@@ -73,4 +78,12 @@ class Settings:
             .strip()
             .lower()
             in ("1", "true", "yes"),
+            beads_enabled=os.environ.get("BEADS_ENABLED", "true")
+            .strip()
+            .lower()
+            in ("1", "true", "yes"),
+            beads_poll_interval=int(os.environ.get("BEADS_POLL_INTERVAL", "10")),
+            beads_max_retries=int(os.environ.get("BEADS_MAX_RETRIES", "3")),
+            beads_workspace_root=os.environ.get("BEADS_WORKSPACE_ROOT", "/workspace"),
+            beads_target_repo=os.environ.get("BEADS_TARGET_REPO", "").strip(),
         )
