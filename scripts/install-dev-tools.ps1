@@ -56,14 +56,22 @@ actionlint is not installed. Options:
     if (-not (Get-Command cargo -ErrorAction SilentlyContinue)) {
         Write-Host @'
 cargo is not installed. Install Rust via https://rustup.rs/ to compile the Beads ecosystem (br, bvr).
-  br:  cargo install --git https://github.com/Dicklesworthstone/beads_rust.git beads_rust
-  bvr: cargo install --git https://github.com/Dicklesworthstone/beads_viewer_rust.git bvr
+  beads_rust requires the nightly toolchain: rustup toolchain install nightly
+  br:  cargo +nightly install --git https://github.com/Dicklesworthstone/beads_rust.git beads_rust
+  bvr: cargo +nightly install --git https://github.com/Dicklesworthstone/beads_viewer_rust.git bvr
 '@ -ForegroundColor Yellow
     }
     else {
+        # beads_rust 0.2.15 (via the `asupersync` dependency) uses `#![feature]`,
+        # which requires the nightly toolchain.
+        if (-not (& rustup toolchain list 2>$null | Select-String -Quiet 'nightly')) {
+            Write-Host 'Installing Rust nightly toolchain (required by beads_rust)...' -ForegroundColor Cyan
+            rustup toolchain install nightly
+        }
+
         if (-not (Get-Command br -ErrorAction SilentlyContinue)) {
             Write-Host 'Compiling and installing br (beads_rust)...' -ForegroundColor Cyan
-            cargo install --git https://github.com/Dicklesworthstone/beads_rust.git beads_rust
+            cargo +nightly install --git https://github.com/Dicklesworthstone/beads_rust.git beads_rust
         }
         else {
             Write-Host 'br already installed.' -ForegroundColor Green
@@ -71,7 +79,7 @@ cargo is not installed. Install Rust via https://rustup.rs/ to compile the Beads
 
         if (-not (Get-Command bvr -ErrorAction SilentlyContinue)) {
             Write-Host 'Compiling and installing bvr (beads_viewer_rust)...' -ForegroundColor Cyan
-            cargo install --git https://github.com/Dicklesworthstone/beads_viewer_rust.git bvr
+            cargo +nightly install --git https://github.com/Dicklesworthstone/beads_viewer_rust.git bvr
         }
         else {
             Write-Host 'bvr already installed.' -ForegroundColor Green
