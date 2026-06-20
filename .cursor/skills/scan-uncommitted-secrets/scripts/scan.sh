@@ -81,7 +81,8 @@ is_allowlisted_line() {
   [[ "$line" =~ \<YOUR_.*\> ]] && return 0
   [[ "$line" =~ changeme|placeholder|redacted|REDACTED ]] && return 0
   [[ "$line" =~ =[[:space:]]*[\"\']…[\"\'] ]] && return 0
-  [[ "$line" =~ \$\{[A-Za-z_][A-Za-z0-9_]*\} ]] && return 0
+  # Compose-style interpolation: ${VAR}, ${VAR:-default}, ${VAR:?msg}
+  [[ "$line" =~ \$\{[A-Za-z_][A-Za-z0-9_]*(:[?\-][^}]*)?\} ]] && return 0
   # Lockfile wheel/package digest pins (exact 64-hex SHA-256) are not secrets.
   # Scoped to lockfiles so a real secret sharing a digest-like line elsewhere is still caught.
   is_lockfile "$f" && [[ "$line" =~ sha256:[a-f0-9]{64} ]] && return 0
