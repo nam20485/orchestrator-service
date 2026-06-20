@@ -1,7 +1,7 @@
 # GitHub webhook receiver — forwards events to the OpenCode server via scripts/prompt.ps1
 
 # --- Stage 1: Rust Builder (Beads ecosystem: br + bvr) ---
-FROM rust:1.85-slim-bookworm AS rust-builder
+FROM rust:1.95-slim-bookworm AS rust-builder
 RUN apt-get update && apt-get install -y --no-install-recommends git pkg-config libssl-dev \
     && rm -rf /var/lib/apt/lists/*
 RUN cargo install --git https://github.com/Dicklesworthstone/beads_rust.git beads_rust
