@@ -56,14 +56,14 @@ actionlint is not installed. Options:
     if (-not (Get-Command cargo -ErrorAction SilentlyContinue)) {
         Write-Host @'
 cargo is not installed. Install Rust via https://rustup.rs/ to compile the Beads ecosystem (br, bvr).
-  br:  cargo install --git https://github.com/Dicklesworthstone/beads_rust.git
+  br:  cargo install --git https://github.com/Dicklesworthstone/beads_rust.git beads_rust
   bvr: cargo install --git https://github.com/Dicklesworthstone/beads_viewer_rust.git bvr
 '@ -ForegroundColor Yellow
     }
     else {
         if (-not (Get-Command br -ErrorAction SilentlyContinue)) {
             Write-Host 'Compiling and installing br (beads_rust)...' -ForegroundColor Cyan
-            cargo install --git https://github.com/Dicklesworthstone/beads_rust.git
+            cargo install --git https://github.com/Dicklesworthstone/beads_rust.git beads_rust
         }
         else {
             Write-Host 'br already installed.' -ForegroundColor Green

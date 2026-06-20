@@ -33,7 +33,7 @@ if (-not (Get-Command cargo -ErrorAction SilentlyContinue)) {
     Write-Host 'Compiling and installing Beads ecosystem (this may take a few minutes)...' -ForegroundColor Cyan
 
     # br: The core tracker (create, close, dep add)
-    cargo install --git https://github.com/Dicklesworthstone/beads_rust.git
+    cargo install --git https://github.com/Dicklesworthstone/beads_rust.git beads_rust
 
     # bvr: The analytical engine (graph resolution, --robot-ready)
     cargo install --git https://github.com/Dicklesworthstone/beads_viewer_rust.git
@@ -53,7 +53,7 @@ To keep the final production Docker image lean, we must implement a multi-stage 
 FROM rust:1.77-slim AS rust-builder
 WORKDIR /build
 RUN apt-get update && apt-get install -y git pkg-config libssl-dev
-RUN cargo install --git https://github.com/Dicklesworthstone/beads_rust.git
+RUN cargo install --git https://github.com/Dicklesworthstone/beads_rust.git beads_rust
 RUN cargo install --git https://github.com/Dicklesworthstone/beads_viewer_rust.git
 
 # --- Stage 2: Final Python/UV Image ---
