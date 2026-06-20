@@ -29,6 +29,11 @@ def _test_settings() -> Settings:
         max_body_bytes=25 * 1024 * 1024,
         log_level="warning",
         enable_simulator=False,
+        beads_enabled=False,
+        beads_poll_interval=10,
+        beads_max_retries=3,
+        beads_workspace_root="/workspace",
+        beads_target_repo="",
     )
 
 
@@ -95,6 +100,11 @@ def test_rejects_oversized_body(monkeypatch: pytest.MonkeyPatch) -> None:
         max_body_bytes=8,
         log_level=base.log_level,
         enable_simulator=base.enable_simulator,
+        beads_enabled=base.beads_enabled,
+        beads_poll_interval=base.beads_poll_interval,
+        beads_max_retries=base.beads_max_retries,
+        beads_workspace_root=base.beads_workspace_root,
+        beads_target_repo=base.beads_target_repo,
     )
     dispatch = MagicMock()
     monkeypatch.setattr("webhook_receiver.app.dispatch_to_opencode", dispatch)
@@ -155,6 +165,11 @@ def test_ignores_disallowed_event(monkeypatch: pytest.MonkeyPatch) -> None:
         max_body_bytes=base.max_body_bytes,
         log_level=base.log_level,
         enable_simulator=base.enable_simulator,
+        beads_enabled=base.beads_enabled,
+        beads_poll_interval=base.beads_poll_interval,
+        beads_max_retries=base.beads_max_retries,
+        beads_workspace_root=base.beads_workspace_root,
+        beads_target_repo=base.beads_target_repo,
     )
     dispatch = MagicMock()
     monkeypatch.setattr("webhook_receiver.app.dispatch_to_opencode", dispatch)

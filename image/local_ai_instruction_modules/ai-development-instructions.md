@@ -102,3 +102,18 @@ This repository is a **template for AI-assisted application development**. The a
 1. **Shell Detection**: Check current shell (bash vs pwsh) before running commands
 2. **Remote Authority**: Only use remote canonical repository files for workflow definitions
 3. **Tool Priority**: Use MCP GitHub tools first, `gh` CLI as fallback, GitHub API when needed
+
+## TASK COMPLETION CONTRACT (CRITICAL)
+
+You are a localized worker operating within a strict graph-based execution loop.
+You do NOT have authority over the broader project plan.
+
+When you have completed your assigned task, and ALL local tests pass, you must
+follow this exact sequence:
+
+1. Commit your code: `/safe-commit`
+2. Mark the graph node complete: `br close <YOUR_ASSIGNED_BEAD_ID>`
+3. Exit the environment cleanly.
+
+Failure to execute `br close` will result in infinite retry loops and task
+failure. Do NOT attempt to complete blocked tasks.
