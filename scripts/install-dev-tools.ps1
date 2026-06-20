@@ -58,7 +58,7 @@ actionlint is not installed. Options:
 cargo is not installed. Install Rust via https://rustup.rs/ to compile the Beads ecosystem (br, bvr).
   beads_rust requires the nightly toolchain: rustup toolchain install nightly
   br:  cargo +nightly install --git https://github.com/Dicklesworthstone/beads_rust.git --tag v0.2.15 beads_rust
-  bvr: cargo +nightly install --git https://github.com/Dicklesworthstone/beads_viewer_rust.git bvr
+  bvr: cargo +nightly install --git https://github.com/Dicklesworthstone/beads_viewer_rust.git --tag v0.2.1 beads_viewer_rust
 '@ -ForegroundColor Yellow
     }
     else {
@@ -79,7 +79,7 @@ cargo is not installed. Install Rust via https://rustup.rs/ to compile the Beads
 
         if (-not (Get-Command bvr -ErrorAction SilentlyContinue)) {
             Write-Host 'Compiling and installing bvr (beads_viewer_rust)...' -ForegroundColor Cyan
-            cargo +nightly install --git https://github.com/Dicklesworthstone/beads_viewer_rust.git bvr
+            cargo +nightly install --git https://github.com/Dicklesworthstone/beads_viewer_rust.git --tag v0.2.1 beads_viewer_rust
         }
         else {
             Write-Host 'bvr already installed.' -ForegroundColor Green

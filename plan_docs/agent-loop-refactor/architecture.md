@@ -346,7 +346,7 @@ FROM rust:1.77-slim AS rust-builder
 WORKDIR /build
 RUN apt-get update && apt-get install -y git pkg-config libssl-dev
 RUN cargo install --git https://github.com/Dicklesworthstone/beads_rust.git --tag v0.2.15 beads_rust
-RUN cargo install --git https://github.com/Dicklesworthstone/beads_viewer_rust.git bvr
+RUN cargo install --git https://github.com/Dicklesworthstone/beads_viewer_rust.git --tag v0.2.1 beads_viewer_rust
 
 # --- Stage 2: Final Python/UV Image ---
 FROM debian:trixie-20260518-slim
