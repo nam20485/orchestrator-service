@@ -80,11 +80,36 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         except json.JSONDecodeError as exc:
             raise HTTPException(status_code=400, detail="Invalid JSON body") from exc
 
+        logger.info(
+            "Webhook received delivery_id=%s event=%s action=%s repo=%s sender=%s",
+            delivery_id,
+            event,
+            payload.get("action"),
+            payload.get("repository", {}).get("full_name", "?"),
+            payload.get("sender", {}).get("login", "?"),
+        )
+        logger.debug(
+            "Webhook headers delivery_id=%s content-length=%s content-type=%s",
+            delivery_id,
+            request.headers.get("content-length"),
+            request.headers.get("content-type"),
+        )
+
         prompt = build_orchestrator_prompt(
             delivery_id=delivery_id,
             event=event,
             payload=payload,
             max_payload_chars=cfg.max_payload_chars,
+        )
+
+        logger.info(
+            "Prompt assembled delivery_id=%s prompt_chars=%d prompt_lines=%d",
+            delivery_id,
+            len(prompt),
+            prompt.count("\n"),
+        )
+        logger.debug(
+            "Prompt preview delivery_id=%s:\n%s", delivery_id, prompt[:500]
         )
 
         background_tasks.add_task(dispatch_to_opencode, cfg, prompt)

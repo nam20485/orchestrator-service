@@ -67,6 +67,19 @@ Missing local tools: `pwsh -NoProfile -File ./scripts/install-dev-tools.ps1`.
 
 Monitor CI until green: `gh run list --limit 5`, `gh run watch <id>`, `gh run view <id> --log-failed`. Required workflow: **validate** (lint, scan, test, build). Do not mark work complete while CI is red.
 
+### Diagnosing GHA failures (mandatory — no guessing)
+
+**Never guess at GitHub Actions workflow failures.** Before proposing any fix:
+
+1. Fetch latest run outcomes: `gh run list --workflow=<file> --limit 5` (e.g. `--workflow=validate.yml`).
+2. Identify the failing job from the run summary.
+3. Fetch the actual logs: `gh run view <id> --log-failed` (failing steps only) or `gh run view <id> --log` (full).
+4. Read the exact error lines.
+
+Only diagnose root cause from **verifiable log output**. Do not theorize about a fix (or about *why* a valid ref/SHA was rejected) before reading the real failure log.
+
+When a root cause is determined and communicated, **display the log line(s) that verify the diagnosis** — quote the verbatim error line(s) from the run log alongside the explanation. Never state a root cause without showing the supporting log evidence.
+
 ## Agent Instructions
 
 - Bootstrap entry point for the agent instruction set: core module locations, remote loading protocol, and single-source-of-truth policy.

@@ -25,9 +25,15 @@ jobs:
           curl -sSfL https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash | bash
           sudo mv actionlint /usr/local/bin/
 
-      - name: Install shellcheck and jq
-        run: sudo apt-get update && sudo apt-get install -y shellcheck jq
-
+      # jq (1.7.1) and shellcheck (0.9.0) are preinstalled on ubuntu-24.04 runners,
+      # so no apt install step is needed here. If you ever need a tool that is NOT
+      # preinstalled, cache the debs to avoid a slow `apt-get update` every run:
+      #
+      # - name: Install <pkg> (cached)
+      #   uses: awalsh128/cache-apt-pkgs-action@681749ae568c81c2037cb9185e38b709b261bd2f # v1.6.1
+      #   with:
+      #     packages: <pkg>
+      #     version: 1.0
       - name: Lint
         run: pwsh -NoProfile -File ./scripts/validate.ps1 -Lint
 
@@ -50,12 +56,8 @@ jobs:
         with:
           enable-cache: true
 
-      - name: Install Pester
-        shell: pwsh
-        run: Install-Module Pester -MinimumVersion 5.0.0 -Scope AllUsers -Force -AllowClobber
-
-      - name: Install jq
-        run: sudo apt-get update && sudo apt-get install -y jq
+      # jq (1.7.1) and Pester (5.7.1) are preinstalled on ubuntu-24.04 runners,
+      # so no Install-Module / apt step is needed here.
 
       - name: Test
         run: pwsh -NoProfile -File ./scripts/validate.ps1 -Test
@@ -79,8 +81,31 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      # Cache Docker layers in the GitHub Actions cache (type=gha). On cache hits
+      # the heavy apt/tarball layers are reused instead of being rebuilt from
+      # scratch every run. Each image gets its own cache `scope` so they don't
+      # collide within the shared GHA cache.
       - name: Build orchestratorservice image
-        run: docker build -f Dockerfile -t orchestratorservice:ci .
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: ./Dockerfile
+          tags: orchestratorservice:ci
+          push: false
+          load: true
+          cache-from: type=gha,scope=orchestratorservice
+          cache-to: type=gha,mode=max,scope=orchestratorservice
 
       - name: Build webhook receiver image
-        run: docker build -f Dockerfile.webhook -t orchestrator-webhook:ci .
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: ./Dockerfile.webhook
+          tags: orchestrator-webhook:ci
+          push: false
+          load: true
+          cache-from: type=gha,scope=webhook
+          cache-to: type=gha,mode=max,scope=webhook
