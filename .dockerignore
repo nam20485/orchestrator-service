@@ -58,3 +58,8 @@ image/.opencode/agent/
 # gemini CLI workflows
 .gemini/
 gha-creds-*.json
+
+# Machine-local agent state
+.qwen/
+.kilo/
+plan_docs/todo.md
