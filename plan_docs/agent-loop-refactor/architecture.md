@@ -29,7 +29,7 @@ The original plans (`docs/agent-loop-dev-plans/agent-loop-dev-plan.md` and `Deta
 
 ### 2. Port 4096 vs 4099
 
-**Original plan** (`plan_docs/plan.md`): Server listens on port `4096`.
+**Original plan** (`plan_docs/archive/plan.md`): Server listens on port `4096`.
 
 **Correction**: The actual code uses port `4099` everywhere:
 - `compose.yaml`: `4099:4099`
@@ -400,7 +400,7 @@ The Beads pipeline is **additive**:
 
 ## Maestro/Supervisor (Out of Scope)
 
-The maestro/supervisor architecture (dual OpenCode servers with leapfrog recovery) is explicitly **out of scope** for this refactor. See `plan_docs/maestro_architecture_options.md` and `plan_docs/orchestration_supervisor.md` for future consideration.
+The maestro/supervisor architecture (dual OpenCode servers with leapfrog recovery) is explicitly **out of scope** for this refactor. See `plan_docs/archive/maestro_architecture_options.md` and `plan_docs/archive/orchestration_supervisor.md` for future consideration.
 
 This refactor focuses on the three-tier pipeline (Ideation → Planning → Execution) without automated recovery from orchestration failures. The `BeadsLoop` provides basic retry logic (up to 3 attempts with error context), but does not implement the full maestro control plane (status reporting, directive polling, hop counting).
 
