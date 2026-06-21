@@ -37,6 +37,7 @@ class BeadsLoop:
         self._active_beads: set[str] = set()
         self._lock = threading.Lock()
         self._retry_state: dict[str, dict[str, object]] = {}
+        self._logged_init_warning = False
 
     def run(self) -> None:  # pragma: no cover (infinite loop — integration only)
         """Main loop — blocks until :meth:`stop` is called."""
@@ -104,7 +105,11 @@ class BeadsLoop:
             logger.debug("bvr not found — falling back to br ready")
             return None
         except subprocess.CalledProcessError as exc:
-            logger.warning("bvr --robot-next failed: %s", (exc.stderr or "").strip())
+            stderr = (exc.stderr or "").strip()
+            if self._is_not_initialized(stderr):
+                self._log_init_warning_once()
+                return None
+            logger.warning("bvr --robot-next failed: %s", stderr)
             return None
 
         stdout = result.stdout.strip()
@@ -139,7 +144,11 @@ class BeadsLoop:
             logger.warning("br not found — skipping BeadsLoop poll")
             return []
         except subprocess.CalledProcessError as exc:
-            logger.error("br ready failed: %s", (exc.stderr or "").strip())
+            stderr = (exc.stderr or "").strip()
+            if self._is_not_initialized(stderr):
+                self._log_init_warning_once()
+                return []
+            logger.error("br ready failed: %s", stderr)
             return []
 
         stdout = result.stdout.strip()
@@ -354,6 +363,24 @@ class BeadsLoop:
         return "unknown"
 
     # ── helpers ────────────────────────────────────────────────────────────
+
+    _NOT_INITIALIZED_SIGNATURES = (
+        "NOT_INITIALIZED",
+        "no workspace config or single-repo beads data could be resolved",
+    )
+
+    def _is_not_initialized(self, stderr: str) -> bool:
+        """Return True if the stderr indicates beads is not initialized."""
+        return any(sig in stderr for sig in self._NOT_INITIALIZED_SIGNATURES)
+
+    def _log_init_warning_once(self) -> None:
+        """Log a one-time INFO that beads is not initialized (normal state)."""
+        if not self._logged_init_warning:
+            logger.info(
+                "Beads not initialized at %s — waiting for /plan-to-beads",
+                self._settings.beads_workspace_root,
+            )
+            self._logged_init_warning = True
 
     def _run_beads_cmd(self, args: list[str]) -> subprocess.CompletedProcess[str]:
         """Run a ``br``/``bvr`` command with RUST_LOG=error for clean output."""
