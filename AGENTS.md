@@ -17,7 +17,7 @@
 ## Learned Workspace Facts
 
 - Docker image uses `debian:trixie-20260518-slim`, runs `opencode serve` on `0.0.0.0:4099`, and bundles Node.js 24.14.0, pwsh 7.6.2 LTS, uv, gh CLI, Python3, ripgrep, jq, and agent utilities (git, make, openssh-client, gnupg, patch, xz-utils, file, procps); Node and pwsh install from linux-x64 `.tar.gz` tarballs (image is amd64-only; PowerShell uses GitHub tarball because Microsoft apt repo fails on trixie SHA1 policy).
-- Authoritative OpenCode server POR: `plan_docs/plan.md`; dual orchestrator/maestro supervisor spec: `plan_docs/orchestration_supervisor.md`; maestro architecture options and recommendation: `plan_docs/maestro_architecture_options.md`.
+- Authoritative architecture docs: `plan_docs/agent-loop-refactor/architecture.md` and `plan_docs/agent-loop-refactor/application_plan.md` (three-tier Beads pipeline). Original OpenCode server POR (`plan_docs/archive/plan.md`), supervisor spec (`plan_docs/archive/orchestration_supervisor.md`), and maestro options (`plan_docs/archive/maestro_architecture_options.md`) are archived and do NOT reflect current architecture.
 - OpenCode server config source of truth is repo `image/` (`opencode.json`, `AGENTS.md`, `.opencode/agents/`, `.opencode/commands/`); Dockerfile copies those into `/app` (no full-repo `COPY . .`); `scripts/docker-entrypoint.sh` exports `OPENCODE_CONFIG=/app/opencode.json` and `OPENCODE_CONFIG_DIR=/app/.opencode` so `opencode serve` loads image config instead of defaulting to `~/.config/opencode`.
 - Agent sessions run in `/workspace` (compose volume `opencode-workspace`); `/app` is server config only—keep working tree separate from OpenCode install/config.
 - Root repo `AGENTS.md` is Cursor memory plus host-repo validation docs; the container uses `image/AGENTS.md` copied to `/app/AGENTS.md` (overwrites any root copy).
@@ -28,6 +28,60 @@
 - Compose `environment: - VAR` passes host shell env into the container; `${VAR}` adds `.env` interpolation—this project does not use `.env`.
 - Host client scripts: `scripts/prompt.ps1`, `scripts/attach.ps1` (PowerShell thin wrappers to local `opencode`; pwsh is a host prerequisite); one-shot via `opencode run --attach <url>`, interactive via `opencode attach <url>`.
 - GitHub webhook stack: `webhook_receiver/` FastAPI validates App webhooks with `OS_WEBHOOK_SECRET` and dispatches OpenCode via `scripts/prompt.ps1` (`-PromptFile` for large payloads); `webhook-receiver` (internal :8080) behind `webhook-proxy` (Caddy on host :80; prod TLS via `compose.https.yaml` for :443); path `/webhooks/github`. Hybrid auth: App for delivery/subscriptions; agent `gh`/API uses `GH_ORCHESTRATION_AGENT_TOKEN` (PAT), not installation JWT. Subscribing to `issues` requires App **Issues: Read** (read is enough for webhook delivery). Dev simulator at `/simulator` when `WEBHOOK_ENABLE_SIMULATOR=1` (off by default), `OS_WEBHOOK_SECRET` injected server-side. Local Funnel: `compose.yaml` only; prod: `COMPOSE_FILE=compose.yaml:compose.https.yaml`.
+
+## Current Architecture
+
+The system is a **three-tier software factory** built around the Beads DAG ecosystem. Authoritative architecture docs: `plan_docs/agent-loop-refactor/architecture.md` and `plan_docs/agent-loop-refactor/application_plan.md`.
+
+### Three-Tier Pipeline
+
+| Phase | Actor | Input | Action | Output |
+|-------|-------|-------|--------|--------|
+| **1. Ideation** | `/perfect-idea` skill (PM agent) | A loose human idea | Interrogates constraints & architecture via conversation | `application_plan.md` |
+| **2. Planning** | `/plan-to-beads` skill (Scrum agent) | `application_plan.md` | Derives Epics/Tasks/ACs and maps DAG dependencies | `.beads/` Graph DAG |
+| **3. Execution** | `BeadsLoop` (background thread) | `.beads/` Graph DAG | Spawns isolated agents per bead to write code, test, and close beads | Working software + PRs |
+
+### Service Roles
+
+- **orchestratorservice** — OpenCode server (`opencode serve` on :4099). Hosts agent sessions. Config in `/app` (`opencode.json`, `AGENTS.md`, `.opencode/`). Working directory `/workspace` (shared Docker volume `opencode-workspace`). Clients attach via `opencode run --attach <url> --dir <workspace>`.
+- **webhook-receiver** — FastAPI app on :8080. Validates GitHub App webhooks, dispatches orchestration runs (fire-and-forget via `scripts/prompt.ps1`). Also hosts the `BeadsLoop` background daemon thread that polls `br ready --json` and spawns agents per bead.
+- **webhook-proxy** — Caddy reverse proxy on host :80 (HTTP) or :443 (HTTPS via `compose.https.yaml`).
+
+### Normal States vs. Errors
+
+When classifying behavior as "failure" vs. "as-designed":
+
+- **"Beads not initialized"** (`NOT_INITIALIZED`, `no workspace config`) is a **normal startup state**, NOT an error. The service starts before any work is planned. `BeadsLoop` logs INFO once and waits. When a user triggers `/plan-to-beads`, beads are created and the loop picks them up — no restart required. The service is **"ready at will."**
+- **Empty `br ready --json`** (no unblocked beads) is a **normal idle state**. The loop waits for work.
+- **`br ready` with non-`NOT_INITIALIZED` errors** (e.g. `db locked`) IS an error — logged at ERROR level.
+- **Agent failure to run `br close`** is handled by retry logic (up to `BEADS_MAX_RETRIES`), not a hard crash.
+
+### Data Flow
+
+```
+GitHub webhook → webhook-receiver → orchestrator agent (via prompt.ps1)
+                                         ↓
+                                    User triggers skill:
+                                    /perfect-idea → application_plan.md
+                                    /plan-to-beads → .beads/ DAG
+                                         ↓
+                                    BeadsLoop (background thread):
+                                    poll br ready --json → spawn agent per bead
+                                    → verify br close → push branch → create PR
+```
+
+### Coexistence
+
+The Beads pipeline is **additive**. The existing label-driven orchestration (`orchestration_prompt.jinja2.md`, match-case branching) is preserved. Both systems operate concurrently without interference.
+
+## Outdated Documentation
+
+These docs are **historical/archived** and do NOT reflect current architecture. Do not use them for implementation guidance:
+
+- `plan_docs/archive/plan.md` — Original OpenCode Server POR. Uses port 4096 (now 4099). Describes `scripts/opencode/prompt.sh` (now `scripts/prompt.ps1`). Predates the beads integration.
+- `plan_docs/archive/orchestration_supervisor.md` — Future maestro/supervisor design. NOT implemented. Describes leapfrog recovery pattern.
+- `plan_docs/archive/maestro_architecture_options.md` — Future architecture options for the maestro. NOT implemented.
+- `docs/agent-loop-dev-plans/` — Original refactor plans with inaccuracies. Corrected by `plan_docs/agent-loop-refactor/architecture.md` ("Corrections from Original Plans" section).
 
 ## Testing
 

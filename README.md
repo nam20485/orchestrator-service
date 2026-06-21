@@ -2,6 +2,20 @@
 
 Dockerized OpenCode server (`opencode serve` on port **4099**) plus client scripts and a GitHub App webhook receiver that forwards events to the orchestrator via `scripts/prompt.ps1` (requires **pwsh**).
 
+## Three-Tier Pipeline
+
+The system is a three-tier software factory built around the [Beads](https://github.com/Dicklesworthstone/beads_rust) DAG ecosystem. Authoritative architecture: [`plan_docs/agent-loop-refactor/architecture.md`](plan_docs/agent-loop-refactor/architecture.md).
+
+| Phase | Trigger | Actor | Output |
+|-------|---------|-------|--------|
+| **1. Ideation** | `/perfect-idea` skill | PM agent | `application_plan.md` |
+| **2. Planning** | `/plan-to-beads` skill | Scrum agent | `.beads/` DAG |
+| **3. Execution** | (automatic) | `BeadsLoop` background thread | Working software + PRs |
+
+The `BeadsLoop` runs as a background daemon thread in `webhook-receiver`, polling `br ready --json` every 10 s and spawning isolated agents per bead to implement, test, and close each task.
+
+> **"Ready at will."** The service starts before any work is planned. On a fresh `/workspace` (no `.beads/` yet), `BeadsLoop` logs `INFO` once ("Beads not initialized — waiting for /plan-to-beads") and stays idle. When a user triggers `/plan-to-beads`, beads are created and the loop picks them up automatically — no restart required. This is a **normal state**, not an error.
+
 ## OpenCode server + webhook receiver (Docker)
 
 ```bash
@@ -84,6 +98,11 @@ Content type: `application/json`. Subscribe to the events you need; restrict wit
 | `WEBHOOK_MAX_BODY_BYTES` | `26214400` (25 MiB) | Reject webhook POST bodies larger than this |
 | `WEBHOOK_HOST` / `WEBHOOK_PORT` | `0.0.0.0` / `8080` | HTTP bind |
 | `WEBHOOK_ENABLE_SIMULATOR` | `0` | Serve dev UI at `/simulator` when set to `1` |
+| `BEADS_ENABLED` | `true` | Enable the `BeadsLoop` background execution thread |
+| `BEADS_POLL_INTERVAL` | `10` | Seconds between `br ready --json` polls |
+| `BEADS_MAX_RETRIES` | `3` | Max retries per bead before halting for human intervention |
+| `BEADS_WORKSPACE_ROOT` | `/workspace` | Root directory for beads DAG and per-bead clones |
+| `BEADS_TARGET_REPO` | *(empty)* | Target repo URL for per-bead workspace clones |
 
 Per-dispatch run logs: `/tmp/orchestrator-webhook/prompt-*.md` (the prompt) and `prompt-*.stderr` (pwsh stderr).
 
