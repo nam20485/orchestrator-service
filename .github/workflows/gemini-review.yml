@@ -19,7 +19,7 @@ defaults:
 jobs:
   review:
     runs-on: 'ubuntu-latest'
-    timeout-minutes: 7
+    timeout-minutes: 15
     permissions:
       contents: 'read'
       id-token: 'write'
@@ -68,6 +68,7 @@ jobs:
           workflow_name: 'gemini-review'
           # Explicitly set the PR number to handle `issue_comment` triggers (which GitHub treats as issues, not PRs)
           github_pr_number: '${{ github.event.pull_request.number }}'
+          use_pnpm: '${{ vars.GEMINI_REVIEW_USE_PNPM }}'
           settings: |-
             {
               "model": {
