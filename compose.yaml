@@ -1,10 +1,8 @@
 services:
   orchestratorservice:
-    image: orchestratorservice
+    image: ghcr.io/nam20485/orchestrator-service:main-latest
+    pull_policy: always
     platform: linux/amd64
-    build:
-      context: .
-      dockerfile: ./Dockerfile
     ports:
       - "4099:4099"
     volumes:
@@ -23,11 +21,9 @@ services:
       - OPENCODE_SERVER_PASSWORD=${OPENCODE_SERVER_PASSWORD:?OPENCODE_SERVER_PASSWORD is required}
 
   webhook-receiver:
-    image: orchestrator-webhook
+    image: ghcr.io/nam20485/orchestrator-service/webhook:main-latest
+    pull_policy: always
     platform: linux/amd64
-    build:
-      context: .
-      dockerfile: ./Dockerfile.webhook
     expose:
       - "8080"
     volumes:
@@ -40,12 +36,18 @@ services:
       - GITHUB_TOKEN=${GITHUB_TOKEN}
       - WEBHOOK_ALLOWED_EVENTS=${WEBHOOK_ALLOWED_EVENTS:-}
       - WEBHOOK_ENABLE_SIMULATOR=${WEBHOOK_ENABLE_SIMULATOR:-0}
+      - BEADS_ENABLED=${BEADS_ENABLED:-true}
+      - BEADS_POLL_INTERVAL=${BEADS_POLL_INTERVAL:-10}
+      - BEADS_MAX_RETRIES=${BEADS_MAX_RETRIES:-3}
+      - BEADS_WORKSPACE_ROOT=${BEADS_WORKSPACE_ROOT:-/workspace}
+      - BEADS_TARGET_REPO=${BEADS_TARGET_REPO:-}
     depends_on:
       - orchestratorservice
     restart: unless-stopped
 
   webhook-proxy:
-    image: caddy:2.10.0-alpine@sha256:ae4458638da8e1a91aafffb231c5f8778e964bca650c8a8cb23a7e8ac557aa3c
+    image: ghcr.io/nam20485/orchestrator-service/caddy:main-latest
+    pull_policy: always
     # Host :80 — HTTP (local dev, Tailscale Funnel, ACME). For Caddy TLS on :443 in prod,
     # also use compose.https.yaml (see README) or COMPOSE_FILE=compose.yaml:compose.https.yaml
     ports:
@@ -54,7 +56,6 @@ services:
       # :80 = HTTP only; set to your hostname (e.g. hooks.example.com) for automatic HTTPS
       - WEBHOOK_SITE_ADDRESS=${WEBHOOK_SITE_ADDRESS:-:80}
     volumes:
-      - ./deploy/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
       - caddy_config:/config
     depends_on:

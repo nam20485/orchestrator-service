@@ -27,6 +27,11 @@ def test_settings_from_env_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
         "WEBHOOK_MAX_BODY_BYTES",
         "WEBHOOK_LOG_LEVEL",
         "WEBHOOK_ENABLE_SIMULATOR",
+        "BEADS_ENABLED",
+        "BEADS_POLL_INTERVAL",
+        "BEADS_MAX_RETRIES",
+        "BEADS_WORKSPACE_ROOT",
+        "BEADS_TARGET_REPO",
     ):
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setenv("OS_WEBHOOK_SECRET", "test-secret")
@@ -36,6 +41,11 @@ def test_settings_from_env_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
     assert cfg.agent == "orchestrator"
     assert cfg.allowed_events is None
     assert cfg.max_body_bytes == 25 * 1024 * 1024
+    assert cfg.beads_enabled is True
+    assert cfg.beads_poll_interval == 10
+    assert cfg.beads_max_retries == 3
+    assert cfg.beads_workspace_root == "/workspace"
+    assert cfg.beads_target_repo == ""
 
 
 def test_settings_parses_allowed_events(monkeypatch: pytest.MonkeyPatch) -> None:

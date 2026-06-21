@@ -26,6 +26,11 @@ def _test_settings(*, enable_simulator: bool = True) -> Settings:
         max_body_bytes=25 * 1024 * 1024,
         log_level="warning",
         enable_simulator=enable_simulator,
+        beads_enabled=False,
+        beads_poll_interval=10,
+        beads_max_retries=3,
+        beads_workspace_root="/workspace",
+        beads_target_repo="",
     )
 
 
