@@ -146,9 +146,8 @@ def test_dispatch_creates_temp_prompt_file(
 
     log_dir = Path(tempfile.gettempdir()) / "orchestrator-webhook"
     prompt_files = sorted(glob.glob(str(log_dir / "prompt-*.md")))
-    assert prompt_files
-    content = Path(prompt_files[-1]).read_text()
-    assert prompt in content
+    matching = [f for f in prompt_files if prompt in Path(f).read_text()]
+    assert len(matching) >= 1
 
 
 @patch("webhook_receiver.runner.threading.Thread")
