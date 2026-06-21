@@ -103,6 +103,31 @@ This repository is a **template for AI-assisted application development**. The a
 2. **Remote Authority**: Only use remote canonical repository files for workflow definitions
 3. **Tool Priority**: Use MCP GitHub tools first, `gh` CLI as fallback, GitHub API when needed
 
+### Failure Diagnosis Protocol (MANDATORY — NO THEORY, ONLY EVIDENCE)
+
+**NEVER theorize about failures or propose root causes from static code reading alone.** Static file
+inspection (Dockerfiles, compose files, workflows, source) is *context-gathering*, NOT diagnosis.
+Reading files does not count as "having the failure output."
+
+Before diagnosing ANY failure (container startup, GitHub Actions, runtime errors, crashes), you MUST
+first obtain evidence by doing one of the following — in this order:
+
+1. **Fetch the actual failure output.** Prefer, in order of relevance:
+   - Container: `docker compose logs <svc>`, `docker compose ps`, `docker inspect`, `--build` logs.
+   - GitHub Actions: `gh run list`, `gh run view <id> --log-failed` (per repo AGENTS.md "Diagnosing GHA failures").
+   - Application: runtime stderr/stdout, journalctl, trace artifacts.
+2. **If no traces exist, reproduce the exact failure mode reliably**, then capture its output
+   (this now satisfies step 1).
+
+**Do NOT diagnose — and do NOT display a "root cause with file:line references" or propose
+solutions — until you hold concrete output of the failure mode in hand.** Quoting a verbatim error
+line alongside any explanation is mandatory; never state a root cause without showing the supporting
+log evidence.
+
+Violating this rule (theorizing without evidence) is a critical process defect. When asked to
+"diagnose and root cause," the FIRST tool calls must be log/output/reproduction commands, not file
+reads.
+
 ## TASK COMPLETION CONTRACT (CRITICAL)
 
 You are a localized worker operating within a strict graph-based execution loop.
