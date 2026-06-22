@@ -73,6 +73,7 @@ venv.bak/
 
 # IDE / editor
 tempCodeRunnerFile.py
+.idea/
 
 # Secrets (mounted at runtime via compose, never committed)
 auth/auth.json
