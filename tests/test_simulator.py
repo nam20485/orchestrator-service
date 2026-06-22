@@ -40,15 +40,16 @@ def test_simulator_disabled_returns_404() -> None:
     assert client.get("/simulator/api/templates").status_code == 404
 
 
-def test_simulator_page_returns_html(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("OS_WEBHOOK_SECRET", "test-webhook-secret")
+def test_simulator_page_returns_html() -> None:
     client = TestClient(create_app(_test_settings(enable_simulator=True)))
     response = client.get("/simulator")
     assert response.status_code == 200
     assert "text/html" in response.headers.get("content-type", "")
     assert response.headers.get("cache-control") == "no-store"
     assert "GitHub Webhook Simulator" in response.text
-    assert 'const ENV_WEBHOOK_SECRET = "test-webhook-secret"' in response.text
+    # The webhook secret must never be embedded in the served HTML.
+    assert "test-webhook-secret" not in response.text
+    assert "ENV_WEBHOOK_SECRET" not in response.text
 
 
 def test_simulator_template_list() -> None:
@@ -111,3 +112,91 @@ def test_enable_simulator_env(
     monkeypatch.setenv("WEBHOOK_ENABLE_SIMULATOR", raw)
     cfg = Settings.from_env()
     assert cfg.enable_simulator is expected
+
+
+def test_simulator_page_html_not_found(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("OS_WEBHOOK_SECRET", "s")
+    client = TestClient(create_app(_test_settings(enable_simulator=True)))
+    from webhook_receiver import simulator as sim_mod
+
+    orig = sim_mod._STATIC_DIR
+    sim_mod._STATIC_DIR = Path("/nonexistent-static-dir")
+    try:
+        response = client.get("/simulator")
+        assert response.status_code == 500
+    finally:
+        sim_mod._STATIC_DIR = orig
+
+
+def test_simulator_template_bad_action(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = TestClient(create_app(_test_settings(enable_simulator=True)))
+    response = client.get("/simulator/api/templates/custom")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["payload"]["action"] == "opened"
+
+
+def test_simulator_send_signs_server_side(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The send endpoint computes the HMAC server-side and never echoes the secret."""
+    import json as _json
+
+    from webhook_receiver import simulator as sim_mod
+    from webhook_receiver.github import compute_signature
+
+    monkeypatch.setenv("OS_WEBHOOK_SECRET", "test-webhook-secret")
+
+    captured: dict[str, object] = {}
+
+    class _FakeResp:
+        status_code = 200
+        text = '{"status": "pong"}'
+
+    class _FakeClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+        async def post(self, url, content=None, headers=None):
+            captured["url"] = url
+            captured["body"] = content
+            captured["headers"] = headers
+            return _FakeResp()
+
+    monkeypatch.setattr(sim_mod.httpx, "AsyncClient", _FakeClient)
+
+    client = TestClient(create_app(_test_settings(enable_simulator=True)))
+    payload = {"zen": "hello", "hook_id": 42}
+    response = client.post(
+        "/simulator/api/send",
+        json={"event": "ping", "deliveryId": "abc-123", "payload": payload},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"status": 200, "body": '{"status": "pong"}'}
+
+    # Forwarded to the receiver route on this host.
+    assert str(captured["url"]).endswith("/webhooks/github")
+    headers = captured["headers"]
+    assert headers["X-GitHub-Event"] == "ping"
+    assert headers["X-GitHub-Delivery"] == "abc-123"
+    # Signature matches what the receiver expects for this body+secret.
+    expected_sig = compute_signature(captured["body"], "test-webhook-secret")
+    assert headers["X-Hub-Signature-256"] == expected_sig
+    # The secret is never present in the forwarded request.
+    assert "test-webhook-secret" not in _json.dumps(dict(headers))
+
+
+def test_simulator_send_requires_secret(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("OS_WEBHOOK_SECRET", raising=False)
+    client = TestClient(create_app(_test_settings(enable_simulator=True)))
+    response = client.post(
+        "/simulator/api/send",
+        json={"event": "ping", "deliveryId": "x", "payload": {"a": 1}},
+    )
+    assert response.status_code == 500
+    assert "OS_WEBHOOK_SECRET" in response.json()["detail"]

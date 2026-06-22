@@ -178,5 +178,5 @@ Target branch for implementation: `main`
 
 - **Corrections from original plans**: See `architecture.md` for detailed corrections (`bvr --robot-ready` doesn't exist, port 4099 not 4096, async not sync dispatch, etc.)
 - **Coexistence**: The existing label-driven orchestration prompt is unchanged. Beads pipeline is additive.
-- **Maestro/supervisor**: Explicitly out of scope. See `plan_docs/maestro_architecture_options.md` for future consideration.
+- **Maestro/supervisor**: Explicitly out of scope. See `plan_docs/archive/maestro_architecture_options.md` for future consideration.
 - **Beads CLI reference**: `br ready --json` (list ready tasks), `bvr --robot-next` (single best task), `br close <id> --reason "..."` (close task), `br sync --flush-only` (export JSONL before git commit).

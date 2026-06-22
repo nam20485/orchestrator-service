@@ -292,6 +292,73 @@ def test_get_ready_beads_non_dict_non_list_data(mock_run: MagicMock) -> None:
     assert loop._get_ready_beads() == []
 
 
+# ── init guard (NOT_INITIALIZED is a normal state, not an error) ──────────
+
+
+@patch("webhook_receiver.beads_loop.subprocess.run")
+def test_get_ready_beads_not_initialized_logs_info_once(
+    mock_run: MagicMock, caplog
+) -> None:
+    """br ready NOT_INITIALIZED should log INFO once, then stay silent."""
+    from subprocess import CalledProcessError
+
+    mock_run.side_effect = CalledProcessError(
+        1, "br", stderr='{"error":{"code":"NOT_INITIALIZED","retryable":false}}'
+    )
+    loop = BeadsLoop(_test_settings())
+
+    with caplog.at_level("INFO"):
+        assert loop._get_ready_beads() == []
+        # Second call should not log again
+        assert loop._get_ready_beads() == []
+
+    init_logs = [r for r in caplog.records if "not initialized" in r.message.lower()]
+    assert len(init_logs) == 1
+    assert init_logs[0].levelname == "INFO"
+    assert loop._logged_init_warning is True
+
+
+@patch("webhook_receiver.beads_loop.subprocess.run")
+def test_get_ready_beads_other_error_logs_error(
+    mock_run: MagicMock, caplog
+) -> None:
+    """Non-NOT_INITIALIZED errors should still log at ERROR level."""
+    from subprocess import CalledProcessError
+
+    mock_run.side_effect = CalledProcessError(1, "br", stderr="db locked")
+    loop = BeadsLoop(_test_settings())
+
+    with caplog.at_level("ERROR"):
+        assert loop._get_ready_beads() == []
+
+    error_logs = [r for r in caplog.records if r.levelname == "ERROR"]
+    assert len(error_logs) == 1
+    assert loop._logged_init_warning is False
+
+
+@patch("webhook_receiver.beads_loop.subprocess.run")
+def test_bvr_next_not_initialized_logs_info(
+    mock_run: MagicMock, caplog
+) -> None:
+    """bvr --robot-next with 'no workspace config' should log INFO, not WARNING."""
+    from subprocess import CalledProcessError
+
+    mock_run.side_effect = CalledProcessError(
+        1,
+        "bvr",
+        stderr="error: invalid argument: no workspace config or single-repo "
+        "beads data could be resolved.",
+    )
+    loop = BeadsLoop(_test_settings())
+
+    with caplog.at_level("INFO"):
+        assert loop._get_next_bead_bvr() is None
+
+    warning_logs = [r for r in caplog.records if r.levelname == "WARNING"]
+    assert len(warning_logs) == 0
+    assert loop._logged_init_warning is True
+
+
 # ── _select_next_bead ─────────────────────────────────────────────────────
 
 
