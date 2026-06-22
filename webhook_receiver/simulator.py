@@ -4,13 +4,14 @@ import json
 import os
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException, Query
-from fastapi.responses import HTMLResponse
+import httpx
+from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi.responses import HTMLResponse, JSONResponse
 
+from webhook_receiver.github import compute_signature
 from webhook_receiver.simulator_templates import ALL_EVENTS, get_template, list_templates
 
 _STATIC_DIR = Path(__file__).resolve().parent / "static"
-_SECRET_PLACEHOLDER = "__OS_WEBHOOK_SECRET__"
 
 
 def create_simulator_router(*, enabled: bool) -> APIRouter:
@@ -30,10 +31,7 @@ def create_simulator_router(*, enabled: bool) -> APIRouter:
         html_path = _STATIC_DIR / "simulator.html"
         if not html_path.is_file():
             raise HTTPException(status_code=500, detail="Simulator UI not found")
-        secret = os.environ.get("OS_WEBHOOK_SECRET", "").strip()
-        html = html_path.read_text(encoding="utf-8").replace(
-            _SECRET_PLACEHOLDER, json.dumps(secret)
-        )
+        html = html_path.read_text(encoding="utf-8")
         return HTMLResponse(
             html,
             media_type="text/html",
@@ -63,5 +61,57 @@ def create_simulator_router(*, enabled: bool) -> APIRouter:
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         return {"event": event_key, "payload": payload}
+
+    @router.post("/api/send")
+    async def simulator_send(request: Request) -> JSONResponse:
+        """Sign a payload server-side and forward it to the webhook receiver.
+
+        The ``OS_WEBHOOK_SECRET`` never leaves the server process, so the
+        simulator UI cannot leak it to unauthenticated visitors.
+        """
+        try:
+            data = await request.json()
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail="Invalid JSON body") from exc
+
+        event = str(data.get("event", "")).lower()
+        if not event:
+            raise HTTPException(status_code=400, detail="event is required")
+        delivery_id = str(data.get("deliveryId") or "")
+        payload = data.get("payload")
+        if payload is None:
+            raise HTTPException(status_code=400, detail="payload is required")
+
+        secret = os.environ.get("OS_WEBHOOK_SECRET", "").strip()
+        if not secret:
+            raise HTTPException(
+                status_code=500, detail="OS_WEBHOOK_SECRET not configured"
+            )
+
+        body = json.dumps(payload).encode("utf-8")
+        signature = compute_signature(body, secret)
+        base_url = str(request.base_url).rstrip("/")
+
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                resp = await client.post(
+                    f"{base_url}/webhooks/github",
+                    content=body,
+                    headers={
+                        "Content-Type": "application/json",
+                        "X-GitHub-Event": event,
+                        "X-GitHub-Delivery": delivery_id,
+                        "X-Hub-Signature-256": signature,
+                    },
+                )
+        except httpx.HTTPError as exc:
+            raise HTTPException(
+                status_code=502, detail=f"Webhook forward failed: {exc}"
+            ) from exc
+
+        return JSONResponse(
+            {"status": resp.status_code, "body": resp.text},
+            status_code=200,
+        )
 
     return router

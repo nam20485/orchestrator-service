@@ -176,7 +176,10 @@ def test_beads_loop_concurrent_beads_lock() -> None:
     """Two beads ready, first active → second skipped."""
     loop = BeadsLoop(_test_settings())
     loop._active_beads.add("br-active")
-    with patch.object(loop, "_process_bead") as mock_process:
+    with (
+        patch.object(loop, "_get_next_bead", return_value={"id": "br-active"}),
+        patch.object(loop, "_process_bead") as mock_process,
+    ):
         loop._poll_and_process()
         mock_process.assert_not_called()
 

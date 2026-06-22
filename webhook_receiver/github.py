@@ -4,6 +4,12 @@ import hashlib
 import hmac
 
 
+def compute_signature(body: bytes, secret: str) -> str:
+    """Compute the ``X-Hub-Signature-256`` header value (``sha256=<hex>``)."""
+    digest = hmac.new(secret.encode("utf-8"), body, hashlib.sha256).hexdigest()
+    return f"sha256={digest}"
+
+
 def verify_signature(
     body: bytes, signature_header: str | None, secret: str
 ) -> bool:
