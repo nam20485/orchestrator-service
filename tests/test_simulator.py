@@ -111,3 +111,25 @@ def test_enable_simulator_env(
     monkeypatch.setenv("WEBHOOK_ENABLE_SIMULATOR", raw)
     cfg = Settings.from_env()
     assert cfg.enable_simulator is expected
+
+
+def test_simulator_page_html_not_found(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("OS_WEBHOOK_SECRET", "s")
+    client = TestClient(create_app(_test_settings(enable_simulator=True)))
+    from webhook_receiver import simulator as sim_mod
+
+    orig = sim_mod._STATIC_DIR
+    sim_mod._STATIC_DIR = Path("/nonexistent-static-dir")
+    try:
+        response = client.get("/simulator")
+        assert response.status_code == 500
+    finally:
+        sim_mod._STATIC_DIR = orig
+
+
+def test_simulator_template_bad_action(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = TestClient(create_app(_test_settings(enable_simulator=True)))
+    response = client.get("/simulator/api/templates/custom")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["payload"]["action"] == "opened"
