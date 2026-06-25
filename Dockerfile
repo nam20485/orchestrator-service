@@ -76,6 +76,16 @@ RUN mkdir -p /workspace && chmod 755 /workspace
 WORKDIR /app
 COPY image/ /app/
 
+# The OpenCode config tree ships in image/.opencode (opencode.json, AGENTS.md,
+# agents/, commands/, skills/). Install it into the GLOBAL config dir so every
+# session loads it regardless of working directory (sessions run in /workspace,
+# not /app). opencode.json + AGENTS.md sit side-by-side there, so the
+# `instructions: ["AGENTS.md"]` path still resolves. Removed from /app afterward
+# so the server cwd (/app) cannot rediscover it as a project .opencode dir.
+RUN rm -rf /root/.config/opencode \
+    && mkdir -p /root/.config/opencode \
+    && cp -r /app/.opencode/. /root/.config/opencode/ \
+    && rm -rf /app/.opencode
 
 COPY scripts/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh

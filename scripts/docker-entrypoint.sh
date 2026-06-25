@@ -40,8 +40,8 @@ else
   exit 1
 fi
 
-# opencode serve reads ~/.config/opencode by default; image config lives under /app.
-export OPENCODE_CONFIG=/app/opencode.json
-export OPENCODE_CONFIG_DIR=/app/.opencode
+# opencode serve auto-loads config from the global dir (~/.config/opencode),
+# where image/.opencode is installed in the Dockerfile (opencode.json, AGENTS.md,
+# agents/, commands/, skills/). No OPENCODE_CONFIG/OPENCODE_CONFIG_DIR needed.
 
 exec "$@"
