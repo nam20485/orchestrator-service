@@ -35,7 +35,7 @@ Do NOT immediately generate the final plan. You must operate in two distinct pha
 Once the user has answered your questions and you have enough clarity:
 
 1. Announce that you are generating the application plan.
-2. Read the structural template at `docs/agent-loop-dev-plans/application_plan_template.md`. This defines the exact section structure your output must follow.
+2. Read the structural template at `/root/.config/opencode/skills/perfect-idea/application_plan_template.md` (bundled with this skill). This defines the exact section structure your output must follow.
 3. Generate the formal `application_plan.md` by filling in every section of the template with the specific, detailed information gathered during the interrogation phase. Do NOT leave any template sections as placeholder text — replace all brackets and placeholders with concrete, project-specific content.
 4. Write the completed document to `plan_docs/application_plan.md`.
 
