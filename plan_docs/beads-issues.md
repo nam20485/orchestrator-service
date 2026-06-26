@@ -21,12 +21,16 @@ New file at repo root. Contains the Rust builder stage that compiles `br` (v0.2.
 #
 # beads_rust 0.2.15 (via the `asupersync` dependency) uses `#![feature]`,
 # which requires the nightly toolchain.
-FROM rust:1.95-slim-bookworm
+FROM rust:1.95-slim-bookworm AS rust-builder
 RUN apt-get update && apt-get install -y --no-install-recommends git pkg-config libssl-dev \
     && rm -rf /var/lib/apt/lists/*
 RUN rustup toolchain install nightly && rustup default nightly
-RUN cargo install --git https://github.com/Dicklesworthstone/beads_rust.git --tag v0.2.15 beads_rust
-RUN cargo install --git https://github.com/Dicklesworthstone/beads_viewer_rust.git --tag v0.2.1 beads_viewer_rust
+# Pinned to immutable commit SHAs for reproducibility; version comment tracks
+# the upstream tag (v0.2.15 / v0.2.1).
+RUN cargo install --git https://github.com/Dicklesworthstone/beads_rust.git \
+      --rev d9f8d7083dee46d04a8e4741c5f535eb7fcabc97 --locked beads_rust
+RUN cargo install --git https://github.com/Dicklesworthstone/beads_viewer_rust.git \
+      --rev e4506f63214d32c8bcac4f29479a9b80cb932a6a --locked beads_viewer_rust
 ```
 
 ### 1b. Add Rust builder stage to `Dockerfile` (orchestratorservice)

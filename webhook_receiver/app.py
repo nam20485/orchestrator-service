@@ -146,7 +146,9 @@ def create_app(
         )
 
     app.include_router(create_simulator_router(enabled=cfg.enable_simulator))
-    app.include_router(create_dashboard_router(store, beads_loop))
-    app.include_router(create_dashboard_page_router())
+    app.include_router(
+        create_dashboard_router(store, beads_loop, dashboard_token=cfg.dashboard_token)
+    )
+    app.include_router(create_dashboard_page_router(dashboard_token=cfg.dashboard_token))
 
     return app

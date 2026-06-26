@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import glob
+import hmac
 import json
 import os
 import subprocess
@@ -10,7 +11,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse, StreamingResponse
 
 from webhook_receiver.beads_loop import BeadsLoop
@@ -72,6 +73,41 @@ def _workspace() -> str:
     return os.environ.get("BEADS_WORKSPACE_ROOT", "/workspace")
 
 
+def _make_dashboard_auth(token: str | None):
+    """Build a FastAPI dependency that gates every dashboard route.
+
+    The dashboard exposes bead metadata and agent stdout/stderr, which may
+    contain secrets or repo data. Because Caddy proxies the whole receiver
+    surface (not just ``/webhooks/github``), these endpoints must be gated:
+
+    * If no ``DASHBOARD_TOKEN`` is configured the dashboard is **disabled by
+      default** and every route returns ``404``.
+    * When configured, a request must present the token via an
+      ``Authorization: Bearer <token>`` header, a ``?token=`` query parameter,
+      or a ``dashboard_token`` cookie. Constant-time comparison is used.
+    """
+
+    async def _require_token(request: Request) -> None:
+        if not token:
+            raise HTTPException(
+                status_code=404, detail="Dashboard is disabled (DASHBOARD_TOKEN not set)"
+            )
+        provided: str | None = None
+        auth_header = request.headers.get("authorization", "")
+        if auth_header.lower().startswith("bearer "):
+            provided = auth_header.split(None, 1)[1].strip()
+        if not provided:
+            provided = request.query_params.get("token")
+        if not provided:
+            provided = request.cookies.get("dashboard_token")
+        if not provided or not hmac.compare_digest(str(provided), token):
+            raise HTTPException(
+                status_code=401, detail="Invalid or missing dashboard token"
+            )
+
+    return _require_token
+
+
 def _fetch_beads_view(ws: str) -> dict[str, Any]:
     """Fetch all beads and ready bead IDs via br CLI. Shared by all endpoints."""
     all_beads = _parse_beads(_run_beads_cmd(["br", "list", "--json"], ws))
@@ -82,8 +118,14 @@ def _fetch_beads_view(ws: str) -> dict[str, Any]:
 def create_dashboard_router(
     event_store: EventStore,
     beads_loop: BeadsLoop | None = None,
+    dashboard_token: str | None = None,
 ) -> APIRouter:
-    router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
+    auth = _make_dashboard_auth(dashboard_token)
+    router = APIRouter(
+        prefix="/api/dashboard",
+        tags=["dashboard"],
+        dependencies=[Depends(auth)],
+    )
 
     # ── overview ───────────────────────────────────────────────────────────
 
@@ -308,19 +350,34 @@ def create_dashboard_router(
 # ── HTML page route (separate so it has no /api prefix) ────────────────────
 
 
-def create_dashboard_page_router() -> APIRouter:
-    router = APIRouter(tags=["dashboard"])
+def create_dashboard_page_router(dashboard_token: str | None = None) -> APIRouter:
+    auth = _make_dashboard_auth(dashboard_token)
+    router = APIRouter(tags=["dashboard"], dependencies=[Depends(auth)])
 
     @router.get("/dashboard")
-    async def dashboard_page() -> HTMLResponse:
+    async def dashboard_page(request: Request) -> HTMLResponse:
         html_path = _STATIC_DIR / "dashboard.html"
         if not html_path.is_file():
             raise HTTPException(status_code=500, detail="Dashboard UI not found")
         html = html_path.read_text(encoding="utf-8")
-        return HTMLResponse(
+        resp = HTMLResponse(
             html,
             media_type="text/html",
             headers={"Cache-Control": "no-store"},
         )
+        # When the page is first opened with ?token=<token>, persist it as a
+        # cookie so subsequent same-origin fetch() and EventSource requests
+        # are authenticated automatically.
+        query_token = request.query_params.get("token")
+        if query_token and hmac.compare_digest(query_token, str(dashboard_token or "")):
+            resp.set_cookie(
+                "dashboard_token",
+                query_token,
+                httponly=True,
+                samesite="strict",
+                secure=request.url.scheme == "https",
+                path="/",
+            )
+        return resp
 
     return router

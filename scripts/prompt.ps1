@@ -63,7 +63,7 @@ if (-not $Prompt) {
 # with a host bind mount at /workspace, the host-side subdir must exist before
 # opencode resolves --dir (server-side). $WORKSPACE_DIR points at the host root
 # mounted at /workspace; derive the host path and create it if needed.
-if ($env:WORKSPACE_DIR -and $Workspace -and $Workspace.StartsWith('/workspace')) {
+if ($env:WORKSPACE_DIR -and $Workspace -and $Workspace -match '^/workspace(/|$)') {
     $relativePath = $Workspace -replace '^/workspace/?', ''
     if ($relativePath) {
         # Guard against path traversal: reject any '..' segments so $Workspace

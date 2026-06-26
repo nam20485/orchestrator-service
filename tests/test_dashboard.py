@@ -35,6 +35,7 @@ def _test_settings(**overrides: object) -> Settings:
         beads_max_retries=3,
         beads_workspace_root="/workspace",
         beads_target_repo="",
+        dashboard_token="test-dashboard-token",
     )
     defaults.update(overrides)
     return Settings(**defaults)
@@ -45,6 +46,12 @@ def _clear_cache() -> None:
     """Clear the dashboard TTL cache between tests."""
     from webhook_receiver import dashboard
     dashboard._CACHE.clear()
+
+
+def _client(app, token: str | None = "test-dashboard-token") -> TestClient:
+    """TestClient that authenticates against the gated dashboard by default."""
+    headers = {"Authorization": f"Bearer {token}"} if token else {}
+    return TestClient(app, headers=headers)
 
 
 def _br_list_json(*beads: dict) -> str:
@@ -85,7 +92,7 @@ def test_parse_beads_beads_key() -> None:
 def test_overview_empty() -> None:
     store = EventStore()
     app = create_app(_test_settings(), event_store=store)
-    client = TestClient(app)
+    client = _client(app)
 
     with patch("webhook_receiver.dashboard._run_beads_cmd", return_value=""):
         resp = client.get("/api/dashboard/overview")
@@ -107,7 +114,7 @@ def test_overview_with_beads() -> None:
     ready_json = _br_ready_json({"id": "br-1"})
 
     app = create_app(_test_settings(), event_store=store)
-    client = TestClient(app)
+    client = _client(app)
 
     def fake_run(args, ws=None):
         if "list" in args:
@@ -139,7 +146,7 @@ def test_beads_list_enriched() -> None:
     ready_json = _br_ready_json({"id": "br-ready"})
 
     app = create_app(_test_settings(), event_store=store)
-    client = TestClient(app)
+    client = _client(app)
 
     def fake_run(args, ws=None):
         if "list" in args:
@@ -168,7 +175,7 @@ def test_beads_list_with_active_loop() -> None:
     ready_json = _br_ready_json({"id": "br-active"})
 
     app = create_app(_test_settings(), event_store=store, beads_loop=loop)
-    client = TestClient(app)
+    client = _client(app)
 
     def fake_run(args, ws=None):
         if "list" in args:
@@ -195,7 +202,7 @@ def test_beads_list_with_halted_bead() -> None:
     ready_json = _br_ready_json({"id": "br-halted"})
 
     app = create_app(_test_settings(), event_store=store, beads_loop=loop)
-    client = TestClient(app)
+    client = _client(app)
 
     def fake_run(args, ws=None):
         if "list" in args:
@@ -216,7 +223,7 @@ def test_beads_list_with_halted_bead() -> None:
 def test_active_no_loop() -> None:
     store = EventStore()
     app = create_app(_test_settings(), event_store=store)
-    client = TestClient(app)
+    client = _client(app)
     resp = client.get("/api/dashboard/active")
     assert resp.status_code == 200
     assert resp.json() == []
@@ -231,7 +238,7 @@ def test_active_with_loop() -> None:
     all_json = _br_list_json({"id": "br-x", "title": "Task X"})
 
     app = create_app(_test_settings(), event_store=store, beads_loop=loop)
-    client = TestClient(app)
+    client = _client(app)
 
     with patch("webhook_receiver.dashboard._run_beads_cmd", return_value=all_json):
         resp = client.get("/api/dashboard/active")
@@ -251,7 +258,7 @@ def test_events_recent() -> None:
     store.emit("test_b", y=2)
 
     app = create_app(_test_settings(), event_store=store)
-    client = TestClient(app)
+    client = _client(app)
     resp = client.get("/api/dashboard/events")
     assert resp.status_code == 200
     events = resp.json()
@@ -266,7 +273,7 @@ def test_events_limit() -> None:
         store.emit("test", i=i)
 
     app = create_app(_test_settings(), event_store=store)
-    client = TestClient(app)
+    client = _client(app)
     resp = client.get("/api/dashboard/events?limit=3")
     events = resp.json()
     assert len(events) == 3
@@ -278,7 +285,7 @@ def test_events_limit() -> None:
 def test_bead_logs_not_found(tmp_path: Path) -> None:
     store = EventStore()
     app = create_app(_test_settings(), event_store=store)
-    client = TestClient(app)
+    client = _client(app)
 
     with patch("webhook_receiver.dashboard.tempfile.gettempdir", return_value=str(tmp_path)):
         resp = client.get("/api/dashboard/beads/br-nonexist/logs")
@@ -298,7 +305,7 @@ def test_bead_logs_found(tmp_path: Path) -> None:
 
     store = EventStore()
     app = create_app(_test_settings(), event_store=store)
-    client = TestClient(app)
+    client = _client(app)
 
     with patch("webhook_receiver.dashboard.tempfile.gettempdir", return_value=str(tmp_path)):
         resp = client.get("/api/dashboard/beads/br-1/logs")
@@ -312,7 +319,7 @@ def test_bead_logs_found(tmp_path: Path) -> None:
 def test_bead_logs_rejects_glob_chars() -> None:
     store = EventStore()
     app = create_app(_test_settings(), event_store=store)
-    client = TestClient(app)
+    client = _client(app)
 
     for bad_id in ["*", "br-x[abc]", "br%20x"]:
         resp = client.get(f"/api/dashboard/beads/{bad_id}/logs")
@@ -322,7 +329,7 @@ def test_bead_logs_rejects_glob_chars() -> None:
 def test_bead_logs_accepts_valid_ids(tmp_path: Path) -> None:
     store = EventStore()
     app = create_app(_test_settings(), event_store=store)
-    client = TestClient(app)
+    client = _client(app)
 
     with patch("webhook_receiver.dashboard.tempfile.gettempdir", return_value=str(tmp_path)):
         for valid_id in ["br-1", "workspace-abc", "br_my_bead", "task-123"]:
@@ -337,7 +344,7 @@ def test_bead_logs_clamps_tail_zero(tmp_path: Path) -> None:
 
     store = EventStore()
     app = create_app(_test_settings(), event_store=store)
-    client = TestClient(app)
+    client = _client(app)
 
     with patch("webhook_receiver.dashboard.tempfile.gettempdir", return_value=str(tmp_path)):
         resp = client.get("/api/dashboard/beads/br-1/logs?tail=0")
@@ -356,7 +363,7 @@ def test_bead_logs_clamps_tail_upper_bound(tmp_path: Path) -> None:
 
     store = EventStore()
     app = create_app(_test_settings(), event_store=store)
-    client = TestClient(app)
+    client = _client(app)
 
     with patch("webhook_receiver.dashboard.tempfile.gettempdir", return_value=str(tmp_path)):
         # An absurd tail value is clamped to 2000; all 10 lines still fit.
@@ -373,7 +380,7 @@ def test_bead_logs_clamps_tail_upper_bound(tmp_path: Path) -> None:
 def test_dashboard_html_served() -> None:
     store = EventStore()
     app = create_app(_test_settings(), event_store=store)
-    client = TestClient(app)
+    client = _client(app)
     resp = client.get("/dashboard")
     assert resp.status_code == 200
     assert "Orchestration Dashboard" in resp.text
@@ -385,7 +392,7 @@ def test_dashboard_html_served() -> None:
 def test_overview_br_not_found() -> None:
     store = EventStore()
     app = create_app(_test_settings(), event_store=store)
-    client = TestClient(app)
+    client = _client(app)
 
     with patch("webhook_receiver.dashboard._run_beads_cmd", return_value=""):
         resp = client.get("/api/dashboard/overview")
@@ -393,3 +400,65 @@ def test_overview_br_not_found() -> None:
     data = resp.json()
     assert data["counts"]["total"] == 0
     assert data["initialized"] is False
+
+
+# ── Authentication gating ──────────────────────────────────────────────────
+
+
+def test_dashboard_disabled_by_default() -> None:
+    """With no DASHBOARD_TOKEN configured, the whole surface is disabled (404)."""
+    store = EventStore()
+    settings = _test_settings(dashboard_token=None)
+    app = create_app(settings, event_store=store)
+    client = TestClient(app)  # no token header; endpoints should be gone
+
+    assert client.get("/dashboard").status_code == 404
+    assert client.get("/api/dashboard/overview").status_code == 404
+    assert client.get("/api/dashboard/beads/br-1/logs").status_code == 404
+    assert client.get("/api/dashboard/events").status_code == 404
+
+
+def test_dashboard_rejects_missing_token() -> None:
+    store = EventStore()
+    app = create_app(_test_settings(), event_store=store)
+    client = TestClient(app)  # no Authorization header
+
+    assert client.get("/api/dashboard/overview").status_code == 401
+    assert client.get("/dashboard").status_code == 401
+
+
+def test_dashboard_rejects_wrong_token() -> None:
+    store = EventStore()
+    app = create_app(_test_settings(), event_store=store)
+    client = TestClient(app, headers={"Authorization": "Bearer wrong-token"})
+    assert client.get("/api/dashboard/overview").status_code == 401
+
+
+def test_dashboard_accepts_bearer_token() -> None:
+    store = EventStore()
+    app = create_app(_test_settings(), event_store=store)
+    client = TestClient(app, headers={"Authorization": "Bearer test-dashboard-token"})
+
+    with patch("webhook_receiver.dashboard._run_beads_cmd", return_value=""):
+        resp = client.get("/api/dashboard/overview")
+    assert resp.status_code == 200
+
+
+def test_dashboard_accepts_query_token_and_sets_cookie() -> None:
+    store = EventStore()
+    app = create_app(_test_settings(), event_store=store)
+    # No Authorization header: auth relies on the ?token= query + cookie.
+    client = TestClient(app)
+
+    resp = client.get("/dashboard", params={"token": "test-dashboard-token"})
+    assert resp.status_code == 200
+    assert "Orchestration Dashboard" in resp.text
+    # The token is persisted as a cookie so subsequent same-origin fetches
+    # (and EventSource) are authenticated automatically.
+    assert "dashboard_token" in resp.headers.get("set-cookie", "")
+
+    # A follow-up request from the same client (cookie auto-stored) succeeds
+    # with no Authorization header.
+    client.headers.pop("authorization", None)
+    with patch("webhook_receiver.dashboard._run_beads_cmd", return_value=""):
+        assert client.get("/api/dashboard/overview").status_code == 200
