@@ -223,9 +223,11 @@ class BeadsLoop:
         target_repo = self._settings.beads_target_repo
 
         if bead_id not in self._retry_state:
-            self._retry_state[bead_id] = {"count": 0, "logs": ""}
+            with self._lock:
+                self._retry_state.setdefault(bead_id, {"count": 0, "logs": ""})
 
-        retries = self._retry_state[bead_id]["count"]
+        with self._lock:
+            retries = self._retry_state[bead_id]["count"]
         if retries >= self._settings.beads_max_retries:
             logger.error(
                 "Bead %s exceeded max retries (%d). Halting for human intervention.",
@@ -248,12 +250,15 @@ class BeadsLoop:
                 ws_path = create_workspace(ws_root, bead_id, target_repo)
             except Exception:
                 logger.exception("Failed to create workspace for bead %s", bead_id)
-                self._retry_state[bead_id]["count"] += 1
+                with self._lock:
+                    self._retry_state[bead_id]["count"] += 1
                 return
 
         try:
+            with self._lock:
+                prev_logs = self._retry_state[bead_id]["logs"]
             success, logs = self._spawn_agent(
-                bead, ws_path, retries, self._retry_state[bead_id]["logs"]
+                bead, ws_path, retries, prev_logs
             )
 
             if success:
@@ -267,15 +272,17 @@ class BeadsLoop:
                         logger.exception(
                             "Failed to push/create PR for bead %s", bead_id
                         )
-                self._retry_state.pop(bead_id, None)
+                with self._lock:
+                    self._retry_state.pop(bead_id, None)
             else:
                 logger.error(
                     "Agent failed to complete bead %s (attempt %d)",
                     bead_id,
                     retries + 1,
                 )
-                self._retry_state[bead_id]["count"] += 1
-                self._retry_state[bead_id]["logs"] = (logs or "")[-3000:]
+                with self._lock:
+                    self._retry_state[bead_id]["count"] += 1
+                    self._retry_state[bead_id]["logs"] = (logs or "")[-3000:]
                 self._emit(
                     "bead_failed",
                     bead_id=bead_id,

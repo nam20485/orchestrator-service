@@ -207,10 +207,16 @@ def create_dashboard_router(
     async def bead_logs(bead_id: str, tail: int = 200) -> dict[str, Any]:
         if not bead_id or not bead_id.replace("-", "").replace("_", "").isalnum():
             raise HTTPException(status_code=400, detail="Invalid bead ID")
+        tail = max(1, min(tail, 2000))
         log_dir = Path(tempfile.gettempdir()) / "orchestrator-webhook"
+        safe_id = glob.escape(bead_id)
 
-        def _read_latest(pattern: str) -> str:
-            files = sorted(glob.glob(str(log_dir / pattern)), key=os.path.getmtime, reverse=True)
+        def _read_latest(suffix: str) -> str:
+            files = sorted(
+                glob.glob(str(log_dir / f"bead-{safe_id}-*{suffix}")),
+                key=os.path.getmtime,
+                reverse=True,
+            )
             if not files:
                 return ""
             content = Path(files[0]).read_text(encoding="utf-8", errors="replace")
@@ -219,8 +225,8 @@ def create_dashboard_router(
 
         stdout_tail, stderr_tail = await asyncio.to_thread(
             lambda: (
-                _read_latest(f"bead-{bead_id}-*.stdout"),
-                _read_latest(f"bead-{bead_id}-*.stderr"),
+                _read_latest(".stdout"),
+                _read_latest(".stderr"),
             )
         )
 

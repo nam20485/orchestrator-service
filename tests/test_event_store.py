@@ -43,6 +43,20 @@ def test_recent_empty_store() -> None:
     assert store.recent() == []
 
 
+def test_recent_limit_zero_returns_empty() -> None:
+    store = EventStore()
+    for i in range(5):
+        store.emit("test", index=i)
+    assert store.recent(limit=0) == []
+
+
+def test_recent_negative_limit_returns_empty() -> None:
+    store = EventStore()
+    for i in range(5):
+        store.emit("test", index=i)
+    assert store.recent(limit=-3) == []
+
+
 # ── maxlen eviction ────────────────────────────────────────────────────────
 
 

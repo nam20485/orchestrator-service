@@ -87,6 +87,8 @@ class EventStore:
 
     def recent(self, limit: int = 100) -> list[dict[str, Any]]:
         """Return the last *limit* events (oldest-first within the window)."""
+        if limit <= 0:
+            return []
         with self._lock:
             events = list(self._events)
         return events[-limit:] if limit < len(events) else events

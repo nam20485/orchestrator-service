@@ -330,6 +330,43 @@ def test_bead_logs_accepts_valid_ids(tmp_path: Path) -> None:
             assert resp.status_code == 200, f"Expected 200 for {valid_id!r}"
 
 
+def test_bead_logs_clamps_tail_zero(tmp_path: Path) -> None:
+    log_dir = tmp_path / "orchestrator-webhook"
+    log_dir.mkdir()
+    (log_dir / "bead-br-1-abc.stdout").write_text("line1\nline2\nline3\n")
+
+    store = EventStore()
+    app = create_app(_test_settings(), event_store=store)
+    client = TestClient(app)
+
+    with patch("webhook_receiver.dashboard.tempfile.gettempdir", return_value=str(tmp_path)):
+        resp = client.get("/api/dashboard/beads/br-1/logs?tail=0")
+
+    data = resp.json()
+    assert data["available"] is True
+    # tail=0 is clamped to 1, so at least one line is returned
+    assert "line3" in data["stdout"]
+
+
+def test_bead_logs_clamps_tail_upper_bound(tmp_path: Path) -> None:
+    log_dir = tmp_path / "orchestrator-webhook"
+    log_dir.mkdir()
+    content = "\n".join(f"line{i}" for i in range(10))
+    (log_dir / "bead-br-1-abc.stdout").write_text(content + "\n")
+
+    store = EventStore()
+    app = create_app(_test_settings(), event_store=store)
+    client = TestClient(app)
+
+    with patch("webhook_receiver.dashboard.tempfile.gettempdir", return_value=str(tmp_path)):
+        # An absurd tail value is clamped to 2000; all 10 lines still fit.
+        resp = client.get("/api/dashboard/beads/br-1/logs?tail=999999")
+
+    data = resp.json()
+    assert resp.status_code == 200
+    assert "line9" in data["stdout"]
+
+
 # ── HTML page ──────────────────────────────────────────────────────────────
 
 
