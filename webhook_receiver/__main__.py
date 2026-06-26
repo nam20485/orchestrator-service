@@ -9,6 +9,7 @@ import uvicorn
 from webhook_receiver.app import create_app
 from webhook_receiver.beads_loop import BeadsLoop
 from webhook_receiver.config import Settings
+from webhook_receiver.event_store import EventStore
 
 logger = logging.getLogger(__name__)
 
@@ -25,8 +26,10 @@ def main() -> None:
         format="%(asctime)s %(levelname)s %(name)s %(message)s",
     )
 
+    event_store = EventStore()
+    loop: BeadsLoop | None = None
     if settings.beads_enabled:
-        loop = BeadsLoop(settings)
+        loop = BeadsLoop(settings, event_store=event_store)
         thread = threading.Thread(target=loop.run, daemon=True, name="beads-loop")
         thread.start()
         logger.info(
@@ -37,7 +40,7 @@ def main() -> None:
         logger.info("BeadsLoop disabled (BEADS_ENABLED=false)")
 
     uvicorn.run(
-        create_app(settings),
+        create_app(settings, event_store=event_store, beads_loop=loop),
         host=settings.host,
         port=settings.port,
         log_level=settings.log_level,
