@@ -310,21 +310,26 @@ function renderBeads() {
   let html = '';
   for (const b of beadData) {
     const expanded = expandedBead === b.id;
-    html += `<tr class="${expanded ? 'expanded' : ''}" onclick="toggleBead('${b.id}')">`;
-    html += `<td><span class="badge ${b.ui_status}">${b.ui_status}</span></td>`;
-    html += `<td class="id-cell">${b.id}</td>`;
+    html += `<tr class="${expanded ? 'expanded' : ''}" data-bead-id="${esc(b.id)}">`;
+    html += `<td><span class="badge ${esc(b.ui_status)}">${esc(b.ui_status)}</span></td>`;
+    html += `<td class="id-cell">${esc(b.id)}</td>`;
     html += `<td>${esc(b.title)}</td>`;
-    html += `<td>${b.type || ''}</td>`;
-    html += `<td>${b.priority}</td>`;
-    html += `<td>${b.retry_count > 0 ? b.retry_count : ''}</td>`;
-    html += `<td>${b.elapsed_s != null ? b.elapsed_s + 's' : ''}</td>`;
+    html += `<td>${esc(b.type || '')}</td>`;
+    html += `<td>${esc(String(b.priority))}</td>`;
+    html += `<td>${b.retry_count > 0 ? esc(String(b.retry_count)) : ''}</td>`;
+    html += `<td>${b.elapsed_s != null ? esc(String(b.elapsed_s)) + 's' : ''}</td>`;
     html += '</tr>';
 
     if (expanded) {
-      html += `<tr class="detail-row"><td colspan="7"><div class="detail-content" id="detail-${b.id}">Loading...</div></td></tr>`;
+      html += `<tr class="detail-row"><td colspan="7"><div class="detail-content" id="detail-${esc(b.id)}">Loading...</div></td></tr>`;
     }
   }
   tbody.innerHTML = html;
+
+  // Attach click handlers (avoid inline onclick for XSS safety)
+  tbody.querySelectorAll('tr[data-bead-id]').forEach(tr => {
+    tr.addEventListener('click', () => toggleBead(tr.dataset.beadId));
+  });
 
   // Update sort indicators
   document.querySelectorAll('thead th').forEach(th => {
@@ -340,10 +345,17 @@ async function loadBeadDetail(beadId) {
   if (!el) return;
   const bead = beadData.find(b => b.id === beadId);
   let html = `<div style="margin-bottom:0.5rem;font-size:0.8rem;color:var(--muted);">${esc(bead.description || 'No description.')}</div>`;
-  html += `<div class="log-tabs"><div class="log-tab active" onclick="switchLog('${beadId}', 'stdout')">stdout</div><div class="log-tab" onclick="switchLog('${beadId}', 'stderr')">stderr</div></div>`;
-  html += `<div class="log-box" id="logbox-${beadId}">Loading logs...</div>`;
-  html += `<div class="log-actions"><button class="secondary" onclick="loadBeadLog('${beadId}')">Refresh</button></div>`;
+  html += `<div class="log-tabs"><div class="log-tab active" data-log-tab="stdout">stdout</div><div class="log-tab" data-log-tab="stderr">stderr</div></div>`;
+  html += `<div class="log-box" id="logbox-${esc(beadId)}">Loading logs...</div>`;
+  html += `<div class="log-actions"><button class="secondary" id="refresh-${esc(beadId)}">Refresh</button></div>`;
   el.innerHTML = html;
+
+  // Attach event listeners
+  el.querySelectorAll('.log-tab').forEach(tab => {
+    tab.addEventListener('click', () => switchLog(beadId, tab.dataset.logTab));
+  });
+  const refreshBtn = document.getElementById('refresh-' + beadId);
+  if (refreshBtn) refreshBtn.addEventListener('click', () => loadBeadLog(beadId));
   loadBeadLog(beadId);
 }
 
@@ -367,7 +379,7 @@ async function loadBeadLog(beadId) {
 function switchLog(beadId, tab) {
   currentLogTab[beadId] = tab;
   document.querySelectorAll(`#detail-${beadId} .log-tab`).forEach(el => {
-    el.classList.toggle('active', el.textContent === tab);
+    el.classList.toggle('active', el.dataset.logTab === tab);
   });
   loadBeadLog(beadId);
 }

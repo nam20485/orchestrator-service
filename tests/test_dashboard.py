@@ -187,6 +187,7 @@ def test_beads_list_with_halted_bead() -> None:
     store = EventStore()
     loop = BeadsLoop(_test_settings(beads_max_retries=2))
     loop._retry_state["br-halted"] = {"count": 2, "logs": "error"}
+    loop._halted_beads.add("br-halted")
 
     all_json = _br_list_json(
         {"id": "br-halted", "status": "open", "title": "Halted", "priority": 1},
@@ -306,6 +307,27 @@ def test_bead_logs_found(tmp_path: Path) -> None:
     assert data["available"] is True
     assert "line1" in data["stdout"]
     assert "error1" in data["stderr"]
+
+
+def test_bead_logs_rejects_glob_chars() -> None:
+    store = EventStore()
+    app = create_app(_test_settings(), event_store=store)
+    client = TestClient(app)
+
+    for bad_id in ["*", "br-x[abc]", "br%20x"]:
+        resp = client.get(f"/api/dashboard/beads/{bad_id}/logs")
+        assert resp.status_code == 400, f"bad bead_id={bad_id!r} got {resp.status_code}"
+
+
+def test_bead_logs_accepts_valid_ids(tmp_path: Path) -> None:
+    store = EventStore()
+    app = create_app(_test_settings(), event_store=store)
+    client = TestClient(app)
+
+    with patch("webhook_receiver.dashboard.tempfile.gettempdir", return_value=str(tmp_path)):
+        for valid_id in ["br-1", "workspace-abc", "br_my_bead", "task-123"]:
+            resp = client.get(f"/api/dashboard/beads/{valid_id}/logs")
+            assert resp.status_code == 200, f"Expected 200 for {valid_id!r}"
 
 
 # ── HTML page ──────────────────────────────────────────────────────────────

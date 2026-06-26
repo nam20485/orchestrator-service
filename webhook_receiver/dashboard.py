@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import glob
 import json
-import logging
 import os
 import subprocess
 import tempfile
@@ -17,12 +16,11 @@ from fastapi.responses import HTMLResponse, StreamingResponse
 from webhook_receiver.beads_loop import BeadsLoop
 from webhook_receiver.event_store import EventStore
 
-logger = logging.getLogger(__name__)
-
 _STATIC_DIR = Path(__file__).resolve().parent / "static"
 
 _CACHE: dict[str, tuple[float, Any]] = {}
 _CACHE_TTL = 5.0
+_MAX_SSE_SUBSCRIBERS = 10
 
 
 def _run_beads_cmd(args: list[str], workspace: str) -> str:
@@ -74,6 +72,13 @@ def _workspace() -> str:
     return os.environ.get("BEADS_WORKSPACE_ROOT", "/workspace")
 
 
+def _fetch_beads_view(ws: str) -> dict[str, Any]:
+    """Fetch all beads and ready bead IDs via br CLI. Shared by all endpoints."""
+    all_beads = _parse_beads(_run_beads_cmd(["br", "list", "--json"], ws))
+    ready = _parse_beads(_run_beads_cmd(["br", "ready", "--json"], ws))
+    return {"all": all_beads, "ready_ids": {b.get("id") for b in ready}}
+
+
 def create_dashboard_router(
     event_store: EventStore,
     beads_loop: BeadsLoop | None = None,
@@ -85,40 +90,34 @@ def create_dashboard_router(
     @router.get("/overview")
     async def overview() -> dict[str, Any]:
         ws = _workspace()
-
-        def _fetch() -> dict[str, Any]:
-            all_beads = _parse_beads(_run_beads_cmd(["br", "list", "--json"], ws))
-            ready = _parse_beads(_run_beads_cmd(["br", "ready", "--json"], ws))
-            return {"all": all_beads, "ready_ids": {b.get("id") for b in ready}}
-
-        cached = await asyncio.to_thread(_cached, "overview", _fetch)
+        cached = await asyncio.to_thread(_cached, "beads_view", _fetch_beads_view, ws)
         all_beads: list[dict[str, Any]] = cached["all"]
         ready_ids: set[Any] = cached["ready_ids"]
 
         total = len(all_beads)
         closed = sum(1 for b in all_beads if str(b.get("status", "")).lower() == "closed")
         open_beads = [b for b in all_beads if str(b.get("status", "")).lower() != "closed"]
-        ready_count = len([b for b in open_beads if b.get("id") in ready_ids])
-        blocked_count = len(open_beads) - ready_count
 
         active: set[str] = set()
-        retry: dict[str, dict[str, object]] = {}
+        halted: set[str] = set()
         max_retries = 3
         running = False
         poll_interval = 10
         if beads_loop:
-            active = beads_loop.active_beads
-            retry = beads_loop.retry_state
+            active = set(beads_loop.active_beads)
+            halted = set(beads_loop.halted_beads)
             running = beads_loop._running
             max_retries = beads_loop._settings.beads_max_retries
             poll_interval = beads_loop._settings.beads_poll_interval
 
-        halted = {
-            bid
-            for bid, state in retry.items()
-            if isinstance(state.get("count"), (int, float))
-            and state["count"] >= max_retries
-        }
+        excluded = active | halted
+        ready_count = len([
+            b for b in open_beads
+            if b.get("id") in ready_ids and b.get("id") not in excluded
+        ])
+        blocked_count = len(open_beads) - ready_count - len([
+            b for b in open_beads if b.get("id") in excluded
+        ])
 
         return {
             "loop_status": {
@@ -143,26 +142,20 @@ def create_dashboard_router(
     @router.get("/beads")
     async def beads() -> list[dict[str, Any]]:
         ws = _workspace()
-
-        def _fetch() -> dict[str, Any]:
-            all_beads = _parse_beads(_run_beads_cmd(["br", "list", "--json"], ws))
-            ready = _parse_beads(_run_beads_cmd(["br", "ready", "--json"], ws))
-            return {"all": all_beads, "ready_ids": {b.get("id") for b in ready}}
-
-        cached = await asyncio.to_thread(_cached, "beads", _fetch)
+        cached = await asyncio.to_thread(_cached, "beads_view", _fetch_beads_view, ws)
         all_beads: list[dict[str, Any]] = cached["all"]
         ready_ids: set[Any] = cached["ready_ids"]
 
         active: set[str] = set()
         retry: dict[str, dict[str, object]] = {}
         start_times: dict[str, float] = {}
-        max_retries = 3
+        halted_ids: set[str] = set()
         now = time.time()
         if beads_loop:
-            active = beads_loop.active_beads
+            active = set(beads_loop.active_beads)
             retry = beads_loop.retry_state
             start_times = beads_loop.bead_start_times
-            max_retries = beads_loop._settings.beads_max_retries
+            halted_ids = set(beads_loop.halted_beads)
 
         enriched: list[dict[str, Any]] = []
         for b in all_beads:
@@ -175,7 +168,7 @@ def create_dashboard_router(
 
             if bid in active:
                 ui_status = "active"
-            elif retry_count >= max_retries:
+            elif bid in halted_ids:
                 ui_status = "halted"
             elif db_status == "closed":
                 ui_status = "closed"
@@ -212,6 +205,8 @@ def create_dashboard_router(
 
     @router.get("/beads/{bead_id}/logs")
     async def bead_logs(bead_id: str, tail: int = 200) -> dict[str, Any]:
+        if not bead_id or not bead_id.replace("-", "").replace("_", "").isalnum():
+            raise HTTPException(status_code=400, detail="Invalid bead ID")
         log_dir = Path(tempfile.gettempdir()) / "orchestrator-webhook"
 
         def _read_latest(pattern: str) -> str:
@@ -250,12 +245,8 @@ def create_dashboard_router(
         now = time.time()
 
         ws = _workspace()
-
-        def _fetch() -> dict[str, Any]:
-            all_beads = _parse_beads(_run_beads_cmd(["br", "list", "--json"], ws))
-            return {b.get("id", ""): b for b in all_beads}
-
-        bead_map = await asyncio.to_thread(_cached, "beads_map", _fetch)
+        cached = await asyncio.to_thread(_cached, "beads_view", _fetch_beads_view, ws)
+        bead_map = {b.get("id", ""): b for b in cached["all"]}
 
         result: list[dict[str, Any]] = []
         for bid in active_ids:
@@ -281,6 +272,9 @@ def create_dashboard_router(
 
     @router.get("/events/stream")
     async def events_stream() -> StreamingResponse:
+        if event_store.subscriber_count >= _MAX_SSE_SUBSCRIBERS:
+            raise HTTPException(status_code=503, detail="Too many SSE subscribers")
+
         def generate():
             sub = event_store.subscribe()
             try:

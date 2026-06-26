@@ -40,6 +40,7 @@ class BeadsLoop:
         self._lock = threading.Lock()
         self._retry_state: dict[str, dict[str, object]] = {}
         self._bead_start_times: dict[str, float] = {}
+        self._halted_beads: set[str] = set()
         self._logged_init_warning = False
 
     # ── public read-only properties for dashboard ──────────────────────────
@@ -58,6 +59,11 @@ class BeadsLoop:
     def bead_start_times(self) -> dict[str, float]:
         with self._lock:
             return dict(self._bead_start_times)
+
+    @property
+    def halted_beads(self) -> frozenset[str]:
+        with self._lock:
+            return frozenset(self._halted_beads)
 
     def _emit(self, event_type: str, **data: object) -> None:
         if self._event_store:
@@ -94,7 +100,7 @@ class BeadsLoop:
             return
 
         with self._lock:
-            if bead_id in self._active_beads:
+            if bead_id in self._active_beads or bead_id in self._halted_beads:
                 return
             self._active_beads.add(bead_id)
             self._bead_start_times[bead_id] = time.time()
@@ -232,6 +238,8 @@ class BeadsLoop:
                 reason="max_retries_exceeded",
                 retries=retries,
             )
+            with self._lock:
+                self._halted_beads.add(bead_id)
             return
 
         ws_path = ws_root
