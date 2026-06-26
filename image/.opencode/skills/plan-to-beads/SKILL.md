@@ -12,16 +12,16 @@ Translate an application plan into a graph of atomic execution tasks inside the 
 </inputs>
 
 <prerequisites>
-The `br` CLI must be installed. Verify with `br --version`. If missing, install via:
+The `br` CLI must be installed in the execution environment. It is pre-installed in the orchestratorservice image; the `developer` agent (which has `bash`) can verify this with `br --version`. If missing, install via:
 ```
-cargo install --git https://github.com/Dicklesworthstone/beads_rust.git --tag v0.2.15 beads_rust
+cargo install --git https://github.com/Dicklesworthstone/beads_rust.git --rev d9f8d7083dee46d04a8e4741c5f535eb7fcabc97 --locked beads_rust
 ```
 </prerequisites>
 
 <instructions>
 You are an expert Technical Project Manager. Your job is to convert the provided Markdown plan into a `beads` execution graph.
 
-Instead of writing a phase document, you will write and execute a single bash script containing `br` CLI commands.
+You will read the plan, then write a single bash script containing `br` CLI commands. You do **not** have a `bash` tool — you must delegate script execution to the `developer` agent (see "Execution Model" below).
 
 ### Step 1: Read and Parse the Plan
 
@@ -55,15 +55,26 @@ Use `br dep add <BLOCKED_BEAD> <BLOCKING_BEAD>` to map the exact order of execut
 
 ### Step 5: Execute and Commit
 
-Run the generated bash script. Once complete, run a final export and commit:
+Run the generated bash script. Once complete, run a final export, verify it is clean, then commit:
 
 ```bash
-br sync --flush-only
+br sync --flush-only || { echo "ERROR: br sync failed"; exit 1; }
+br sync --status | grep -q "In sync" || { echo "ERROR: beads not in sync"; exit 1; }
 git add .beads/
 git commit -m "Add beads DAG from application plan"
 ```
 
 Once the script completes, the orchestrator's BeadsLoop background thread will automatically detect the unblocked tasks and begin executing them.
+
+### Execution Model
+
+You (the orchestrator) do **not** have a `bash` tool. Your role is to:
+1. Read and analyze the plan document
+2. Generate the complete bash script
+3. Delegate script execution to the `developer` agent via the Task tool (the `developer` agent has `bash` and `br`)
+4. Verify the developer reports success (all beads created, dependencies linked, `br sync --status` reports "In sync", commit created)
+
+Do NOT attempt to execute bash commands yourself. Do NOT use `playwright` or any other tool as a substitute for bash — none of them are a reliable way to spawn shell processes.
 </instructions>
 
 <example_script>
@@ -72,7 +83,7 @@ Once the script completes, the orchestrator's BeadsLoop background thread will a
 br init
 
 # Phase rollup epics
-EPIC_FOUNDATION=$(br create "Phase 1: Foundation Setup" --type epic --priority 1 | grep -oP 'br-[a-f0-9]+')
+EPIC_FOUNDATION=$(br create "Phase 1: Foundation Setup" --type epic --priority 1 | grep -oP 'Created \K\S+(?=:)')
 
 # Task with packed description
 TASK_DB_DESC=$(cat << 'EOF'
@@ -84,7 +95,7 @@ Acceptance Criteria:
 Validation: Run `uv run alembic upgrade head` then `uv run pytest tests/test_db.py -v`
 EOF
 )
-TASK_DB=$(br create "Configure PostgreSQL Schema" --description "$TASK_DB_DESC" --type task --priority 1 | grep -oP 'br-[a-f0-9]+')
+TASK_DB=$(br create "Configure PostgreSQL Schema" --description "$TASK_DB_DESC" --type task --priority 1 | grep -oP 'Created \K\S+(?=:)')
 
 TASK_API_DESC=$(cat << 'EOF'
 Context: Scaffold the FastAPI endpoints that serve user data from the database.
@@ -95,7 +106,7 @@ Acceptance Criteria:
 Validation: Run `uv run pytest tests/test_api.py -v`
 EOF
 )
-TASK_API=$(br create "Scaffold FastAPI Endpoints" --description "$TASK_API_DESC" --type task --priority 2 | grep -oP 'br-[a-f0-9]+')
+TASK_API=$(br create "Scaffold FastAPI Endpoints" --description "$TASK_API_DESC" --type task --priority 2 | grep -oP 'Created \K\S+(?=:)')
 
 # The Epic requires both tasks to finish
 br dep add $EPIC_FOUNDATION $TASK_DB
@@ -104,8 +115,9 @@ br dep add $EPIC_FOUNDATION $TASK_API
 # The API is blocked by the DB schema
 br dep add $TASK_API $TASK_DB
 
-# Sync graph to disk safely
-br sync --flush-only
+# Sync graph to disk safely and verify
+br sync --flush-only || { echo "ERROR: br sync failed"; exit 1; }
+br sync --status | grep -q "In sync" || { echo "ERROR: beads not in sync"; exit 1; }
 ```
 </example_script>
 
@@ -117,5 +129,5 @@ Key `br` commands for this skill:
 - `br sync --flush-only` — Idempotent JSONL export before git commit
 - `br ready --json` — List unblocked tasks (used by execution loop)
 
-Bead IDs are printed as `br-<hex>` (e.g., `br-a1b2c3`). Capture them with `| grep -oP 'br-[a-f0-9]+'`.
+Bead IDs are printed after `Created` (e.g., `Created workspace-a1b2c3: Title`). The prefix is derived from the cwd basename, so it is dynamic — never literally `br-`. The ID ends at the `:` separator. Capture it with `| grep -oP 'Created \K\S+(?=:)'`.
 </cli_reference>
