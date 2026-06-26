@@ -88,12 +88,12 @@ Bead IDs are printed as `br-<hex>` (e.g., `br-a1b2c3`). Capture them with `| gre
 With:
 
 ```
-Bead IDs are printed after `Created` (e.g., `Created workspace-a1b2c3: Title`). Capture them with `| grep -oP 'Created \K\S+'`.
+Bead IDs are printed after `Created` (e.g., `Created workspace-a1b2c3: Title`). Capture them with `| grep -oP 'Created \K[^:]+'`.
 ```
 
 ### 2b. Fix `<example_script>` section
 
-Replace all 3 occurrences of `grep -oP 'br-[a-f0-9]+'` with `grep -oP 'Created \K\S+'`:
+Replace all 3 occurrences of `grep -oP 'br-[a-f0-9]+'` with `grep -oP 'Created \K[^:]+'`:
 
 - Line with `EPIC_FOUNDATION=$(br create ... | grep -oP 'br-[a-f0-9]+')`
 - Line with `TASK_DB=$(br create ... | grep -oP 'br-[a-f0-9]+')`
@@ -128,11 +128,8 @@ Replace the current prerequisites with:
 ```markdown
 <prerequisites>
 The `br` CLI must be installed in the execution environment. The `developer` agent (which has `bash`) will verify this. If missing, install via:
-```
 
-cargo install --git <https://github.com/Dicklesworthstone/beads_rust.git> --tag v0.2.15 beads_rust
-
-```
+    cargo install --git https://github.com/Dicklesworthstone/beads_rust.git --tag v0.2.15 beads_rust
 </prerequisites>
 ```
 
@@ -200,7 +197,7 @@ Before the `opencode run` invocation, add workspace directory creation:
 
 ```powershell
 if ($env:WORKSPACE_DIR -and $Workspace.StartsWith('/workspace/')) {
-    $relativePath = $Workspace.TrimStart('/workspace/')
+    $relativePath = $Workspace.Substring('/workspace/'.Length)
     $hostPath = Join-Path $env:WORKSPACE_DIR $relativePath
     if (-not (Test-Path -LiteralPath $hostPath)) {
         New-Item -ItemType Directory -Force -Path $hostPath | Out-Null
