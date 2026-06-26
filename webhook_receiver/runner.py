@@ -8,6 +8,7 @@ import threading
 from pathlib import Path
 
 from webhook_receiver.config import Settings
+from webhook_receiver.event_store import EventStore
 from webhook_receiver.filters import should_filter
 
 logger = logging.getLogger(__name__)
@@ -61,7 +62,11 @@ def _stream_to_logger_and_file(
         pass  # pipe closed
 
 
-def dispatch_to_opencode(settings: Settings, prompt: str) -> None:
+def dispatch_to_opencode(
+    settings: Settings,
+    prompt: str,
+    event_store: EventStore | None = None,
+) -> None:
     """Run the prompt script in the background (non-blocking for the HTTP handler)."""
     log_dir = Path(tempfile.gettempdir()) / "orchestrator-webhook"
     log_dir.mkdir(parents=True, exist_ok=True)
@@ -104,6 +109,13 @@ def dispatch_to_opencode(settings: Settings, prompt: str) -> None:
         stderr_path,
     )
 
+    if event_store:
+        event_store.emit(
+            "dispatch_started",
+            prompt_file=prompt_path.name,
+            pid=proc.pid,
+        )
+
     # Stream stdout and stderr to both logger and files via daemon threads.
     threading.Thread(
         target=_stream_to_logger_and_file,
@@ -115,3 +127,16 @@ def dispatch_to_opencode(settings: Settings, prompt: str) -> None:
         args=(proc.stderr, stderr_file, "opencode-err"),
         daemon=True,
     ).start()
+
+    # Watcher: wait for process completion and emit an event.
+    if event_store:
+
+        def _watch() -> None:
+            proc.wait()
+            event_store.emit(
+                "dispatch_completed",
+                prompt_file=prompt_path.name,
+                exit_code=proc.returncode,
+            )
+
+        threading.Thread(target=_watch, daemon=True).start()
