@@ -22,8 +22,17 @@ The `BeadsLoop` runs as a background daemon thread in `webhook-receiver`, pollin
 export OPENCODE_SERVER_PASSWORD='…'
 export ZAI_CODING_API_KEY='…'   # and/or OPENROUTER_API_KEY, MODEL_STUDIO_API_KEY
 export OS_WEBHOOK_SECRET='…'   # GitHub App webhook secret
+export WORKSPACE_DIR='…'       # host directory mounted at /workspace (agent working trees)
 docker compose up --build
 ```
+
+`WORKSPACE_DIR` is **required** — it is the host directory bind-mounted into both `orchestratorservice` and `webhook-receiver` at `/workspace`. This is where agent sessions run and where `.beads/` DAG state lives. Create it before first start (e.g. `mkdir -p ~/orchestrator-workspace && export WORKSPACE_DIR=~/orchestrator-workspace`).
+
+> **Migration from the old named volume:** If you previously ran with the `opencode-workspace` named volume, copy its contents to your host directory before starting:
+> ```bash
+> docker run --rm -v opencode-workspace:/src -v "$WORKSPACE_DIR":/dst alpine sh -c 'cp -a /src/. /dst/'
+> ```
+> The old named volume can then be removed (`docker volume rm opencode-workspace`).
 
 - **orchestratorservice** — OpenCode server on port **4099**
 - **webhook-receiver** — internal FastAPI app (`POST /webhooks/github`)

@@ -120,3 +120,14 @@ jobs:
           load: true
           cache-from: type=gha,scope=caddy
           cache-to: type=gha,mode=max,scope=caddy
+
+      - name: Build beads builder image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: ./Dockerfile.beads
+          tags: beads:ci
+          push: false
+          load: true
+          cache-from: type=gha,scope=beads
+          cache-to: type=gha,mode=max,scope=beads

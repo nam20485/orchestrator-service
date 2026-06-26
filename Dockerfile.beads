@@ -1,0 +1,20 @@
+# Canonical Beads ecosystem builder (br + bvr).
+#
+# This file is the single source of truth for beads versions. Both Dockerfile
+# and Dockerfile.webhook mirror the builder stage below verbatim (named
+# `rust-builder`) and `COPY --from` the binaries they need into their final
+# image.
+#
+# beads_rust 0.2.15 (via the `asupersync` dependency) uses `#![feature]`,
+# which requires the nightly toolchain; no prebuilt nightly slim image is
+# published, so install nightly via rustup from a stable base image.
+# Pinned to immutable commit SHAs for reproducibility; version comment tracks
+# the upstream tag.
+FROM rust:1.95-slim-bookworm AS rust-builder
+RUN apt-get update && apt-get install -y --no-install-recommends git pkg-config libssl-dev \
+    && rm -rf /var/lib/apt/lists/*
+RUN rustup toolchain install nightly && rustup default nightly
+# beads_rust v0.2.15 @ d9f8d7083dee46d04a8e4741c5f535eb7fcabc97
+RUN cargo install --git https://github.com/Dicklesworthstone/beads_rust.git --rev d9f8d7083dee46d04a8e4741c5f535eb7fcabc97 --locked beads_rust
+# beads_viewer_rust v0.2.1 @ e4506f63214d32c8bcac4f29479a9b80cb932a6a
+RUN cargo install --git https://github.com/Dicklesworthstone/beads_viewer_rust.git --rev e4506f63214d32c8bcac4f29479a9b80cb932a6a --locked beads_viewer_rust

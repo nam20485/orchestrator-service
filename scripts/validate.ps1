@@ -91,6 +91,7 @@ try {
         }
 
         Invoke-BashStep -Name 'opencode.json' -ScriptPath './test/test-opencode-json.sh'
+        Invoke-BashStep -Name 'beads versions' -ScriptPath './test/test-beads-versions-consistency.sh'
 
         if (Get-CommandOrWarn 'shellcheck') {
             Invoke-ValidateStep -Name 'shellcheck' -Action {
@@ -129,6 +130,7 @@ try {
             Write-Warning 'Skipping compose config and caddyfile (test): docker not available.'
         }
         Invoke-BashStep -Name 'opencode.json (test)' -ScriptPath './test/test-opencode-json.sh'
+        Invoke-BashStep -Name 'beads versions (test)' -ScriptPath './test/test-beads-versions-consistency.sh'
     }
 
     Write-Host ""

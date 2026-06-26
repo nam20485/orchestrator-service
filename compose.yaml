@@ -7,7 +7,7 @@ services:
       - "4099:4099"
     volumes:
       - opencode-memory:/app/.memory
-      - opencode-workspace:/workspace
+      - ${WORKSPACE_DIR:?WORKSPACE_DIR is required}:/workspace
     restart: always
     environment:
       - ZAI_CODING_API_KEY=${ZAI_CODING_API_KEY}
@@ -27,7 +27,7 @@ services:
     expose:
       - "8080"
     volumes:
-      - opencode-workspace:/workspace
+      - ${WORKSPACE_DIR:?WORKSPACE_DIR is required}:/workspace
     environment:
       - OS_WEBHOOK_SECRET=${OS_WEBHOOK_SECRET}
       - OPENCODE_SERVER_URL=http://orchestratorservice:4099
@@ -64,6 +64,5 @@ services:
 
 volumes:
   opencode-memory:
-  opencode-workspace:
   caddy_data:
   caddy_config:
