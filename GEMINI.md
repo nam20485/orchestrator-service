@@ -24,7 +24,7 @@ Welcome! This is the definitive context, architecture reference, and instruction
     *   Exposed on port **`4099`** (e.g. `http://localhost:4099`).
     *   Runs the `opencode serve` command inside a Docker container.
     *   Hosts agent sessions. Config files (`opencode.json`, `AGENTS.md`, and `.opencode/` agents/commands directories) are copied to `/app` inside the image and loaded using environment variables (`OPENCODE_CONFIG` and `OPENCODE_CONFIG_DIR`).
-    *   Runs agent workspaces in `/workspace` (backed by the `opencode-workspace` shared volume), keeping them separate from server config files.
+    *   Runs agent workspaces in `/workspace` (backed by a host bind mount `${WORKSPACE_DIR}:/workspace`), keeping them separate from server config files.
 2.  **`webhook-receiver`** (FastAPI App)
     *   Binds internally to port **`8080`**.
     *   Validates signed GitHub App webhooks and dispatches runs asynchronously via `scripts/prompt.ps1`.

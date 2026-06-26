@@ -37,6 +37,10 @@ jobs:
             dockerfile: ./deploy/caddy/Dockerfile
             context: ./deploy/caddy
             image_suffix: /caddy
+          - name: beads
+            dockerfile: ./Dockerfile.beads
+            context: .
+            image_suffix: /beads
 
     steps:
       - name: Checkout repository

@@ -31,6 +31,9 @@ jobs:
           - name: orchestrator-caddy
             dockerfile: ./deploy/caddy/Dockerfile
             context: ./deploy/caddy
+          - name: beads
+            dockerfile: ./Dockerfile.beads
+            context: .
 
     steps:
       - name: Checkout code
@@ -50,7 +53,19 @@ jobs:
           severity: 'CRITICAL,HIGH'
 
       - name: Upload Trivy scan results to GitHub Security tab
+        # Non-fatal: uploading SARIF to the Security tab requires GitHub
+        # Advanced Security, which is not available on private repos without a
+        # GHAS license. The scan itself (the valuable part) still runs above.
+        continue-on-error: true
         uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: 'trivy-results-${{ matrix.name }}.sarif'
           category: ${{ matrix.name }}
+
+      - name: Attach SARIF report as workflow artifact
+        if: always()
+        uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08 # v4.6.0
+        with:
+          name: trivy-results-${{ matrix.name }}-${{ github.sha }}
+          path: 'trivy-results-${{ matrix.name }}.sarif'
+          if-no-files-found: warn

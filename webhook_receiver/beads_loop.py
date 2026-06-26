@@ -11,6 +11,7 @@ from dataclasses import replace
 from pathlib import Path
 
 from webhook_receiver.config import Settings
+from webhook_receiver.event_store import EventStore
 from webhook_receiver.runner import _prompt_script_invocation, _stream_to_logger_and_file
 from webhook_receiver.workspace import (
     cleanup_workspace,
@@ -31,13 +32,42 @@ class BeadsLoop:
     Falls back to ``br ready --json`` + priority sort if bvr is unavailable.
     """
 
-    def __init__(self, settings: Settings) -> None:
+    def __init__(self, settings: Settings, event_store: EventStore | None = None) -> None:
         self._settings = settings
+        self._event_store = event_store
         self._running = False
         self._active_beads: set[str] = set()
         self._lock = threading.Lock()
         self._retry_state: dict[str, dict[str, object]] = {}
+        self._bead_start_times: dict[str, float] = {}
+        self._halted_beads: set[str] = set()
         self._logged_init_warning = False
+
+    # ── public read-only properties for dashboard ──────────────────────────
+
+    @property
+    def active_beads(self) -> frozenset[str]:
+        with self._lock:
+            return frozenset(self._active_beads)
+
+    @property
+    def retry_state(self) -> dict[str, dict[str, object]]:
+        with self._lock:
+            return {k: dict(v) for k, v in self._retry_state.items()}
+
+    @property
+    def bead_start_times(self) -> dict[str, float]:
+        with self._lock:
+            return dict(self._bead_start_times)
+
+    @property
+    def halted_beads(self) -> frozenset[str]:
+        with self._lock:
+            return frozenset(self._halted_beads)
+
+    def _emit(self, event_type: str, **data: object) -> None:
+        if self._event_store:
+            self._event_store.emit(event_type, **data)
 
     def run(self) -> None:  # pragma: no cover (infinite loop — integration only)
         """Main loop — blocks until :meth:`stop` is called."""
@@ -70,15 +100,24 @@ class BeadsLoop:
             return
 
         with self._lock:
-            if bead_id in self._active_beads:
+            if bead_id in self._active_beads or bead_id in self._halted_beads:
                 return
             self._active_beads.add(bead_id)
+            self._bead_start_times[bead_id] = time.time()
+
+        self._emit(
+            "bead_picked_up",
+            bead_id=bead_id,
+            title=bead.get("title", bead_id),
+            priority=bead.get("priority"),
+        )
 
         try:
             self._process_bead(bead)
         finally:
             with self._lock:
                 self._active_beads.discard(bead_id)
+                self._bead_start_times.pop(bead_id, None)
 
     # ── bead selection: bvr graph-aware first, br priority fallback ────────
 
@@ -184,15 +223,25 @@ class BeadsLoop:
         target_repo = self._settings.beads_target_repo
 
         if bead_id not in self._retry_state:
-            self._retry_state[bead_id] = {"count": 0, "logs": ""}
+            with self._lock:
+                self._retry_state.setdefault(bead_id, {"count": 0, "logs": ""})
 
-        retries = self._retry_state[bead_id]["count"]
+        with self._lock:
+            retries = self._retry_state[bead_id]["count"]
         if retries >= self._settings.beads_max_retries:
             logger.error(
                 "Bead %s exceeded max retries (%d). Halting for human intervention.",
                 bead_id,
                 retries,
             )
+            self._emit(
+                "bead_halted",
+                bead_id=bead_id,
+                reason="max_retries_exceeded",
+                retries=retries,
+            )
+            with self._lock:
+                self._halted_beads.add(bead_id)
             return
 
         ws_path = ws_root
@@ -201,16 +250,20 @@ class BeadsLoop:
                 ws_path = create_workspace(ws_root, bead_id, target_repo)
             except Exception:
                 logger.exception("Failed to create workspace for bead %s", bead_id)
-                self._retry_state[bead_id]["count"] += 1
+                with self._lock:
+                    self._retry_state[bead_id]["count"] += 1
                 return
 
         try:
+            with self._lock:
+                prev_logs = self._retry_state[bead_id]["logs"]
             success, logs = self._spawn_agent(
-                bead, ws_path, retries, self._retry_state[bead_id]["logs"]
+                bead, ws_path, retries, prev_logs
             )
 
             if success:
                 logger.info("Successfully completed bead %s", bead_id)
+                self._emit("bead_closed", bead_id=bead_id)
                 if target_repo and ws_path != ws_root:
                     try:
                         push_branch(ws_path, bead_id)
@@ -219,15 +272,23 @@ class BeadsLoop:
                         logger.exception(
                             "Failed to push/create PR for bead %s", bead_id
                         )
-                self._retry_state.pop(bead_id, None)
+                with self._lock:
+                    self._retry_state.pop(bead_id, None)
             else:
                 logger.error(
                     "Agent failed to complete bead %s (attempt %d)",
                     bead_id,
                     retries + 1,
                 )
-                self._retry_state[bead_id]["count"] += 1
-                self._retry_state[bead_id]["logs"] = (logs or "")[-3000:]
+                with self._lock:
+                    self._retry_state[bead_id]["count"] += 1
+                    self._retry_state[bead_id]["logs"] = (logs or "")[-3000:]
+                self._emit(
+                    "bead_failed",
+                    bead_id=bead_id,
+                    attempt=retries + 1,
+                    max_retries=self._settings.beads_max_retries,
+                )
         finally:
             if target_repo and ws_path != ws_root:
                 cleanup_workspace(ws_root, bead_id)
@@ -309,6 +370,16 @@ class BeadsLoop:
                 env=env,
             )
 
+            self._emit(
+                "agent_spawned",
+                bead_id=bead_id,
+                pid=proc.pid,
+                attempt=retry_count + 1,
+                workspace=ws_path,
+            )
+
+            _agent_start = time.time()
+
             t1 = threading.Thread(
                 target=_stream_to_logger_and_file,
                 args=(proc.stdout, stdout_file, f"bead-{bead_id}"),
@@ -326,7 +397,15 @@ class BeadsLoop:
             t1.join()
             t2.join()
 
+            _duration = time.time() - _agent_start
             status = self._check_bead_status(bead_id)
+            self._emit(
+                "agent_completed",
+                bead_id=bead_id,
+                exit_code=proc.returncode,
+                duration_s=round(_duration, 2),
+                status=status,
+            )
             if status != "closed":
                 logger.warning(
                     "Bead %s is still %s after agent exit.", bead_id, status

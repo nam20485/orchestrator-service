@@ -59,6 +59,28 @@ if (-not $Prompt) {
     throw "Provide -Prompt or -PromptFile."
 }
 
+# Ensure the workspace directory exists. When attaching to a container server
+# with a host bind mount at /workspace, the host-side subdir must exist before
+# opencode resolves --dir (server-side). $WORKSPACE_DIR points at the host root
+# mounted at /workspace; derive the host path and create it if needed.
+if ($env:WORKSPACE_DIR -and $Workspace -and $Workspace -match '^/workspace(/|$)') {
+    $relativePath = $Workspace -replace '^/workspace/?', ''
+    if ($relativePath) {
+        # Guard against path traversal: reject any '..' segments so $Workspace
+        # cannot create directories outside $WORKSPACE_DIR.
+        if ($relativePath -split '/' -notcontains '..') {
+            $rootPath   = (Resolve-Path -LiteralPath $env:WORKSPACE_DIR).Path.TrimEnd('/\') + [IO.Path]::DirectorySeparatorChar
+            $hostPath   = Join-Path $env:WORKSPACE_DIR $relativePath
+            $resolved   = [System.IO.Path]::GetFullPath($hostPath).TrimEnd('/\') + [IO.Path]::DirectorySeparatorChar
+            if ($resolved.StartsWith($rootPath)) {
+                if (-not (Test-Path -LiteralPath $hostPath)) {
+                    New-Item -ItemType Directory -Force -Path $hostPath | Out-Null
+                }
+            }
+        }
+    }
+}
+
 opencode run `
     --attach $ServerUrl `
     --dir $Workspace `

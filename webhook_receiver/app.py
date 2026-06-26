@@ -7,7 +7,10 @@ from typing import Any
 from fastapi import BackgroundTasks, FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 
+from webhook_receiver.beads_loop import BeadsLoop
 from webhook_receiver.config import Settings
+from webhook_receiver.dashboard import create_dashboard_page_router, create_dashboard_router
+from webhook_receiver.event_store import EventStore
 from webhook_receiver.github import verify_signature
 from webhook_receiver.prompts import build_orchestrator_prompt
 from webhook_receiver.runner import dispatch_to_opencode
@@ -16,8 +19,13 @@ from webhook_receiver.simulator import create_simulator_router
 logger = logging.getLogger(__name__)
 
 
-def create_app(settings: Settings | None = None) -> FastAPI:
+def create_app(
+    settings: Settings | None = None,
+    event_store: EventStore | None = None,
+    beads_loop: BeadsLoop | None = None,
+) -> FastAPI:
     cfg = settings or Settings.from_env()
+    store = event_store or EventStore()
     app = FastAPI(
         title="Orchestrator GitHub Webhook Receiver",
         version="0.1.0",
@@ -88,6 +96,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             payload.get("repository", {}).get("full_name", "?"),
             payload.get("sender", {}).get("login", "?"),
         )
+
+        store.emit(
+            "webhook_received",
+            delivery_id=delivery_id,
+            event=event,
+            action=payload.get("action", ""),
+            repo=payload.get("repository", {}).get("full_name", "?"),
+        )
         logger.debug(
             "Webhook headers delivery_id=%s content-length=%s content-type=%s",
             delivery_id,
@@ -112,7 +128,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "Prompt preview delivery_id=%s:\n%s", delivery_id, prompt[:500]
         )
 
-        background_tasks.add_task(dispatch_to_opencode, cfg, prompt)
+        background_tasks.add_task(dispatch_to_opencode, cfg, prompt, store)
 
         logger.info(
             "Accepted delivery_id=%s event=%s action=%s",
@@ -130,5 +146,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
 
     app.include_router(create_simulator_router(enabled=cfg.enable_simulator))
+    app.include_router(
+        create_dashboard_router(store, beads_loop, dashboard_token=cfg.dashboard_token)
+    )
+    app.include_router(create_dashboard_page_router(dashboard_token=cfg.dashboard_token))
 
     return app

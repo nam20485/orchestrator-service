@@ -19,7 +19,7 @@
 - Docker image uses `debian:trixie-20260518-slim`, runs `opencode serve` on `0.0.0.0:4099`, and bundles Node.js 24.14.0, pwsh 7.6.2 LTS, uv, gh CLI, Python3, ripgrep, jq, and agent utilities (git, make, openssh-client, gnupg, patch, xz-utils, file, procps); Node and pwsh install from linux-x64 `.tar.gz` tarballs (image is amd64-only; PowerShell uses GitHub tarball because Microsoft apt repo fails on trixie SHA1 policy).
 - Authoritative architecture docs: `plan_docs/agent-loop-refactor/architecture.md` and `plan_docs/agent-loop-refactor/application_plan.md` (three-tier Beads pipeline). Original OpenCode server POR (`plan_docs/archive/plan.md`), supervisor spec (`plan_docs/archive/orchestration_supervisor.md`), and maestro options (`plan_docs/archive/maestro_architecture_options.md`) are archived and do NOT reflect current architecture.
 - OpenCode server config source of truth is repo `image/` (`opencode.json`, `AGENTS.md`, `.opencode/agents/`, `.opencode/commands/`); Dockerfile copies those into `/app` (no full-repo `COPY . .`); `scripts/docker-entrypoint.sh` exports `OPENCODE_CONFIG=/app/opencode.json` and `OPENCODE_CONFIG_DIR=/app/.opencode` so `opencode serve` loads image config instead of defaulting to `~/.config/opencode`.
-- Agent sessions run in `/workspace` (compose volume `opencode-workspace`); `/app` is server config only—keep working tree separate from OpenCode install/config.
+- Agent sessions run in `/workspace` (compose bind mount `${WORKSPACE_DIR}:/workspace`; host-side subdir is created by `scripts/prompt.ps1` before attach); `/app` is server config only—keep working tree separate from OpenCode install/config.
 - Root repo `AGENTS.md` is Cursor memory plus host-repo validation docs; the container uses `image/AGENTS.md` copied to `/app/AGENTS.md` (overwrites any root copy).
 - Provider auth: `scripts/docker-entrypoint.sh` writes `/root/.local/share/opencode/auth.json` from host/CI env vars before `opencode serve` starts; supported vars include `ZAI_CODING_API_KEY` (or `ZAI_API_KEY`), `OPENROUTER_API_KEY`, and `MODEL_STUDIO_API_KEY`; Alibaba Model Studio Singapore (`bailian-payg`) defaults to `bailian-payg/qwen3.6-plus` with `bailian-payg/qwen3.6-flash` as `small_model`.
 - `zai-coding-plan/glm-4.7` needs `ZAI_CODING_API_KEY`; `OPENROUTER_API_KEY` alone does not authenticate that provider.
@@ -43,7 +43,7 @@ The system is a **three-tier software factory** built around the Beads DAG ecosy
 
 ### Service Roles
 
-- **orchestratorservice** — OpenCode server (`opencode serve` on :4099). Hosts agent sessions. Config in `/app` (`opencode.json`, `AGENTS.md`, `.opencode/`). Working directory `/workspace` (shared Docker volume `opencode-workspace`). Clients attach via `opencode run --attach <url> --dir <workspace>`.
+- **orchestratorservice** — OpenCode server (`opencode serve` on :4099). Hosts agent sessions. Config in `/app` (`opencode.json`, `AGENTS.md`, `.opencode/`). Working directory `/workspace` (host bind mount `${WORKSPACE_DIR}:/workspace`, shared with webhook-receiver). Clients attach via `opencode run --attach <url> --dir <workspace>`.
 - **webhook-receiver** — FastAPI app on :8080. Validates GitHub App webhooks, dispatches orchestration runs (fire-and-forget via `scripts/prompt.ps1`). Also hosts the `BeadsLoop` background daemon thread that polls `br ready --json` and spawns agents per bead.
 - **webhook-proxy** — Caddy reverse proxy on host :80 (HTTP) or :443 (HTTPS via `compose.https.yaml`).
 

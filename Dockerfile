@@ -1,3 +1,17 @@
+# --- Stage 1: Rust Builder (Beads ecosystem: br) ---
+# Mirrors the br-only subset of Dockerfile.beads (single source of truth);
+# bvr intentionally omitted — this image only needs br (COPY at line 86).
+# Pinned to immutable commit SHAs for reproducibility; version comment tracks
+# the upstream tag. beads_rust 0.2.15 (via the `asupersync` dependency) uses
+# `#![feature]`, which requires the nightly toolchain.
+FROM rust:1.95-slim-bookworm AS rust-builder
+RUN apt-get update && apt-get install -y --no-install-recommends git pkg-config libssl-dev \
+    && rm -rf /var/lib/apt/lists/*
+RUN rustup toolchain install nightly && rustup default nightly
+# beads_rust v0.2.15 @ d9f8d7083dee46d04a8e4741c5f535eb7fcabc97
+RUN cargo install --git https://github.com/Dicklesworthstone/beads_rust.git --rev d9f8d7083dee46d04a8e4741c5f535eb7fcabc97 --locked beads_rust
+
+# --- Stage 2: Final Image ---
 FROM debian:trixie-20260518-slim
 LABEL Name=orchestratorservice Version=0.0.1
 
@@ -69,6 +83,10 @@ RUN curl -fsSL https://opencode.ai/install | bash -s -- --version "${OPENCODE_VE
     && chmod +x /usr/local/bin/opencode
 
 ENV PATH="/root/.opencode/bin:${PATH}"
+
+# Beads CLI (br) from the Rust builder stage. Pre-installed so agent sessions
+# running the plan-to-beads skill do not bootstrap a toolchain at runtime.
+COPY --from=rust-builder /usr/local/cargo/bin/br /usr/local/bin/br
 
 # Agent workspace (sessions via --dir); separate from OpenCode config in /app
 RUN mkdir -p /workspace && chmod 755 /workspace

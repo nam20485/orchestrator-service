@@ -23,7 +23,7 @@ Supporting docs: `architecture.md` (accompanies this file)
 - Language: Python 3.11+ (webhook receiver), PowerShell 7.6.2 (prompt scripts), Rust (Beads binaries)
 - AI/Runtime: OpenCode CLI 1.17.8, Z.AI GLM models, Alibaba Model Studio
 - Architecture: Three-tier pipeline (Ideation → Planning → Execution) with Beads DAG
-- Databases/Storage: SQLite + JSONL (Beads), shared Docker volume `opencode-workspace`
+- Databases/Storage: SQLite + JSONL (Beads), host bind mount `${WORKSPACE_DIR}:/workspace`
 - Logging/Observability: Python logging, OpenCode server logs, per-bead stdout/stderr capture
 - Containerization/Infra: Docker, Compose, multi-stage Rust build for webhook image
 
