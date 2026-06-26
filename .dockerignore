@@ -40,6 +40,9 @@ scripts/*
 # Secrets (mounted at runtime via compose, not baked into image)
 auth/
 
+# Machine-local compose env (gitignored; never bake into image)
+.env
+
 *.code-workspace
 .memory/
 
