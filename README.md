@@ -128,6 +128,18 @@ http://localhost/simulator
 
 For local simulator UI, set `WEBHOOK_ENABLE_SIMULATOR=1` before `docker compose up`. Secret is pre-filled from `OS_WEBHOOK_SECRET`; browser `sessionStorage` overrides if you edit the field.
 
+### Orchestration dashboard
+
+A real-time web UI for the Beads pipeline: bead DAG status, active agents, and a live event timeline (SSE). Served by `webhook-receiver` behind Caddy.
+
+```text
+http://localhost/dashboard
+```
+
+UI status badges, sortable bead table with inline logs, event timeline, and a JSON API under `/api/dashboard/*`. Full reference: [docs/dashboard.md](docs/dashboard.md).
+
+> **Trusted-network only** — the dashboard has no authentication; run it only inside a trusted network like the rest of the receiver.
+
 ### Health
 
 ```bash
