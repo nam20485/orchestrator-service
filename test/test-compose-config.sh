@@ -16,16 +16,18 @@ echo "compose config: ok"
 docker compose -f compose.yaml -f compose.https.yaml config --quiet
 echo "compose https overlay: ok"
 
-# Verify enforcement: compose config should fail without OPENCODE_SERVER_PASSWORD
-if (unset OPENCODE_SERVER_PASSWORD && docker compose -f compose.yaml config --quiet 2>/dev/null); then
+# Verify enforcement: compose config should fail without OPENCODE_SERVER_PASSWORD.
+# Use --env-file /dev/null so a developer's local .env (auto-loaded by compose)
+# does not re-supply the variable and mask a missing enforcement.
+if (unset OPENCODE_SERVER_PASSWORD && docker compose --env-file /dev/null -f compose.yaml config --quiet 2>/dev/null); then
   echo "FAIL: compose should require OPENCODE_SERVER_PASSWORD"
   exit 1
 else
   echo "compose enforces OPENCODE_SERVER_PASSWORD: ok"
 fi
 
-# Verify enforcement: compose config should fail without WORKSPACE_DIR
-if (unset WORKSPACE_DIR && docker compose -f compose.yaml config --quiet 2>/dev/null); then
+# Verify enforcement: compose config should fail without WORKSPACE_DIR.
+if (unset WORKSPACE_DIR && docker compose --env-file /dev/null -f compose.yaml config --quiet 2>/dev/null); then
   echo "FAIL: compose should require WORKSPACE_DIR"
   exit 1
 else
