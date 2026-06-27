@@ -374,6 +374,83 @@ def test_bead_logs_clamps_tail_upper_bound(tmp_path: Path) -> None:
     assert "line9" in data["stdout"]
 
 
+# ── Bead metadata (single bead) ────────────────────────────────────────────
+
+
+def test_bead_metadata_found() -> None:
+    store = EventStore()
+    app = create_app(_test_settings(), event_store=store)
+    client = _client(app)
+
+    all_json = _br_list_json(
+        {"id": "br-1", "status": "open", "title": "First Task", "priority": 2,
+         "type": "task", "description": "Do the thing."},
+        {"id": "br-2", "status": "open", "title": "Second Task", "priority": 1},
+    )
+    ready_json = _br_ready_json()
+
+    def fake_run(args, ws=None):
+        return all_json if "list" in args else ready_json
+
+    with patch("webhook_receiver.dashboard._run_beads_cmd", side_effect=fake_run):
+        resp = client.get("/api/dashboard/beads/br-1")
+
+    assert resp.status_code == 200
+    bead = resp.json()
+    assert bead["id"] == "br-1"
+    assert bead["title"] == "First Task"
+    assert bead["type"] == "task"
+    assert bead["description"] == "Do the thing."
+
+
+def test_bead_metadata_not_found() -> None:
+    store = EventStore()
+    app = create_app(_test_settings(), event_store=store)
+    client = _client(app)
+
+    all_json = _br_list_json({"id": "br-1", "status": "open", "title": "T"})
+    ready_json = _br_ready_json()
+
+    def fake_run(args, ws=None):
+        return all_json if "list" in args else ready_json
+
+    with patch("webhook_receiver.dashboard._run_beads_cmd", side_effect=fake_run):
+        resp = client.get("/api/dashboard/beads/br-missing")
+
+    assert resp.status_code == 404
+
+
+def test_bead_metadata_rejects_glob_chars() -> None:
+    store = EventStore()
+    app = create_app(_test_settings(), event_store=store)
+    client = _client(app)
+
+    for bad_id in ["*", "br-x[abc]", "br%20x"]:
+        resp = client.get(f"/api/dashboard/beads/{bad_id}")
+        assert resp.status_code == 400, f"bad bead_id={bad_id!r} got {resp.status_code}"
+
+
+def test_bead_metadata_accepts_valid_ids() -> None:
+    store = EventStore()
+    app = create_app(_test_settings(), event_store=store)
+    client = _client(app)
+
+    all_json = _br_list_json(
+        {"id": "br-1", "status": "open", "title": "T", "priority": 1},
+        {"id": "workspace-abc", "status": "open", "title": "T2", "priority": 1},
+        {"id": "br_my_bead", "status": "open", "title": "T3", "priority": 1},
+    )
+    ready_json = _br_ready_json()
+
+    def fake_run(args, ws=None):
+        return all_json if "list" in args else ready_json
+
+    with patch("webhook_receiver.dashboard._run_beads_cmd", side_effect=fake_run):
+        for valid_id in ["br-1", "workspace-abc", "br_my_bead"]:
+            resp = client.get(f"/api/dashboard/beads/{valid_id}")
+            assert resp.status_code == 200, f"Expected 200 for {valid_id!r}"
+
+
 # ── HTML page ──────────────────────────────────────────────────────────────
 
 
@@ -384,6 +461,46 @@ def test_dashboard_html_served() -> None:
     resp = client.get("/dashboard")
     assert resp.status_code == 200
     assert "Orchestration Dashboard" in resp.text
+
+
+def test_bead_detail_html_served() -> None:
+    store = EventStore()
+    app = create_app(_test_settings(), event_store=store)
+    client = _client(app)
+    resp = client.get("/dashboard/bead/br-1")
+    assert resp.status_code == 200
+    assert resp.headers["content-type"].startswith("text/html")
+    assert "no-store" in resp.headers.get("cache-control", "")
+    assert "Back to dashboard" in resp.text
+
+
+def test_bead_detail_page_rejects_glob_chars() -> None:
+    store = EventStore()
+    app = create_app(_test_settings(), event_store=store)
+    client = _client(app)
+    for bad_id in ["*", "br-x[abc]", "br%20x"]:
+        resp = client.get(f"/dashboard/bead/{bad_id}")
+        assert resp.status_code == 400, f"bad bead_id={bad_id!r} got {resp.status_code}"
+
+
+def test_bead_detail_page_rejects_missing_token() -> None:
+    store = EventStore()
+    app = create_app(_test_settings(), event_store=store)
+    client = TestClient(app)  # no Authorization header
+    assert client.get("/dashboard/bead/br-1").status_code == 401
+
+
+def test_bead_detail_page_accepts_query_token_and_sets_cookie() -> None:
+    store = EventStore()
+    app = create_app(_test_settings(), event_store=store)
+    client = TestClient(app)  # rely on ?token= query
+    resp = client.get("/dashboard/bead/br-1", params={"token": "test-dashboard-token"})
+    assert resp.status_code == 200
+    assert "dashboard_token" in resp.headers.get("set-cookie", "")
+    # follow-up same-origin fetch (cookie auto-stored) succeeds w/o auth header
+    client.headers.pop("authorization", None)
+    with patch("webhook_receiver.dashboard._run_beads_cmd", return_value=""):
+        assert client.get("/api/dashboard/overview").status_code == 200
 
 
 # ── Graceful degradation (br not found) ────────────────────────────────────
@@ -413,7 +530,9 @@ def test_dashboard_disabled_by_default() -> None:
     client = TestClient(app)  # no token header; endpoints should be gone
 
     assert client.get("/dashboard").status_code == 404
+    assert client.get("/dashboard/bead/br-1").status_code == 404
     assert client.get("/api/dashboard/overview").status_code == 404
+    assert client.get("/api/dashboard/beads/br-1").status_code == 404
     assert client.get("/api/dashboard/beads/br-1/logs").status_code == 404
     assert client.get("/api/dashboard/events").status_code == 404
 
