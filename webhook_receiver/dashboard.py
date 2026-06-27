@@ -262,6 +262,61 @@ def _fetch_beads_view(ws: str) -> dict[str, Any]:
     return {"all": all_beads, "ready_ids": {b.get("id") for b in ready}}
 
 
+def _enrich_beads(
+    cached: dict[str, Any], beads_loop: BeadsLoop | None
+) -> list[dict[str, Any]]:
+    """Enrich raw beads with runtime status from the loop.
+
+    Shared by the ``/beads`` list and ``/beads/{bead_id}`` detail endpoints so
+    both surface identical ``ui_status``/``elapsed_s``/``retry_count`` values.
+    """
+    all_beads: list[dict[str, Any]] = cached["all"]
+    ready_ids: set[Any] = cached["ready_ids"]
+
+    active: set[str] = set()
+    retry: dict[str, dict[str, object]] = {}
+    start_times: dict[str, float] = {}
+    halted_ids: set[str] = set()
+    now = time.time()
+    if beads_loop:
+        active = set(beads_loop.active_beads)
+        retry = beads_loop.retry_state
+        start_times = beads_loop.bead_start_times
+        halted_ids = set(beads_loop.halted_beads)
+
+    enriched: list[dict[str, Any]] = []
+    for b in all_beads:
+        bid = b.get("id", "")
+        db_status = str(b.get("status", "")).lower()
+        retry_count = 0
+        rstate = retry.get(bid)
+        if rstate and isinstance(rstate.get("count"), (int, float)):
+            retry_count = int(rstate["count"])
+
+        ui_status = _ui_status(bid, db_status, active, halted_ids, ready_ids)
+        elapsed_s = None
+        if bid in start_times:
+            elapsed_s = round(now - start_times[bid], 1)
+
+        enriched.append(
+            {
+                "id": bid,
+                "title": b.get("title", bid),
+                "type": b.get("type", "task"),
+                "priority": b.get("priority", 999),
+                "status": db_status or "open",
+                "ui_status": ui_status,
+                "retry_count": retry_count,
+                "is_active": bid in active,
+                "elapsed_s": elapsed_s,
+                "description": b.get("description", ""),
+            }
+        )
+
+    enriched.sort(key=lambda b: (b["ui_status"] != "active", b["priority"], b["id"]))
+    return enriched
+
+
 def create_dashboard_router(
     event_store: EventStore,
     beads_loop: BeadsLoop | None = None,
@@ -332,51 +387,19 @@ def create_dashboard_router(
     async def beads() -> list[dict[str, Any]]:
         ws = _workspace()
         cached = await asyncio.to_thread(_cached, "beads_view", _fetch_beads_view, ws)
-        all_beads: list[dict[str, Any]] = cached["all"]
-        ready_ids: set[Any] = cached["ready_ids"]
+        return _enrich_beads(cached, beads_loop)
 
-        active: set[str] = set()
-        retry: dict[str, dict[str, object]] = {}
-        start_times: dict[str, float] = {}
-        halted_ids: set[str] = set()
-        now = time.time()
-        if beads_loop:
-            active = set(beads_loop.active_beads)
-            retry = beads_loop.retry_state
-            start_times = beads_loop.bead_start_times
-            halted_ids = set(beads_loop.halted_beads)
-
-        enriched: list[dict[str, Any]] = []
-        for b in all_beads:
-            bid = b.get("id", "")
-            db_status = str(b.get("status", "")).lower()
-            retry_count = 0
-            rstate = retry.get(bid)
-            if rstate and isinstance(rstate.get("count"), (int, float)):
-                retry_count = int(rstate["count"])
-
-            ui_status = _ui_status(bid, db_status, active, halted_ids, ready_ids)
-            elapsed_s = None
-            if bid in start_times:
-                elapsed_s = round(now - start_times[bid], 1)
-
-            enriched.append(
-                {
-                    "id": bid,
-                    "title": b.get("title", bid),
-                    "type": b.get("type", "task"),
-                    "priority": b.get("priority", 999),
-                    "status": db_status or "open",
-                    "ui_status": ui_status,
-                    "retry_count": retry_count,
-                    "is_active": bid in active,
-                    "elapsed_s": elapsed_s,
-                    "description": b.get("description", ""),
-                }
-            )
-
-        enriched.sort(key=lambda b: (b["ui_status"] != "active", b["priority"], b["id"]))
-        return enriched
+    @router.get("/beads/{bead_id}")
+    async def bead_detail(bead_id: str) -> dict[str, Any]:
+        if not _valid_bead_id(bead_id):
+            raise HTTPException(status_code=400, detail="Invalid bead ID")
+        ws = _workspace()
+        cached = await asyncio.to_thread(_cached, "beads_view", _fetch_beads_view, ws)
+        enriched = _enrich_beads(cached, beads_loop)
+        bead = next((b for b in enriched if b.get("id") == bead_id), None)
+        if bead is None:
+            raise HTTPException(status_code=404, detail="Bead not found")
+        return bead
 
     # ── dependency graph ────────────────────────────────────────────────────
 
@@ -434,7 +457,7 @@ def create_dashboard_router(
 
     @router.get("/beads/{bead_id}/logs")
     async def bead_logs(bead_id: str, tail: int = 200) -> dict[str, Any]:
-        if not bead_id or not bead_id.replace("-", "").replace("_", "").isalnum():
+        if not _valid_bead_id(bead_id):
             raise HTTPException(status_code=400, detail="Invalid bead ID")
         tail = max(1, min(tail, 2000))
         log_dir = Path(tempfile.gettempdir()) / "orchestrator-webhook"
@@ -537,35 +560,55 @@ def create_dashboard_router(
 # ── HTML page route (separate so it has no /api prefix) ────────────────────
 
 
+def _serve_html(
+    request: Request, filename: str, dashboard_token: str | None
+) -> HTMLResponse:
+    """Serve a static dashboard page and persist the token cookie if present.
+
+    When the page is opened with ``?token=<token>``, persist it as a cookie so
+    subsequent same-origin ``fetch()``/``EventSource`` requests authenticate
+    automatically (and so a new tab opened via ``window.open`` is authed).
+    """
+    html_path = _STATIC_DIR / filename
+    if not html_path.is_file():
+        raise HTTPException(status_code=500, detail=f"{filename} not found")
+    html = html_path.read_text(encoding="utf-8")
+    resp = HTMLResponse(
+        html,
+        media_type="text/html",
+        headers={"Cache-Control": "no-store"},
+    )
+    query_token = request.query_params.get("token")
+    if query_token and hmac.compare_digest(query_token, str(dashboard_token or "")):
+        resp.set_cookie(
+            "dashboard_token",
+            query_token,
+            httponly=True,
+            samesite="strict",
+            secure=request.url.scheme == "https",
+            path="/",
+        )
+    return resp
+
+
+def _valid_bead_id(bead_id: str | None) -> bool:
+    """Glob/path-safe bead ID check shared by the detail page + metadata."""
+    return bool(bead_id) and bead_id.replace("-", "").replace("_", "").isalnum()
+
+
 def create_dashboard_page_router(dashboard_token: str | None = None) -> APIRouter:
     auth = _make_dashboard_auth(dashboard_token)
     router = APIRouter(tags=["dashboard"], dependencies=[Depends(auth)])
 
     @router.get("/dashboard")
     async def dashboard_page(request: Request) -> HTMLResponse:
-        html_path = _STATIC_DIR / "dashboard.html"
-        if not html_path.is_file():
-            raise HTTPException(status_code=500, detail="Dashboard UI not found")
-        html = html_path.read_text(encoding="utf-8")
-        resp = HTMLResponse(
-            html,
-            media_type="text/html",
-            headers={"Cache-Control": "no-store"},
-        )
-        # When the page is first opened with ?token=<token>, persist it as a
-        # cookie so subsequent same-origin fetch() and EventSource requests
-        # are authenticated automatically.
-        query_token = request.query_params.get("token")
-        if query_token and hmac.compare_digest(query_token, str(dashboard_token or "")):
-            resp.set_cookie(
-                "dashboard_token",
-                query_token,
-                httponly=True,
-                samesite="strict",
-                secure=request.url.scheme == "https",
-                path="/",
-            )
-        return resp
+        return _serve_html(request, "dashboard.html", dashboard_token)
+
+    @router.get("/dashboard/bead/{bead_id}")
+    async def bead_detail_page(request: Request, bead_id: str) -> HTMLResponse:
+        if not _valid_bead_id(bead_id):
+            raise HTTPException(status_code=400, detail="Invalid bead ID")
+        return _serve_html(request, "bead_detail.html", dashboard_token)
 
     return router
 
