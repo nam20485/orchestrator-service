@@ -462,3 +462,292 @@ def test_dashboard_accepts_query_token_and_sets_cookie() -> None:
     client.headers.pop("authorization", None)
     with patch("webhook_receiver.dashboard._run_beads_cmd", return_value=""):
         assert client.get("/api/dashboard/overview").status_code == 200
+
+
+# ── Dependency graph ────────────────────────────────────────────────────────
+
+
+def _br_graph_json(*nodes: dict, edges=None, total=None) -> str:
+    """Build canned `br graph --all --json` output (single component)."""
+    edges = edges if edges is not None else []
+    total = total if total is not None else len(nodes)
+    return json.dumps(
+        {
+            "components": [{"nodes": list(nodes), "edges": edges, "roots": []}],
+            "total_nodes": total,
+            "total_components": 1,
+        }
+    )
+
+
+def test_graph_endpoint_returns_nodes_and_edges() -> None:
+    store = EventStore()
+    graph_json = _br_graph_json(
+        {"id": "br-1", "title": "Epic", "status": "open", "priority": 1, "depth": 0},
+        {"id": "br-2", "title": "Task", "status": "open", "priority": 2, "depth": 1},
+        edges=[["br-2", "br-1"]],  # br-2 depends on br-1
+        total=2,
+    )
+    list_json = json.dumps(
+        {
+            "issues": [
+                {
+                    "id": "br-1",
+                    "title": "Epic",
+                    "status": "open",
+                    "priority": 1,
+                    "issue_type": "epic",
+                },
+                {
+                    "id": "br-2",
+                    "title": "Task",
+                    "status": "open",
+                    "priority": 2,
+                    "issue_type": "task",
+                },
+            ]
+        }
+    )
+    ready_json = json.dumps({"issues": [{"id": "br-1"}]})
+
+    app = create_app(_test_settings(), event_store=store)
+    client = _client(app)
+
+    def fake_run(args, ws=None):
+        if "graph" in args:
+            return graph_json
+        if "list" in args:
+            return list_json
+        if "ready" in args:
+            return ready_json
+        return ""
+
+    with patch("webhook_receiver.dashboard._run_beads_cmd", side_effect=fake_run):
+        resp = client.get("/api/dashboard/graph")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["initialized"] is True
+    ids = {n["id"] for n in data["nodes"]}
+    assert ids == {"br-1", "br-2"}
+    # Node metadata is merged in from `br list`.
+    by_id = {n["id"]: n for n in data["nodes"]}
+    assert by_id["br-1"]["type"] == "epic"
+    # Shared enrichment: br-1 is ready, br-2 depends on it so it is blocked.
+    assert by_id["br-1"]["ui_status"] == "ready"
+    assert by_id["br-2"]["ui_status"] == "blocked"
+    # Edge passes through as {source, target}.
+    assert {"source": "br-2", "target": "br-1"} in data["edges"]
+
+
+def test_graph_endpoint_not_initialized() -> None:
+    store = EventStore()
+    app = create_app(_test_settings(), event_store=store)
+    client = _client(app)
+
+    with patch("webhook_receiver.dashboard._run_beads_cmd", return_value=""):
+        resp = client.get("/api/dashboard/graph")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["initialized"] is False
+    assert data["nodes"] == []
+    assert data["edges"] == []
+
+
+def test_graph_endpoint_enriches_active_via_shared_helper() -> None:
+    """The graph uses the same _ui_status helper as the list endpoint."""
+    store = EventStore()
+    loop = BeadsLoop(_test_settings())
+    loop._active_beads.add("br-active")
+
+    graph_json = _br_graph_json(
+        {"id": "br-active", "title": "Running", "status": "open", "priority": 1, "depth": 0},
+        total=1,
+    )
+    list_json = json.dumps(
+        {
+            "issues": [
+                {
+                    "id": "br-active",
+                    "title": "Running",
+                    "status": "open",
+                    "issue_type": "task",
+                }
+            ]
+        }
+    )
+
+    app = create_app(_test_settings(), event_store=store, beads_loop=loop)
+    client = _client(app)
+
+    def fake_run(args, ws=None):
+        if "graph" in args:
+            return graph_json
+        if "list" in args:
+            return list_json
+        return ""
+
+    with patch("webhook_receiver.dashboard._run_beads_cmd", side_effect=fake_run):
+        resp = client.get("/api/dashboard/graph")
+
+    nodes = {n["id"]: n for n in resp.json()["nodes"]}
+    assert nodes["br-active"]["ui_status"] == "active"
+
+
+# ── bvr pages bundle ────────────────────────────────────────────────────────
+
+
+def _fake_bvr_export_writing(bundle_html: str):
+    """Return a stand-in for _run_bvr_export that writes a fake index.html."""
+
+    def _export(args, cwd):
+        # args: ["bvr", "--export-pages", <bundle_dir>, ...]
+        bundle = Path(args[2])
+        bundle.mkdir(parents=True, exist_ok=True)
+        (bundle / "index.html").write_text(bundle_html)
+        (bundle / "styles.css").write_text("body{color:#fff}")
+
+    return _export
+
+
+def test_pages_endpoint_serves_bundle(tmp_path: Path) -> None:
+    ws = tmp_path / "ws"
+    (ws / ".beads").mkdir(parents=True)
+    bundle = tmp_path / "bundle"
+
+    store = EventStore()
+    app = create_app(_test_settings(), event_store=store)
+    client = _client(app)
+
+    with (
+        patch("webhook_receiver.dashboard._workspace", return_value=str(ws)),
+        patch("webhook_receiver.dashboard._bvr_bundle_dir", return_value=bundle),
+        patch(
+            "webhook_receiver.dashboard._run_bvr_export",
+            side_effect=_fake_bvr_export_writing("<html><body>bvr bundle</body></html>"),
+        ),
+    ):
+        resp = client.get("/dashboard/pages/")
+
+    assert resp.status_code == 200
+    assert "bvr bundle" in resp.text
+
+    # Relative sub-assets resolve through the gated catch-all route.
+    with (
+        patch("webhook_receiver.dashboard._workspace", return_value=str(ws)),
+        patch("webhook_receiver.dashboard._bvr_bundle_dir", return_value=bundle),
+        patch(
+            "webhook_receiver.dashboard._run_bvr_export",
+            side_effect=_fake_bvr_export_writing("<html><body>bvr bundle</body></html>"),
+        ),
+    ):
+        asset = client.get("/dashboard/pages/styles.css")
+    assert asset.status_code == 200
+    assert "color" in asset.text
+
+
+def test_pages_endpoint_redirect_from_no_slash() -> None:
+    store = EventStore()
+    app = create_app(_test_settings(), event_store=store)
+    client = _client(app)
+
+    # /dashboard/pages (no trailing slash) → 307 → /dashboard/pages/.
+    resp = client.get("/dashboard/pages", follow_redirects=False)
+    assert resp.status_code == 307
+    assert resp.headers["location"] == "/dashboard/pages/"
+
+
+def test_pages_endpoint_not_initialized(tmp_path: Path) -> None:
+    ws = tmp_path / "empty-ws"  # no .beads dir
+    ws.mkdir()
+    store = EventStore()
+    app = create_app(_test_settings(), event_store=store)
+    client = _client(app)
+
+    with patch("webhook_receiver.dashboard._workspace", return_value=str(ws)):
+        resp = client.get("/dashboard/pages/")
+
+    assert resp.status_code == 200
+    assert "not initialized" in resp.text
+
+
+def test_pages_endpoint_rejects_traversal(tmp_path: Path) -> None:
+    ws = tmp_path / "ws"
+    (ws / ".beads").mkdir(parents=True)
+    bundle = tmp_path / "bundle"
+    secret = tmp_path / "secret.txt"
+    secret.write_text("topsecret")
+
+    store = EventStore()
+    app = create_app(_test_settings(), event_store=store)
+    client = _client(app)
+
+    with (
+        patch("webhook_receiver.dashboard._workspace", return_value=str(ws)),
+        patch("webhook_receiver.dashboard._bvr_bundle_dir", return_value=bundle),
+        patch(
+            "webhook_receiver.dashboard._run_bvr_export",
+            side_effect=_fake_bvr_export_writing("<p>x</p>"),
+        ),
+    ):
+        # Resolve is guarded: escaping the bundle root yields 404.
+        resp = client.get("/dashboard/pages/../../secret.txt")
+    assert resp.status_code == 404
+
+
+def test_pages_refresh_generates_bundle(tmp_path: Path) -> None:
+    ws = tmp_path / "ws"
+    (ws / ".beads").mkdir(parents=True)
+    bundle = tmp_path / "bundle"
+
+    store = EventStore()
+    app = create_app(_test_settings(), event_store=store)
+    client = _client(app)
+
+    with (
+        patch("webhook_receiver.dashboard._workspace", return_value=str(ws)),
+        patch("webhook_receiver.dashboard._bvr_bundle_dir", return_value=bundle),
+        patch(
+            "webhook_receiver.dashboard._run_bvr_export",
+            side_effect=_fake_bvr_export_writing("<p>fresh</p>"),
+        ),
+    ):
+        resp = client.post("/api/dashboard/pages/refresh")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["ok"] is True
+    assert "generated_at" in data
+
+
+def test_pages_refresh_not_initialized(tmp_path: Path) -> None:
+    ws = tmp_path / "empty"
+    ws.mkdir()  # no .beads
+    store = EventStore()
+    app = create_app(_test_settings(), event_store=store)
+    client = _client(app)
+
+    with patch("webhook_receiver.dashboard._workspace", return_value=str(ws)):
+        resp = client.post("/api/dashboard/pages/refresh")
+
+    data = resp.json()
+    assert data["ok"] is False
+    assert data["initialized"] is False
+
+
+# ── HTML page: view selector ────────────────────────────────────────────────
+
+
+def test_dashboard_html_has_view_selector() -> None:
+    store = EventStore()
+    app = create_app(_test_settings(), event_store=store)
+    client = _client(app)
+    resp = client.get("/dashboard")
+    assert resp.status_code == 200
+    assert 'name="viewType"' in resp.text
+    assert 'value="list"' in resp.text
+    assert 'value="graph"' in resp.text
+    assert 'value="pages"' in resp.text
+    # Persisted client-side via the localStorage key used by applyView().
+    assert "dashboard.viewType" in resp.text
