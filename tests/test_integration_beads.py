@@ -187,12 +187,16 @@ def test_beads_loop_concurrent_beads_lock() -> None:
 # ── Stage 3: retry logic deep tests ────────────────────────────────────────
 
 
-def test_beads_loop_injects_previous_logs_on_retry() -> None:
+def test_beads_loop_injects_previous_logs_on_retry(tmp_path: Path) -> None:
     """Second attempt prompt contains error context from first failure."""
     loop = BeadsLoop(_test_settings())
     loop._retry_state["br-ctx"] = {"count": 1, "logs": "ERROR: build failed"}
     bead = {"id": "br-ctx", "title": "T", "description": "Do work"}
-    prompt = loop._build_bead_prompt(bead, 1, previous_logs="ERROR: build failed")
+    with patch("webhook_receiver.beads_loop.subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(stdout="", stderr="", returncode=0)
+        prompt = loop._build_bead_prompt(
+            bead, 1, str(tmp_path), previous_logs="ERROR: build failed"
+        )
 
     assert "WARNING" in prompt
     assert "ERROR: build failed" in prompt

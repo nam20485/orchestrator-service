@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 from webhook_receiver.beads_loop import BeadsLoop, _extract_bead
 from webhook_receiver.config import Settings
@@ -40,6 +43,18 @@ def _mock_result(stdout: str, returncode: int = 0) -> MagicMock:
     result.stderr = ""
     result.returncode = returncode
     return result
+
+
+@pytest.fixture
+def mock_empty_beads() -> Any:
+    """Patch ``subprocess.run`` so ``_run_beads_cmd`` does not shell out.
+
+    Returns empty stdout for every call (beads lookup + graph), so the progress
+    snapshot degrades to ``0/0 beads closed`` without spawning real processes.
+    """
+    with patch("webhook_receiver.beads_loop.subprocess.run") as mock_run:
+        mock_run.return_value = _mock_result("")
+        yield mock_run
 
 
 # ── _extract_bead ─────────────────────────────────────────────────────────
@@ -86,38 +101,90 @@ def test_extract_bead_not_dict() -> None:
 # ── _build_bead_prompt ────────────────────────────────────────────────────
 
 
-def test_build_prompt_basic() -> None:
+def test_build_prompt_basic(tmp_path: Path, mock_empty_beads: None) -> None:
     loop = BeadsLoop(_test_settings())
     bead = {"id": "br-1", "title": "Task One", "description": "Do the thing"}
-    prompt = loop._build_bead_prompt(bead, 0)
+    prompt = loop._build_bead_prompt(bead, 0, str(tmp_path))
     assert "br-1" in prompt
     assert "Task One" in prompt
     assert "Do the thing" in prompt
     assert "br close br-1" in prompt
+    assert "BEADS_AGENT_GUIDE.md" in prompt
+    assert "Progress:" in prompt
 
 
-def test_build_prompt_retry_with_logs() -> None:
+def test_build_prompt_retry_with_logs(tmp_path: Path, mock_empty_beads: None) -> None:
     loop = BeadsLoop(_test_settings())
     bead = {"id": "br-2", "title": "Task Two", "description": "Do work"}
-    prompt = loop._build_bead_prompt(bead, 1, previous_logs="ERROR: test failed")
+    prompt = loop._build_bead_prompt(bead, 1, str(tmp_path), previous_logs="ERROR: test failed")
     assert "WARNING" in prompt
     assert "ERROR: test failed" in prompt
     assert "br close br-2" in prompt
 
 
-def test_build_prompt_no_description() -> None:
+def test_build_prompt_no_description(tmp_path: Path, mock_empty_beads: None) -> None:
     loop = BeadsLoop(_test_settings())
     bead = {"id": "br-3", "title": "Task Three"}
-    prompt = loop._build_bead_prompt(bead, 0)
+    prompt = loop._build_bead_prompt(bead, 0, str(tmp_path))
     assert "br-3" in prompt
     assert "Task Three" in prompt
 
 
-def test_build_prompt_no_first_attempt_no_warning() -> None:
+def test_build_prompt_no_first_attempt_no_warning(
+    tmp_path: Path, mock_empty_beads: None
+) -> None:
     loop = BeadsLoop(_test_settings())
     bead = {"id": "br-4", "title": "T", "description": "D"}
-    prompt = loop._build_bead_prompt(bead, 0, previous_logs="")
+    prompt = loop._build_bead_prompt(bead, 0, str(tmp_path), previous_logs="")
     assert "WARNING" not in prompt
+
+
+def test_build_prompt_writes_context_files(tmp_path: Path, mock_empty_beads: None) -> None:
+    """_build_bead_prompt writes BEADS_AGENT_GUIDE.md + AGENTS.md (bare workspace)."""
+    loop = BeadsLoop(_test_settings())
+    bead = {"id": "br-5", "title": "T", "description": "D"}
+    loop._build_bead_prompt(bead, 0, str(tmp_path))
+    assert (tmp_path / "BEADS_AGENT_GUIDE.md").exists()
+    assert (tmp_path / "AGENTS.md").exists()
+
+
+def test_build_prompt_keeps_existing_agents_md(
+    tmp_path: Path, mock_empty_beads: None
+) -> None:
+    """An existing AGENTS.md (cloned repo) is never clobbered."""
+    (tmp_path / "AGENTS.md").write_text("REPO INSTRUCTIONS", encoding="utf-8")
+    loop = BeadsLoop(_test_settings())
+    bead = {"id": "br-6", "title": "T", "description": "D"}
+    loop._build_bead_prompt(bead, 0, str(tmp_path))
+    assert (tmp_path / "AGENTS.md").read_text() == "REPO INSTRUCTIONS"
+    assert (tmp_path / "BEADS_AGENT_GUIDE.md").exists()
+
+
+def test_build_prompt_overview_from_canonical_root(
+    tmp_path: Path, mock_empty_beads: None
+) -> None:
+    """Clone mode: overview is built from beads_workspace_root, not the clone.
+
+    ws_path may be a fresh per-bead clone without application_plan.md, so the
+    guide must source its overview from the canonical beads root.
+    """
+    canonical = tmp_path / "canonical"
+    (canonical / "plan_docs").mkdir(parents=True)
+    (canonical / "plan_docs" / "application_plan.md").write_text(
+        "# Canonical Project Plan\n\nThe real plan lives at the beads root.",
+        encoding="utf-8",
+    )
+    clone = tmp_path / "clone"  # no plan_docs here, like a fresh git clone
+    clone.mkdir()
+
+    settings = _test_settings(beads_workspace_root=str(canonical))
+    loop = BeadsLoop(settings)
+    bead = {"id": "br-7", "title": "T", "description": "D"}
+    loop._build_bead_prompt(bead, 0, str(clone))
+
+    guide = (clone / "BEADS_AGENT_GUIDE.md").read_text(encoding="utf-8")
+    assert "Canonical Project Plan" in guide
+    assert "No application_plan.md found" not in guide
 
 
 # ── _get_next_bead_bvr ───────────────────────────────────────────────────
