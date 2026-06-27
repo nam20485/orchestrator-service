@@ -4,6 +4,7 @@ import asyncio
 import glob
 import hmac
 import json
+import logging
 import os
 import subprocess
 import tempfile
@@ -11,17 +12,37 @@ import time
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.responses import HTMLResponse, StreamingResponse
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, StreamingResponse
 
 from webhook_receiver.beads_loop import BeadsLoop
 from webhook_receiver.event_store import EventStore
+
+logger = logging.getLogger(__name__)
 
 _STATIC_DIR = Path(__file__).resolve().parent / "static"
 
 _CACHE: dict[str, tuple[float, Any]] = {}
 _CACHE_TTL = 5.0
+# bvr pages bundles are more expensive to regenerate than a `br list`, so they
+# are cached for longer than the per-request beads view.
+_PAGES_TTL = 60.0
 _MAX_SSE_SUBSCRIBERS = 10
+
+# bvr pages bundles live under the temp dir alongside per-bead agent logs.
+_PAGES_SUBDIR = "bvr-pages"
+
+# Stand-in page shown when no `.beads` graph exists yet (normal idle state).
+_NOT_INITIALIZED_HTML = (
+    "<!DOCTYPE html><html><head><meta charset='utf-8'>"
+    "<style>body{font-family:system-ui,sans-serif;background:#0f1419;color:#8b949e;"
+    "display:flex;align-items:center;justify-content:center;height:90vh;margin:0}"
+    "code{background:#1e293b;padding:0.1rem 0.35rem;border-radius:3px;color:#e6edf3}</style></head>"
+    "<body><div style='text-align:center'>"
+    "<h2 style='color:#e6edf3;margin-bottom:0.4rem'>Beads not initialized</h2>"
+    "<p>Trigger <code>/plan-to-beads</code> to create the dependency graph.</p>"
+    "</div></body></html>"
+)
 
 
 def _run_beads_cmd(args: list[str], workspace: str) -> str:
@@ -71,6 +92,132 @@ def _cached(key: str, factory: Any, *args: Any) -> Any:
 
 def _workspace() -> str:
     return os.environ.get("BEADS_WORKSPACE_ROOT", "/workspace")
+
+
+def _ui_status(
+    bead_id: Any,
+    db_status: str,
+    active: set[Any],
+    halted: set[Any],
+    ready_ids: set[Any],
+) -> str:
+    """Map a bead to its dashboard status, shared by the list + graph views.
+
+    Priority order mirrors the existing ``/beads`` endpoint: active, halted,
+    closed, ready, then blocked. ``db_status`` is the raw ``br`` status
+    (lower-cased by the caller).
+    """
+    if bead_id in active:
+        return "active"
+    if bead_id in halted:
+        return "halted"
+    if db_status == "closed":
+        return "closed"
+    if bead_id in ready_ids:
+        return "ready"
+    if db_status in ("open", ""):
+        return "blocked"
+    return db_status
+
+
+def _fetch_beads_graph(ws: str) -> dict[str, Any]:
+    """Fetch the dependency graph + node metadata via ``br``.
+
+    Returns ``{nodes, edges, initialized, meta, ready_ids}`` where ``nodes`` and
+    ``edges`` come from ``br graph --all --json`` (defensive on shape) and
+    ``meta``/``ready_ids`` are pulled from ``br list``/``br ready`` for richer
+    node attributes and loop-state enrichment.
+    """
+    nodes: list[dict[str, Any]] = []
+    edges: list[dict[str, Any]] = []
+    initialized = False
+
+    graph_out = _run_beads_cmd(["br", "graph", "--all", "--json"], ws)
+    if graph_out:
+        try:
+            gdata = json.loads(graph_out)
+        except json.JSONDecodeError:
+            gdata = {}
+        if isinstance(gdata, dict):
+            for comp in gdata.get("components", []) or []:
+                if not isinstance(comp, dict):
+                    continue
+                for n in comp.get("nodes", []) or []:
+                    if isinstance(n, dict):
+                        nodes.append(n)
+                for e in comp.get("edges", []) or []:
+                    # ``br`` emits edges as ``[dependent_id, dependency_id]``.
+                    if isinstance(e, (list, tuple)) and len(e) == 2:
+                        edges.append({"source": e[0], "target": e[1]})
+            initialized = bool(gdata.get("total_nodes")) or bool(nodes)
+
+    all_beads = _parse_beads(_run_beads_cmd(["br", "list", "--json"], ws))
+    ready = _parse_beads(_run_beads_cmd(["br", "ready", "--json"], ws))
+    return {
+        "nodes": nodes,
+        "edges": edges,
+        "initialized": initialized,
+        "meta": {b.get("id"): b for b in all_beads if isinstance(b, dict)},
+        "ready_ids": {b.get("id") for b in ready},
+    }
+
+
+# ── bvr static-pages bundle ──────────────────────────────────────────────────
+
+
+def _bvr_bundle_dir() -> Path:
+    return Path(tempfile.gettempdir()) / "orchestrator-webhook" / _PAGES_SUBDIR
+
+
+def _run_bvr_export(args: list[str], cwd: str) -> None:
+    """Run ``bvr`` to (re)generate the static pages bundle. Raises on failure."""
+    subprocess.run(
+        args,
+        cwd=cwd,
+        capture_output=True,
+        text=True,
+        check=True,
+        env={**os.environ, "RUST_LOG": "error"},
+    )
+
+
+def _generate_pages_bundle(ws: str, force: bool = False) -> tuple[bool, str | None]:
+    """Ensure the bvr static-pages bundle exists for *ws*.
+
+    Returns ``(ok, error)``. ``ok`` is True when a usable bundle is available
+    (cached or freshly generated). When ``.beads`` is absent the result is
+    ``(False, "not_initialized")`` — a normal idle state, never raised.
+    """
+    now = time.time()
+    if not force and "pages_bundle" in _CACHE:
+        ts, _ = _CACHE["pages_bundle"]
+        if now - ts < _PAGES_TTL:
+            return True, None
+
+    # "Beads not initialized" is a normal startup state: do not attempt the
+    # (failing) export or log it as an error.
+    if not Path(ws, ".beads").exists():
+        return False, "not_initialized"
+
+    bundle = _bvr_bundle_dir()
+    bundle.mkdir(parents=True, exist_ok=True)
+    try:
+        _run_bvr_export(
+            ["bvr", "--export-pages", str(bundle), "--pages-include-history", "false"],
+            ws,
+        )
+    except FileNotFoundError:
+        logger.warning("bvr binary not found; cannot generate pages bundle")
+        return False, "bvr_not_installed"
+    except subprocess.CalledProcessError as exc:
+        logger.error(
+            "bvr pages export failed: %s",
+            (exc.stderr or exc.stdout or "")[:300],
+        )
+        return False, "export_failed"
+
+    _CACHE["pages_bundle"] = (now, bundle)
+    return True, None
 
 
 def _make_dashboard_auth(token: str | None):
@@ -208,19 +355,7 @@ def create_dashboard_router(
             if rstate and isinstance(rstate.get("count"), (int, float)):
                 retry_count = int(rstate["count"])
 
-            if bid in active:
-                ui_status = "active"
-            elif bid in halted_ids:
-                ui_status = "halted"
-            elif db_status == "closed":
-                ui_status = "closed"
-            elif bid in ready_ids:
-                ui_status = "ready"
-            elif db_status in ("open", ""):
-                ui_status = "blocked"
-            else:
-                ui_status = db_status
-
+            ui_status = _ui_status(bid, db_status, active, halted_ids, ready_ids)
             elapsed_s = None
             if bid in start_times:
                 elapsed_s = round(now - start_times[bid], 1)
@@ -242,6 +377,58 @@ def create_dashboard_router(
 
         enriched.sort(key=lambda b: (b["ui_status"] != "active", b["priority"], b["id"]))
         return enriched
+
+    # ── dependency graph ────────────────────────────────────────────────────
+
+    @router.get("/graph")
+    async def graph() -> dict[str, Any]:
+        ws = _workspace()
+        g = await asyncio.to_thread(
+            _cached, "beads_graph", _fetch_beads_graph, ws
+        )
+
+        active: set[Any] = set()
+        halted: set[Any] = set()
+        if beads_loop:
+            active = set(beads_loop.active_beads)
+            halted = set(beads_loop.halted_beads)
+
+        meta = g["meta"]
+        ready_ids = g["ready_ids"]
+        nodes: list[dict[str, Any]] = []
+        for n in g["nodes"]:
+            bid = n.get("id", "")
+            m = meta.get(bid, {})
+            db_status = str(m.get("status", n.get("status", ""))).lower()
+            nodes.append(
+                {
+                    "id": bid,
+                    "title": m.get("title", n.get("title", bid)),
+                    "type": m.get("issue_type", n.get("type", "task")),
+                    "priority": m.get("priority", n.get("priority", 999)),
+                    "status": db_status or "open",
+                    "depth": n.get("depth", 0),
+                    "ui_status": _ui_status(bid, db_status, active, halted, ready_ids),
+                }
+            )
+
+        return {
+            "nodes": nodes,
+            "edges": g["edges"],
+            "initialized": g["initialized"],
+        }
+
+    # ── bvr pages bundle ────────────────────────────────────────────────────
+
+    @router.post("/pages/refresh")
+    async def pages_refresh() -> dict[str, Any]:
+        ws = _workspace()
+        ok, err = await asyncio.to_thread(_generate_pages_bundle, ws, True)
+        if not ok:
+            # ``initialized`` mirrors whether ``.beads`` exists, so the UI can
+            # distinguish "not initialized" from a transient export failure.
+            return {"ok": False, "error": err, "initialized": err != "not_initialized"}
+        return {"ok": True, "generated_at": time.time()}
 
     # ── bead detail + logs ─────────────────────────────────────────────────
 
@@ -379,5 +566,53 @@ def create_dashboard_page_router(dashboard_token: str | None = None) -> APIRoute
                 path="/",
             )
         return resp
+
+    return router
+
+
+# ── bvr static-pages bundle serving (token-gated) ───────────────────────────
+
+
+def create_dashboard_pages_router(dashboard_token: str | None = None) -> APIRouter:
+    """Serve the bvr static-pages bundle behind the dashboard token.
+
+    Routes (both gated by the same auth dependency as the rest of the dashboard):
+
+    * ``GET /dashboard/pages``    → redirect to ``/dashboard/pages/``
+    * ``GET /dashboard/pages/``   → the bundle ``index.html``
+    * ``GET /dashboard/pages/{path}`` → any bundle sub-asset (CSS/JS/data/...)
+
+    The index is served at a trailing-slash URL because the bvr bundle uses
+    *relative* asset references (``styles.css``, ``vendor/...``); only a
+    trailing-slash base URL resolves those correctly.
+    """
+    auth = _make_dashboard_auth(dashboard_token)
+    router = APIRouter(tags=["dashboard"], dependencies=[Depends(auth)])
+
+    @router.get("/dashboard/pages")
+    async def pages_redirect() -> RedirectResponse:
+        return RedirectResponse(url="/dashboard/pages/", status_code=307)
+
+    @router.get("/dashboard/pages/{file_path:path}")
+    async def pages_serve(file_path: str) -> Response:
+        ws = _workspace()
+        ok, _ = await asyncio.to_thread(_generate_pages_bundle, ws, False)
+        bundle = _bvr_bundle_dir()
+
+        if file_path in ("", "index.html"):
+            if not ok or not (bundle / "index.html").is_file():
+                return HTMLResponse(_NOT_INITIALIZED_HTML, status_code=200)
+            return FileResponse(str(bundle / "index.html"), media_type="text/html")
+
+        # Path-traversal guard: resolve within the bundle root.
+        bundle_root = bundle.resolve()
+        target = (bundle_root / file_path).resolve()
+        try:
+            target.relative_to(bundle_root)
+        except ValueError:
+            raise HTTPException(status_code=404, detail="Not found")
+        if not target.is_file():
+            raise HTTPException(status_code=404, detail="Not found")
+        return FileResponse(str(target))
 
     return router

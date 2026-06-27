@@ -9,7 +9,11 @@ from fastapi.responses import JSONResponse
 
 from webhook_receiver.beads_loop import BeadsLoop
 from webhook_receiver.config import Settings
-from webhook_receiver.dashboard import create_dashboard_page_router, create_dashboard_router
+from webhook_receiver.dashboard import (
+    create_dashboard_page_router,
+    create_dashboard_pages_router,
+    create_dashboard_router,
+)
 from webhook_receiver.event_store import EventStore
 from webhook_receiver.github import verify_signature
 from webhook_receiver.prompts import build_orchestrator_prompt
@@ -150,5 +154,8 @@ def create_app(
         create_dashboard_router(store, beads_loop, dashboard_token=cfg.dashboard_token)
     )
     app.include_router(create_dashboard_page_router(dashboard_token=cfg.dashboard_token))
+    app.include_router(
+        create_dashboard_pages_router(dashboard_token=cfg.dashboard_token)
+    )
 
     return app
