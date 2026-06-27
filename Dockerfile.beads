@@ -34,4 +34,4 @@ RUN apt-get update \
 # Binaries kept at the cargo bin path to match downstream COPY --from=rust-builder.
 COPY --from=rust-builder /usr/local/cargo/bin/br /usr/local/cargo/bin/br
 COPY --from=rust-builder /usr/local/cargo/bin/bvr /usr/local/cargo/bin/bvr
-ENTRYPOINT ["br"]
+ENTRYPOINT ["/usr/local/cargo/bin/br"]
