@@ -37,6 +37,11 @@ jobs:
 
       - name: 'Dependency Review'
         uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
+        # Advisory until GitHub Advanced Security (dependency graph) is enabled on
+        # this private repo; the action otherwise hard-fails with "Dependency
+        # review is not supported on this repository". Re-enable enforcement by
+        # removing `continue-on-error` once GHAS is enabled.
+        continue-on-error: true
         # Commonly enabled options, see https://github.com/actions/dependency-review-action#configuration-options for all available options.
         with:
           comment-summary-in-pr: always
