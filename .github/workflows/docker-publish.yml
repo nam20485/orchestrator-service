@@ -77,6 +77,7 @@ jobs:
           images: ${{ env.BEADS_IMAGE }}
           tags: |
             type=raw,value=latest
+            type=raw,value=sha-${{ github.sha }}
             type=raw,value=${{ env.BRANCH_NAME }}-${{ github.run_number }}
             type=raw,value=${{ env.BRANCH_NAME }}-latest
 
@@ -181,9 +182,11 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           # Override the self-contained `rust-builder` stage with the published
           # beads builder image so Rust is NOT recompiled here. Harmless for
-          # caddy (no rust-builder stage → context is unused).
+          # caddy (no rust-builder stage → context is unused). Pinned to the
+          # immutable commit-scoped tag so concurrent runs can't drift the
+          # builder bits between the beads-builder push and this pull.
           build-contexts: |
-            rust-builder=docker-image://${{ env.BEADS_IMAGE }}:latest
+            rust-builder=docker-image://${{ env.BEADS_IMAGE }}:sha-${{ github.sha }}
           cache-from: type=gha,scope=${{ matrix.name }}
           cache-to: type=gha,mode=max,scope=${{ matrix.name }}
           platforms: linux/amd64
