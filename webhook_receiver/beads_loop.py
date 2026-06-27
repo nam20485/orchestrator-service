@@ -10,6 +10,7 @@ import time
 from dataclasses import replace
 from pathlib import Path
 
+from webhook_receiver import bead_context
 from webhook_receiver.config import Settings
 from webhook_receiver.event_store import EventStore
 from webhook_receiver.runner import _prompt_script_invocation, _stream_to_logger_and_file
@@ -294,16 +295,47 @@ class BeadsLoop:
                 cleanup_workspace(ws_root, bead_id)
 
     def _build_bead_prompt(
-        self, bead: dict, retry_count: int, previous_logs: str = ""
+        self, bead: dict, retry_count: int, ws_path: str, previous_logs: str = ""
     ) -> str:
-        """Build the agent prompt for a bead task (fully unit-testable)."""
+        """Build the agent prompt for a bead task (fully unit-testable).
+
+        Writes durable context (project overview + tooling) into the workspace as
+        ``BEADS_AGENT_GUIDE.md`` (and ``AGENTS.md`` when absent), then assembles a
+        prompt that points the agent at those files and embeds the volatile progress
+        snapshot. Context errors never block spawning — on failure the prompt falls
+        back to the minimal task description.
+        """
         bead_id = bead.get("id", "")
         title = bead.get("title", bead_id)
         description = bead.get("description", "")
 
+        try:
+            # Overview reads from the canonical beads root (where .beads/ and
+            # application_plan.md live); files are written into the agent's
+            # workspace (which may be a fresh per-bead clone without the plan).
+            guide = bead_context.build_agent_guide(self._settings.beads_workspace_root)
+            bead_context.write_context_files(ws_path, guide)
+        except Exception:  # noqa: BLE001 — context files are best-effort
+            logger.debug(
+                "Failed to write bead context files for %s", bead_id, exc_info=True
+            )
+
+        try:
+            snapshot = bead_context.progress_snapshot(
+                ws_path, bead_id, self._run_beads_cmd
+            )
+        except Exception:  # noqa: BLE001 — snapshot is best-effort
+            snapshot = "(Progress snapshot unavailable.)"
+
         prompt = (
             f"You have been assigned Bead {bead_id}: {title}.\n\n"
-            f"Context & Requirements:\n{description}\n"
+            f"## Project & Tooling Context\n"
+            f"This workspace contains `BEADS_AGENT_GUIDE.md` and "
+            f"`plan_docs/application_plan.md` — READ THEM FIRST for the full "
+            f"application overview, available commands (`br`/`bvr`), and the "
+            f"completion workflow.\n\n"
+            f"## Progress\n{snapshot}\n\n"
+            f"## Context & Requirements\n{description}\n"
         )
         if previous_logs:
             prompt += (
@@ -327,7 +359,7 @@ class BeadsLoop:
     ) -> tuple[bool, str]:
         bead_id = bead.get("id", "")
 
-        prompt = self._build_bead_prompt(bead, retry_count, previous_logs)
+        prompt = self._build_bead_prompt(bead, retry_count, ws_path, previous_logs)
 
         logger.info(
             "Injecting prompt for bead %s into service (attempt %d, workspace=%s)",
