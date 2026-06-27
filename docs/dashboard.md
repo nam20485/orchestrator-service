@@ -12,7 +12,15 @@ The dashboard runs inside `webhook-receiver` (internal port `8080`), fronted by 
 | Docker Compose + HTTPS overlay (`:443`) | `https://<WEBHOOK_SITE_ADDRESS>/dashboard` |
 | Local dev (`uv run orchestrator-webhook`) | `http://localhost:8080/dashboard` |
 
-> **Trusted-network only.** The dashboard exposes internal orchestration state and agent stdout/stderr. It has no authentication — run it only inside a trusted network, as you do for the rest of the receiver. The SSE endpoint is capped at **10 concurrent subscribers** to bound resource use.
+> **Authentication required.** The dashboard exposes internal orchestration state and agent stdout/stderr (which may include secrets or repo data). Because Caddy proxies the whole `webhook-receiver` surface (not just `/webhooks/github`), every dashboard route is **gated behind a shared secret** (`DASHBOARD_TOKEN`):
+> - **Disabled by default.** If `DASHBOARD_TOKEN` is unset, the entire dashboard surface returns `404` — nothing can be enumerated or exfiltrated through the proxy.
+> - **When set**, requests must present the token via one of:
+>   - an `Authorization: Bearer <DASHBOARD_TOKEN>` header (programmatic / API clients),
+>   - a `?token=<DASHBOARD_TOKEN>` query parameter, or
+>   - a `dashboard_token` cookie.
+> - Open the UI at `http://localhost/dashboard?token=<DASHBOARD_TOKEN>`; the page persists the token as an HttpOnly/SameSite=Strict cookie so subsequent browser `fetch()` and SSE calls authenticate automatically. Use HTTPS (the `:443` overlay) so the token/cookie never traverse the network in cleartext.
+>
+> The SSE endpoint is also capped at **10 concurrent subscribers** to bound resource use.
 
 ## What you see
 
@@ -38,7 +46,7 @@ An empty table with the message *"No beads found. Run /plan-to-beads to create t
 
 ## HTTP API
 
-All endpoints are JSON and live under `/api/dashboard`.
+All endpoints are JSON and live under `/api/dashboard`. Every endpoint requires authentication (see the note above): pass `DASHBOARD_TOKEN` as a `Bearer` token or `?token=` query parameter.
 
 | Method | Path | Description |
 |--------|------|-------------|
@@ -68,8 +76,12 @@ The timeline and SSE stream carry these event `type`s:
 ## Example
 
 ```bash
-curl -s http://localhost/api/dashboard/overview | jq
-curl -s "http://localhost/api/dashboard/beads/<bead-id>/logs?tail=50"
+# DASHBOARD_TOKEN is required for every request (or the endpoint returns 404/401).
+export DASHBOARD_TOKEN="your-secret-token"
+curl -s -H "Authorization: Bearer $DASHBOARD_TOKEN" \
+  http://localhost/api/dashboard/overview | jq
+curl -s -H "Authorization: Bearer $DASHBOARD_TOKEN" \
+  "http://localhost/api/dashboard/beads/<bead-id>/logs?tail=50"
 ```
 
 ## How it works
@@ -84,7 +96,10 @@ The dashboard reflects these environment variables (set on `webhook-receiver`):
 
 | Variable | Effect on dashboard |
 |----------|---------------------|
+| `DASHBOARD_TOKEN` | **Required to enable the dashboard.** Unset → every dashboard route returns `404`. When set, all routes authenticate via `Bearer` header / `?token=` / `dashboard_token` cookie. |
 | `BEADS_ENABLED` | When `false`, `BeadsLoop` is absent; overview shows `running: false` and no active agents |
 | `BEADS_POLL_INTERVAL` | Shown as the loop's poll interval |
 | `BEADS_MAX_RETRIES` | Shown as `max_retries`; drives `halted` state |
 | `BEADS_WORKSPACE_ROOT` | Where `br`/`bvr` are invoked (bead data source) |
+
+> Set `DASHBOARD_TOKEN` on the `webhook-receiver` service (e.g. `export DASHBOARD_TOKEN=...` before `docker compose up`, or pass it via your Compose environment). Treat it as a secret: never commit it, and only use it over HTTPS.
