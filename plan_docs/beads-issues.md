@@ -4,7 +4,104 @@ Implements all 5 items from `docs/beads-skill-execution-postmortem.md` "Recommen
 
 ## Beads Image Strategy
 
-**Decision:** Inline Rust builder (not published GHCR image). `Dockerfile.beads` is the canonical reference recipe; both consuming Dockerfiles duplicate the Rust builder stage verbatim. GHA layer caching keeps rebuilds fast. This avoids the bootstrap problem where `validate.yml` PR builds would fail before the beads image is published.
+> **SUPERSEDED (2026-06-26):** The "inline-only" decision below was revisited to
+> eliminate the 3× Rust recompile across `docker-publish.yml`. The new approach is
+> a **published builder image + buildx `build-contexts` stage override** — see the
+> "Builder-Override Strategy" section below. The original rationale is preserved
+> for history.
+
+**Original decision (now superseded):** Inline Rust builder (not published GHCR
+image). `Dockerfile.beads` is the canonical reference recipe; both consuming
+Dockerfiles duplicate the Rust builder stage verbatim. GHA layer caching keeps
+rebuilds fast. This avoids the bootstrap problem where `validate.yml` PR builds
+would fail before the beads image is published.
+
+---
+
+## Builder-Override Strategy (current)
+
+**Decision:** Compile Rust (`br` + `bvr`) **exactly once** per pipeline run, in a
+dedicated `beads-builder` job, and publish the result to GHCR
+(`ghcr.io/<repo>/beads`). The runtime images (`Dockerfile`, `Dockerfile.webhook`)
+**keep** a self-contained `rust-builder` stage as a fallback, but
+`docker-publish.yml` overrides that stage via `buildx build-contexts` with the
+published image so it is **not** rebuilt there.
+
+```yaml
+build-contexts: |
+  rust-builder=docker-image://ghcr.io/<repo>/beads:latest
+```
+
+BuildKit then skips the local stage's `cargo install` and pulls the binaries from
+the override image. The binary path (`/usr/local/cargo/bin/br`,
+`/usr/local/cargo/bin/bvr`) is identical in the local stage and the published
+image, so `COPY --from=rust-builder` resolves the same way either way.
+
+**Why not remove the stage entirely (`COPY --from=<published>`)?** That was the
+original plan, but it breaks `validate.yml`: PR builds don't push, so the
+published `beads:latest` may not exist (bootstrap problem) or may be stale
+relative to a PR's beads version. Keeping the local stage keeps PR validation,
+local `docker build`, and `test-beads-versions-consistency.sh` working
+unchanged — the override is applied **only** in the post-merge publish workflow.
+
+**Impact:** Cold-cache Rust compiles drop from 3 (parallel, ~30 billed min) to 1
+(~10 billed min). `Dockerfile.beads` now has a slim runtime final stage so the
+published override image is ~100 MB (not the ~1.5 GB full toolchain), minimizing
+the per-job pull cost.
+
+### Empirical buildx findings (verified 2026-06-26)
+
+These were tested with a real Docker daemon to avoid re-discovering them:
+
+| Scenario | Works? | Notes |
+|----------|:------:|-------|
+| `build-contexts` stage override (default builder, local daemon image) | ✅ | Local stage skipped; binary from override. |
+| `build-contexts` override, **docker-container driver**, **registry** image | ✅ | Pulls from registry (this is the `docker-publish.yml` path). |
+| `build-contexts` override, **docker-container driver**, **local daemon** image | ❌ | Builder tries to pull from Docker Hub (`docker.io/library/<img>`), not the local daemon — fails with "pull access denied". |
+| `oci-layout://` override under docker-container driver | ❓ | Export step failed in the test; not yet confirmed. Not relied upon. |
+
+**Key constraint:** `setup-buildx-action` creates a **docker-container** driver
+builder. Under that driver, `docker-image://` additional contexts are resolved
+against **registries only**, never the local Docker daemon. Therefore
+`validate.yml` (which builds beads locally with `load: true`, no push) **cannot**
+reuse that local image via `build-contexts`. validate.yml must keep its
+self-contained local stages.
+
+**Option considered & rejected for validate.yml:** Pull the *published*
+`beads:latest` from GHCR during PR builds. Mechanically possible, but (a) breaks
+on the first-ever run / if `:latest` is missing, and (b) validates a PR against
+potentially-stale binaries when the PR itself changes the beads version. PR
+validation must be self-contained, so validate.yml is left un-optimized (its cold
+cost is mitigated by GHA layer cache; warm runs are ~4 min).
+
+---
+
+## Planning Remediation (process)
+
+The bootstrap constraint above was discovered **during implementation**, not
+during planning — a process failure. Root causes and correctives:
+
+1. **Did not read this ADR during planning.** The old "Beads Image Strategy"
+   decision and its bootstrap rationale live in this very file, but planning
+   analyzed only `docker-publish.yml` + the Dockerfiles + run timings. A grep for
+   the artifact being changed against `plan_docs/` would have surfaced it.
+   - **Corrective:** When changing a build artifact, enumerate **every consumer**
+     first — grep the Dockerfiles/keywords across *all* workflows and read the
+     relevant ADR before writing the plan.
+
+2. **Did not cross-check `validate.yml`.** Planning never asked "what else builds
+     these same Dockerfiles?" — the question that exposes the constraint.
+   - **Corrective:** For any shared build recipe, explicitly list each CI context
+     that consumes it (publish vs. PR-validation vs. local) and how each resolves
+     its dependencies.
+
+3. **Treated the buildx mechanism as assumed.** The plan asserted `build-contexts`
+     would work without verifying the docker-container driver's image-resolution
+     semantics (local-daemon images fail; registry images work).
+   - **Corrective:** Empirically verify any non-trivial toolchain mechanism (or
+     mark it explicitly as an *unverified assumption*) before requesting plan
+     approval. Read-only planning mode does not prevent reasoning about driver
+     semantics or designing a verification step.
 
 ---
 

@@ -1,9 +1,11 @@
 # --- Stage 1: Rust Builder (Beads ecosystem: br) ---
-# Mirrors the br-only subset of Dockerfile.beads (single source of truth);
-# bvr intentionally omitted — this image only needs br (COPY at line 86).
-# Pinned to immutable commit SHAs for reproducibility; version comment tracks
-# the upstream tag. beads_rust 0.2.15 (via the `asupersync` dependency) uses
-# `#![feature]`, which requires the nightly toolchain.
+# Self-contained fallback so `docker build` and validate.yml PR builds work
+# without a published beads image. In docker-publish.yml the `rust-builder`
+# stage is overridden via build-contexts with the published GHCR beads image,
+# skipping this recompile. Mirrors the br-only subset of Dockerfile.beads
+# (single source of truth); bvr intentionally omitted — this image only needs
+# br. Pinned to immutable commit SHAs for reproducibility. beads_rust 0.2.15
+# (via the `asupersync` dependency) uses `#![feature]`, requiring nightly.
 FROM rust:1.95-slim-bookworm AS rust-builder
 RUN apt-get update && apt-get install -y --no-install-recommends git pkg-config libssl-dev \
     && rm -rf /var/lib/apt/lists/*
@@ -84,8 +86,8 @@ RUN curl -fsSL https://opencode.ai/install | bash -s -- --version "${OPENCODE_VE
 
 ENV PATH="/root/.opencode/bin:${PATH}"
 
-# Beads CLI (br) from the Rust builder stage. Pre-installed so agent sessions
-# running the plan-to-beads skill do not bootstrap a toolchain at runtime.
+# Beads CLI (br) from the Rust builder stage. In docker-publish.yml this stage
+# is overridden with the published GHCR beads image so Rust is compiled once.
 COPY --from=rust-builder /usr/local/cargo/bin/br /usr/local/bin/br
 
 # Agent workspace (sessions via --dir); separate from OpenCode config in /app
