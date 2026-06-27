@@ -102,10 +102,7 @@
     thead th.sorted { color: var(--accent); }
     tbody tr { border-bottom: 1px solid var(--border); cursor: pointer; transition: background 0.1s; }
     tbody tr:hover { background: var(--surface2); }
-    tbody tr.expanded { background: var(--surface2); }
     tbody td { padding: 0.5rem 0.75rem; vertical-align: top; }
-    tbody tr.detail-row td { padding: 0; }
-    .detail-content { padding: 0.75rem 1rem; background: var(--bg); border-top: 1px solid var(--border); }
 
     .badge {
       display: inline-block; padding: 0.15rem 0.55rem; border-radius: 4px;
@@ -151,21 +148,6 @@
     .event-type.bead_halted { background: rgba(248,81,73,0.15); color: var(--err); }
     .event-detail { color: var(--text); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-    .log-tabs { display: flex; gap: 0; margin-bottom: 0.5rem; }
-    .log-tab {
-      padding: 0.35rem 0.9rem; background: var(--surface); border: 1px solid var(--border);
-      border-bottom: none; border-radius: 4px 4px 0 0; cursor: pointer; font-size: 0.8rem;
-      color: var(--muted);
-    }
-    .log-tab.active { color: var(--text); border-color: var(--accent); }
-    .log-box {
-      background: #0d1117; border: 1px solid var(--border); border-radius: 0 4px 4px 4px;
-      padding: 0.75rem; font-family: var(--mono); font-size: 0.78rem;
-      max-height: 320px; overflow-y: auto; white-space: pre-wrap; word-break: break-all;
-      color: #adbac7;
-    }
-    .log-box.empty { color: var(--muted); }
-    .log-actions { display: flex; justify-content: flex-end; margin-top: 0.5rem; }
     button {
       background: var(--accent); color: #fff; border: none; border-radius: 4px;
       padding: 0.3rem 0.75rem; font-size: 0.8rem; cursor: pointer;
@@ -372,7 +354,6 @@ const API = '/api/dashboard';
 let beadData = [];
 let sortCol = 'ui_status';
 let sortAsc = true;
-let expandedBead = null;
 let eventBuffer = [];
 const MAX_EVENTS = 200;
 
@@ -436,8 +417,7 @@ function renderBeads() {
 
   let html = '';
   for (const b of beadData) {
-    const expanded = expandedBead === b.id;
-    html += `<tr class="${expanded ? 'expanded' : ''}" data-bead-id="${esc(b.id)}">`;
+    html += `<tr data-bead-id="${esc(b.id)}" title="Open detail in a new tab">`;
     html += `<td><span class="badge ${esc(b.ui_status)}">${esc(b.ui_status)}</span></td>`;
     html += `<td class="id-cell">${esc(b.id)}</td>`;
     html += `<td>${esc(b.title)}</td>`;
@@ -446,10 +426,6 @@ function renderBeads() {
     html += `<td>${b.retry_count > 0 ? esc(String(b.retry_count)) : ''}</td>`;
     html += `<td>${b.elapsed_s != null ? esc(String(b.elapsed_s)) + 's' : ''}</td>`;
     html += '</tr>';
-
-    if (expanded) {
-      html += `<tr class="detail-row"><td colspan="7"><div class="detail-content" id="detail-${esc(b.id)}">Loading...</div></td></tr>`;
-    }
   }
   tbody.innerHTML = html;
 
@@ -462,58 +438,12 @@ function renderBeads() {
   document.querySelectorAll('thead th').forEach(th => {
     th.classList.toggle('sorted', th.dataset.col === sortCol);
   });
-
-  // Load detail if expanded
-  if (expandedBead) loadBeadDetail(expandedBead);
-}
-
-async function loadBeadDetail(beadId) {
-  const el = document.getElementById('detail-' + beadId);
-  if (!el) return;
-  const bead = beadData.find(b => b.id === beadId);
-  let html = `<div style="margin-bottom:0.5rem;font-size:0.8rem;color:var(--muted);">${esc(bead.description || 'No description.')}</div>`;
-  html += `<div class="log-tabs"><div class="log-tab active" data-log-tab="stdout">stdout</div><div class="log-tab" data-log-tab="stderr">stderr</div></div>`;
-  html += `<div class="log-box" id="logbox-${esc(beadId)}">Loading logs...</div>`;
-  html += `<div class="log-actions"><button class="secondary" id="refresh-${esc(beadId)}">Refresh</button></div>`;
-  el.innerHTML = html;
-
-  // Attach event listeners
-  el.querySelectorAll('.log-tab').forEach(tab => {
-    tab.addEventListener('click', () => switchLog(beadId, tab.dataset.logTab));
-  });
-  const refreshBtn = document.getElementById('refresh-' + beadId);
-  if (refreshBtn) refreshBtn.addEventListener('click', () => loadBeadLog(beadId));
-  loadBeadLog(beadId);
-}
-
-let currentLogTab = {};
-async function loadBeadLog(beadId) {
-  try {
-    const r = await fetch(`${API}/beads/${encodeURIComponent(beadId)}/logs?tail=200`);
-    const d = await r.json();
-    const tab = currentLogTab[beadId] || 'stdout';
-    const box = document.getElementById('logbox-' + beadId);
-    if (!box) return;
-    const content = tab === 'stdout' ? d.stdout : d.stderr;
-    box.textContent = content || '(empty)';
-    box.className = 'log-box' + (content ? '' : ' empty');
-  } catch (e) {
-    const box = document.getElementById('logbox-' + beadId);
-    if (box) { box.textContent = 'Failed to load logs.'; box.className = 'log-box empty'; }
-  }
-}
-
-function switchLog(beadId, tab) {
-  currentLogTab[beadId] = tab;
-  document.querySelectorAll(`#detail-${beadId} .log-tab`).forEach(el => {
-    el.classList.toggle('active', el.dataset.logTab === tab);
-  });
-  loadBeadLog(beadId);
 }
 
 function toggleBead(id) {
-  expandedBead = expandedBead === id ? null : id;
-  renderBeads();
+  // Open a full detail page in a new tab. The detail page is isolated from
+  // this page's 5s + SSE refresh, so reading stdout/stderr is not disrupted.
+  window.open('/dashboard/bead/' + encodeURIComponent(id), '_blank');
 }
 
 // ── Active agents ──────────────────────────────────────────────────────────
@@ -839,12 +769,7 @@ function trunc(str, maxPx) {
 }
 
 function showBeadFromGraph(id) {
-  applyView('list');
-  expandedBead = id;
-  if (!beadData.length) fetchBeads();
-  renderBeads();
-  const t = document.getElementById('beadTable');
-  if (t) t.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  window.open('/dashboard/bead/' + encodeURIComponent(id), '_blank');
 }
 
 function attachGraphInteraction() {
