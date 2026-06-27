@@ -95,7 +95,10 @@ Verify:
 curl -s http://localhost/health                                  # -> {"status":"ok"}
 curl -s -H "Authorization: Bearer $DASHBOARD_TOKEN" \
      http://localhost/api/dashboard/overview | jq                 # -> counts
-open "http://localhost/dashboard?token=$DASHBOARD_TOKEN"          # UI (sets a cookie)
+# UI (sets a cookie) — use the opener for your platform:
+#   macOS:  open "http://localhost/dashboard?token=$DASHBOARD_TOKEN"
+#   Linux:  xdg-open "http://localhost/dashboard?token=$DASHBOARD_TOKEN"
+xdg-open "http://localhost/dashboard?token=$DASHBOARD_TOKEN"
 ```
 
 ### Publishing webhooks to local

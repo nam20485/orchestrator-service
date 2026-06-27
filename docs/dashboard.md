@@ -27,10 +27,10 @@ The dashboard runs inside `webhook-receiver` (internal port `8080`), fronted by 
 - **Summary cards** — Total / Ready / Blocked / Active / Closed / Halted bead counts.
 - **Beads table** — every bead with a UI status badge, ID, title, type, priority, retry count, and elapsed time. Click a column header to sort; click a row to expand its description and live logs (stdout/stderr tabs).
 - **Active Agents** — beads currently being processed, with attempt number and elapsed time.
-- **Event Timeline** — recent system events (polls every 10 s, plus live push over SSE).
+- **Event Timeline** — recent system events (loaded once on page open, then kept up to date live via SSE).
 - **Top bar** — BeadsLoop running indicator, SSE connection status, and a clock.
 
-The page auto-refreshes overview/beads every 10 s and active agents every 5 s; state-changing events push an immediate refresh over SSE.
+The page auto-refreshes overview, beads, and active agents **together** on a single configurable interval (default **5 s**, adjustable via the **Settings** panel — toggle Auto-refresh and set the interval in seconds). The event timeline loads once on page open and is then kept current by live SSE pushes; state-changing events also trigger an immediate refresh of the relevant panels.
 
 ### Bead UI status
 
