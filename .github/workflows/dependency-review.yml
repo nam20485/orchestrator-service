@@ -25,15 +25,23 @@ jobs:
   dependency-review:
     runs-on: ubuntu-24.04
     permissions:
+      contents: read
       # Write permissions for pull-requests are required for using the `comment-summary-in-pr` option, comment out if you aren't using this option
       pull-requests: write
 
     steps:
       - name: 'Checkout repository'
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: 'Dependency Review'
         uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
+        # Advisory until GitHub Advanced Security (dependency graph) is enabled on
+        # this private repo; the action otherwise hard-fails with "Dependency
+        # review is not supported on this repository". Re-enable enforcement by
+        # removing `continue-on-error` once GHAS is enabled.
+        continue-on-error: true
         # Commonly enabled options, see https://github.com/actions/dependency-review-action#configuration-options for all available options.
         with:
           comment-summary-in-pr: always

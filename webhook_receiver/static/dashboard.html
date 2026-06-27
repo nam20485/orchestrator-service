@@ -177,6 +177,25 @@
     .sse-status { font-size: 0.72rem; }
     .sse-status.connected { color: var(--ok); }
     .sse-status.disconnected { color: var(--err); }
+
+    .refresh-bar { height: 3px; background: var(--surface2); overflow: hidden; }
+    .refresh-bar-fill { height: 100%; width: 0%; background: var(--accent); transition: width 0.1s linear; }
+    .refresh-countdown { color: var(--muted); font-family: var(--mono); font-size: 0.72rem; white-space: nowrap; }
+    .settings-btn { background: var(--surface2); border: 1px solid var(--border); padding: 0.25rem 0.7rem; font-size: 0.8rem; color: var(--text); }
+    .settings-btn:hover { filter: brightness(1.1); }
+    .settings-btn.open { border-color: var(--accent); color: var(--accent); }
+    .settings-panel {
+      background: var(--surface); border-bottom: 1px solid var(--border);
+      padding: 0.6rem 1.5rem; display: flex; align-items: center; gap: 0.75rem;
+      font-size: 0.85rem; flex-wrap: wrap;
+    }
+    .settings-panel.hidden { display: none; }
+    .settings-panel label { color: var(--muted); }
+    .settings-panel input[type=number] {
+      width: 72px; background: var(--bg); color: var(--text); border: 1px solid var(--border);
+      border-radius: 4px; padding: 0.25rem 0.4rem; font-size: 0.85rem; font-family: var(--mono);
+    }
+    .refresh-feedback { font-size: 0.75rem; }
   </style>
 </head>
 <body>
@@ -186,9 +205,22 @@
   <div class="right">
     <span><span id="loopDot" class="loop-dot stopped"></span><span id="loopText">Loop: stopped</span></span>
     <span id="sseStatus" class="sse-status disconnected">SSE: disconnected</span>
+    <span id="refreshCountdown" class="refresh-countdown"></span>
     <span id="clock"></span>
+    <button id="settingsBtn" class="settings-btn">Settings</button>
   </div>
 </div>
+
+<div id="settingsPanel" class="settings-panel hidden">
+  <label><input type="checkbox" id="autoRefresh"> Auto-refresh</label>
+  <label for="refreshInput">Refresh interval (s):</label>
+  <input type="number" id="refreshInput" min="1" step="1" value="5">
+  <button id="applyRefresh">Apply</button>
+  <button id="manualRefresh" class="secondary">Refresh now</button>
+  <span id="refreshFeedback" class="refresh-feedback"></span>
+</div>
+
+<div class="refresh-bar"><div id="refreshBarFill" class="refresh-bar-fill"></div></div>
 
 <div class="container">
   <!-- Summary cards -->
@@ -502,11 +534,90 @@ document.querySelectorAll('thead th').forEach(th => {
   });
 });
 
+// ── Refresh scheduling + progress ──────────────────────────────────────────
+const REFRESH_DEFAULT = 5;
+let refreshSec = Math.max(1, parseInt(localStorage.getItem('refreshSec'), 10) || REFRESH_DEFAULT);
+let autoRefresh = localStorage.getItem('autoRefresh') !== '0'; // default on
+let refreshTimer = null;
+let cycleStart = 0;
+
+function pollAll() { fetchOverview(); fetchBeads(); fetchActive(); }
+
+function scheduleRefresh() {
+  stopRefresh();
+  if (!autoRefresh) { updateRefreshUI(); return; }
+  cycleStart = Date.now();
+  pollAll();
+  refreshTimer = setTimeout(scheduleRefresh, refreshSec * 1000);
+}
+
+function stopRefresh() {
+  if (refreshTimer) { clearTimeout(refreshTimer); refreshTimer = null; }
+}
+
+function startProgressBar() {
+  setInterval(() => {
+    const fill = document.getElementById('refreshBarFill');
+    const cd = document.getElementById('refreshCountdown');
+    if (!autoRefresh) {
+      fill.style.width = '0%';
+      cd.textContent = 'auto-refresh off';
+      return;
+    }
+    const elapsed = (Date.now() - cycleStart) / 1000;
+    const remaining = Math.max(0, refreshSec - elapsed);
+    fill.style.width = Math.min(100, (elapsed / refreshSec) * 100) + '%';
+    cd.textContent = 'refresh in ' + remaining.toFixed(0) + 's';
+  }, 200);
+}
+
+// ── Settings ───────────────────────────────────────────────────────────────
+function updateRefreshUI() {
+  document.getElementById('autoRefresh').checked = autoRefresh;
+  document.getElementById('refreshInput').value = refreshSec;
+  document.getElementById('settingsBtn').classList.toggle('open',
+    !document.getElementById('settingsPanel').classList.contains('hidden'));
+}
+
+document.getElementById('settingsBtn').addEventListener('click', () => {
+  const panel = document.getElementById('settingsPanel');
+  panel.classList.toggle('hidden');
+  updateRefreshUI();
+});
+
+document.getElementById('applyRefresh').addEventListener('click', () => {
+  const v = parseInt(document.getElementById('refreshInput').value, 10);
+  const fb = document.getElementById('refreshFeedback');
+  if (!Number.isFinite(v) || v < 1) {
+    fb.textContent = 'must be >= 1s'; fb.style.color = 'var(--err)'; return;
+  }
+  refreshSec = v;
+  localStorage.setItem('refreshSec', String(v));
+  fb.textContent = 'saved'; fb.style.color = 'var(--ok)';
+  if (autoRefresh) scheduleRefresh();
+  setTimeout(() => { fb.textContent = ''; }, 1500);
+});
+
+document.getElementById('autoRefresh').addEventListener('change', (e) => {
+  autoRefresh = e.target.checked;
+  localStorage.setItem('autoRefresh', autoRefresh ? '1' : '0');
+  if (autoRefresh) scheduleRefresh();
+  else { stopRefresh(); document.getElementById('refreshFeedback').textContent = 'auto-refresh paused'; }
+  setTimeout(() => { document.getElementById('refreshFeedback').textContent = ''; }, 1500);
+});
+
+document.getElementById('manualRefresh').addEventListener('click', () => {
+  pollAll(); fetchEvents();
+  const fb = document.getElementById('refreshFeedback');
+  fb.textContent = 'refreshed'; fb.style.color = 'var(--ok)';
+  setTimeout(() => { fb.textContent = ''; }, 1500);
+});
+
 // ── Init ───────────────────────────────────────────────────────────────────
-fetchOverview(); fetchBeads(); fetchActive(); fetchEvents(); connectSSE();
-setInterval(fetchOverview, 10000);
-setInterval(fetchBeads, 10000);
-setInterval(fetchActive, 5000);
+fetchEvents(); connectSSE();
+updateRefreshUI();
+scheduleRefresh();
+startProgressBar();
 </script>
 
 </body>
