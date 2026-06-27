@@ -1,0 +1,27 @@
+# Local-build overlay: build images from source instead of pulling from GHCR.
+#
+# Layer on top of your base file, e.g.:
+#   docker compose -f compose.development.yaml -f compose.build.yaml build
+#   docker compose -f compose.development.yaml -f compose.build.yaml up -d
+#
+# pull_policy: never prevents `up` from re-pulling and clobbering your local
+# build. The image tag is inherited from the base file (e.g. :development-latest).
+
+services:
+  orchestratorservice:
+    pull_policy: never
+    build:
+      context: .
+      dockerfile: Dockerfile
+
+  webhook-receiver:
+    pull_policy: never
+    build:
+      context: .
+      dockerfile: Dockerfile.webhook
+
+  webhook-proxy:
+    pull_policy: never
+    build:
+      context: ./deploy/caddy
+      dockerfile: Dockerfile
