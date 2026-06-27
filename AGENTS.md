@@ -101,6 +101,26 @@ After any non-trivial change (code, config, workflows, Docker):
 
 Missing local tools: `pwsh -NoProfile -File ./scripts/install-dev-tools.ps1`.
 
+## Scripts (`scripts/`)
+
+PowerShell thin wrappers and helpers. Dot-source auth helpers; run others directly.
+
+| Script | Purpose | When / how |
+|--------|---------|------------|
+| `validate.ps1` | Local validation (lint, scan, test) mirroring CI. | After any non-trivial change: `pwsh -NoProfile -File ./scripts/validate.ps1 -All` (or `-Lint`/`-Scan`/`-Test`). |
+| `install-dev-tools.ps1` | Installs uv dev deps, Pester, actionlint, shellcheck, jq, docker hints, and Beads (`br`, `bvr` via cargo+nightly). | Missing local tools: run once per machine before validating. |
+| `common-auth.ps1` | `Initialize-GitHubAuth` (interactive `gh auth login` fallback). | Dot-source from other scripts that need gh auth. |
+| `gh-auth.ps1` | `Initialize-GitHubAuth` with PAT support (`-Token` / `$GITHUB_AUTH_TOKEN`, non-interactive). | Dot-source when running unattended (CI, agent) with a PAT. |
+| `prompt.ps1` | Dispatch a one-shot OpenCode run via `opencode run --attach <url>`. Core orchestration launcher. | `pwsh -File ./scripts/prompt.ps1 -PromptFile <path>` (large payloads) or `-Prompt "<text>"`. |
+| `attach.ps1` | Interactive OpenCode attach (`opencode attach <url>`). | `pwsh -File ./scripts/attach.ps1` for interactive sessions on a running server. |
+| `docker-entrypoint.sh` | Container entrypoint: writes `auth.json` from env vars, then `exec`s the server. | Runs as container entrypoint; not invoked manually. Sets `ZAI_CODING_API_KEY`/`OPENROUTER_API_KEY`/`MODEL_STUDIO_API_KEY`. |
+| `query.ps1` | List/resolve unresolved PR review threads via GraphQL; optional reply-then-resolve. | `pwsh -File ./scripts/query.ps1 -Owner <o> -Repo <r> -PullRequestNumber <n>`; add `-DryRun`, `-AutoResolve`, `-ReplyEach "<msg>"`. |
+| `import-labels.ps1` | Sync labels from a JSON export (`gh api .../labels`) into a repo (create/update/`-DeleteMissing`). | `pwsh -File ./scripts/import-labels.ps1 -Repo owner/repo -LabelsFile ./.labels.json [-DeleteMissing]`. |
+| `create-milestones.ps1` | Create milestones from `-Titles` or `-TitlesFile`. | `pwsh -File ./scripts/create-milestones.ps1 -Repo owner/repo -Titles "Phase 1","Phase 2" [-DryRun] [-SkipExisting]`. |
+| `test-github-permissions.ps1` | Verify gh auth + scopes (repo, project) and repo/milestone/branch/PR operations. | `pwsh -File ./scripts/test-github-permissions.ps1 -Owner <user>`; add `-AutoFixAuth` to refresh scopes. |
+
+Notes: `prompt.ps1`/`attach.ps1` resolve server URL as: `-ServerUrl` > `$OPENCODE_SERVER_URL` > `$OPENCODE_HOST`/`$OPENCODE_PORT` > `http://localhost:4099`. They rely on host `OPENCODE_SERVER_PASSWORD` (never hardcoded). Default model in `prompt.ps1` is `zai-coding-plan/glm-4.7`.
+
 ## Validation commands
 
 | Check | Command | CI job (`validate.yml`) |
