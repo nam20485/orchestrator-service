@@ -99,7 +99,31 @@ jobs:
         env:
           TAGS: ${{ steps.meta.outputs.tags }}
           DIGEST: ${{ steps.build-and-push.outputs.digest }}
-        run: echo "${TAGS}" | xargs -I {} cosign sign --yes {}@"${DIGEST}"
+        # Retry each tag's signing a few times. Cosign can hit transient
+        # sigstore upstream errors ("stream error ... INTERNAL_ERROR; received
+        # from peer") that clear on retry; xargs alone fails the whole step if
+        # any single tag fails.
+        run: |
+          set -u
+          sign_with_retry() {
+            local tag="$1" digest="$2" attempt=0
+            while [ "$attempt" -lt 5 ]; do
+              attempt=$((attempt + 1))
+              echo "Signing ${tag}@${digest} (attempt ${attempt}/5)"
+              if cosign sign --yes "${tag}@${digest}"; then
+                return 0
+              fi
+              echo "::warning::cosign sign failed for ${tag} (attempt ${attempt}); retrying in $((attempt * 5))s"
+              sleep $((attempt * 5))
+            done
+            echo "::error::cosign sign failed for ${tag} after ${attempt} attempts"
+            return 1
+          }
+          fail=0
+          for tag in ${TAGS}; do
+            sign_with_retry "${tag}" "${DIGEST}" || fail=1
+          done
+          exit "${fail}"
 
   # --- Build the runtime images (Rust stage overridden by the published image) ---
   build:
@@ -196,4 +220,28 @@ jobs:
         env:
           TAGS: ${{ steps.meta.outputs.tags }}
           DIGEST: ${{ steps.build-and-push.outputs.digest }}
-        run: echo "${TAGS}" | xargs -I {} cosign sign --yes {}@"${DIGEST}"
+        # Retry each tag's signing a few times. Cosign can hit transient
+        # sigstore upstream errors ("stream error ... INTERNAL_ERROR; received
+        # from peer") that clear on retry; xargs alone fails the whole step if
+        # any single tag fails.
+        run: |
+          set -u
+          sign_with_retry() {
+            local tag="$1" digest="$2" attempt=0
+            while [ "$attempt" -lt 5 ]; do
+              attempt=$((attempt + 1))
+              echo "Signing ${tag}@${digest} (attempt ${attempt}/5)"
+              if cosign sign --yes "${tag}@${digest}"; then
+                return 0
+              fi
+              echo "::warning::cosign sign failed for ${tag} (attempt ${attempt}); retrying in $((attempt * 5))s"
+              sleep $((attempt * 5))
+            done
+            echo "::error::cosign sign failed for ${tag} after ${attempt} attempts"
+            return 1
+          }
+          fail=0
+          for tag in ${TAGS}; do
+            sign_with_retry "${tag}" "${DIGEST}" || fail=1
+          done
+          exit "${fail}"
