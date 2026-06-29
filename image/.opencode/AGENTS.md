@@ -331,15 +331,6 @@ scope: repository
   </validation_before_handoff>
 
   <tool_use_instructions>
-    <instruction id="querying_microsoft_documentation">
-      <applyTo>**</applyTo>
-      <title>Querying Microsoft Documentation</title>
-      <tools><tool>microsoft_docs_search</tool><tool>microsoft_docs_fetch</tool><tool>microsoft_code_sample_search</tool></tools>
-      <guidance>
-        Use these MCP tools for Microsoft technologies (C#, ASP.NET Core, .NET, EF, NuGet).
-        Prioritize retrieved info over training data for newer features.
-      </guidance>
-    </instruction>
     <instruction id="sequential_thinking_default_usage" enforcement="MANDATORY">
       <applyTo>*</applyTo>
       <title>Sequential Thinking — MANDATORY for all non-trivial tasks</title>
@@ -421,7 +412,6 @@ scope: repository
       <summary>Configured in `/app/opencode.json` (not separate installs).</summary>
       <tool name="sequential-thinking">Local MCP via `npx @modelcontextprotocol/server-sequential-thinking`.</tool>
       <tool name="memory-graph">Local MCP via `npx @modelcontextprotocol/server-memory`; persists to `/app/.memory/memory.jsonl`.</tool>
-      <tool name="microsoft-learn">Remote MCP at `https://learn.microsoft.com/api/mcp` — Microsoft docs search/fetch.</tool>
     </mcp_servers>
 
     <not_installed>
