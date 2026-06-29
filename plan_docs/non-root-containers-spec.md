@@ -65,7 +65,7 @@ there is no `gosu`/`su-exec`/`runuser` privilege drop. Two concrete consequences
 | Git author identity | Set `user.name`/`user.email` defaults for `app` (e.g. `orchestrator-bot`) unless overridden by env | Commits/`br` need an identity; provide a sane default, allow env override. |
 | Caddy privileged port (`:80`) | **`cap_add: [CAP_NET_BIND_SERVICE]`** in compose (keep `:80`) | Minimal change; preserves the documented `:80`/`:443` model and ACME behavior. Alternative (remap to `:8080` internal) is a larger behavioral change and rejected. |
 | Caddy data/config volumes | Entrypoint or image `chown` of `/data` and `/config` to `app` | Caddy must persist ACME state; volumes are root-owned on first mount. |
-| Caddy user | Bake `USER app` into `deploy/caddy/Dockerfile` (extend upstream) | Consistent with the other two images; upstream caddy supports non-root with `CAP_NET_BIND_SERVICE`. |
+| Caddy user | Bake `USER caddy` into `deploy/caddy/Dockerfile` (extend upstream) | The upstream `caddy:2.10.0-alpine` image already ships a non-root `caddy` user and the binary is built to use it; reusing it avoids recreating ownership for `/data`/`/config`. The other two images still use `USER app`. |
 | Backward compatibility | Existing root-owned workspace files remain deletable only via `sudo` (one-time cleanup); new files are operator-owned | Cannot retroactively reown host files from inside a non-root container. Document the one-time `sudo chown -R $UID:$GID $WORKSPACE_DIR` migration. |
 
 ## Target State
@@ -136,17 +136,24 @@ cap_add:
    ```
 6. `/workspace`: keep `mkdir -p /workspace && chmod 755 /workspace` (root creates; runtime user
    writes via UID match on the bind mount).
-7. Declare `USER app` before `ENTRYPOINT`/`CMD`.
-8. Entrypoint (`scripts/docker-entrypoint.sh`): no logic change (already `$HOME`-based). Add an
-   idempotent memory-volume fixup before `exec "$@"`:
+7. Declare `USER app` before `ENTRYPOINT`/`CMD`. Note: if the entrypoint must perform the
+   runtime volume `chown` below, do **not** set `USER app` here — instead start as root and drop
+   privileges inside the entrypoint (see step 8). The two options are mutually exclusive; pick one
+   entrypoint model and apply it consistently to both images.
+8. Entrypoint (`scripts/docker-entrypoint.sh`): the entrypoint **must start as root** to perform the
+   first-mount memory-volume fixup, then drop to `app` before `exec`-ing the server. Install `gosu`
+   in the image and structure the entrypoint as:
    ```sh
    MEM_DIR="/app/.memory"
    if [ -d "$MEM_DIR" ] && [ "$(stat -c %u "$MEM_DIR")" = "0" ]; then
      chown -R app:app "$MEM_DIR" 2>/dev/null || true
    fi
+   exec gosu app "$@"
    ```
-   (Guarded by root-ownership check so it is a no-op on subsequent starts; runs while still root
-   if entrypoint begins as root — see Open Questions.)
+   Do **not** set `USER app` in the Dockerfile when using this root entrypoint — the `gosu` drop is
+   what makes the process non-root. (Guarded by a root-ownership check so the `chown` is a no-op on
+   subsequent starts.) If you instead keep `USER app` baked in and skip the runtime `chown`, the
+   operator must pre-`chown` the named volume once on the host — document that as the alternative.
 
 ### Phase 2 — `webhook-receiver` image (`Dockerfile.webhook`)
 
@@ -159,10 +166,15 @@ cap_add:
    ```dockerfile
    USER app
    RUN git config --global --add safe.directory '*' \
-    && git config --global user.name "${GIT_AUTHOR_NAME:-orchestrator-bot}" \
-    && git config --global user.email "${GIT_AUTHOR_EMAIL:-bot@orchestrator.local}"
+    && git config --global user.name "orchestrator-bot" \
+    && git config --global user.email "bot@orchestrator.local"
    ```
-   (Identity via env with defaults; `safe.directory '*'` covers the bind-mounted `/workspace`.)
+   Bake **fixed** identity defaults (no `${VAR}` expansion here — that would freeze the build-time
+   value into `~/.gitconfig`, not honor runtime overrides). For per-run author identity, set the
+   standard git env vars (`GIT_AUTHOR_NAME`, `GIT_AUTHOR_EMAIL`, `GIT_COMMITTER_NAME`,
+   `GIT_COMMITTER_EMAIL`) in the runtime environment (compose) or in a startup script that writes
+   `~/.gitconfig` from the current env; git honors these over the baked config at commit time.
+   (`safe.directory '*'` covers the bind-mounted `/workspace`.)
 5. `WORKDIR /app` + `chown -R app:app /app`.
 6. Declare `USER app` before `CMD`.
 

@@ -55,7 +55,7 @@ scope: repository
 
   <tech_stack>
     <item>opencode CLI — agent runtime (`opencode --model zai-coding-plan/glm-5 --agent orchestrator`)</item>
-    <item>Z.AI GLM models (`glm-5`, `glm-4.7`, `glm-4.7-flash`, `glm-4.7-flashx`) via `ZHIPU_API_KEY`</item>
+    <item>Z.AI GLM models (`glm-5`, `glm-4.7`, `glm-4.7-flash`) via `ZAI_CODING_API_KEY`</item>
     <item>Google Gemini models (`gemini-3.1-pro-preview`, `gemini-3.1-flash-lite-preview`, etc.) via `GEMINI_API_KEY`</item>
     <item>GitHub Actions — workflow trigger and runner; prebuilt devcontainer from `intel-agency/workflow-orchestration-prebuild`</item>
     <item>.NET SDK 10 + Aspire + Avalonia templates, Bun, uv (all in devcontainer, sourced from external prebuild image)</item>
@@ -412,6 +412,9 @@ scope: repository
       <summary>Configured in `/app/opencode.json` (not separate installs).</summary>
       <tool name="sequential-thinking">Local MCP via `npx @modelcontextprotocol/server-sequential-thinking`.</tool>
       <tool name="memory-graph">Local MCP via `npx @modelcontextprotocol/server-memory`; persists to `/app/.memory/memory.jsonl`.</tool>
+      <tool name="web-reader">Remote MCP at `https://api.z.ai/api/mcp/web_reader/mcp`.</tool>
+      <tool name="zread">Remote MCP at `https://api.z.ai/api/mcp/zread/mcp`.</tool>
+      <tool name="web-search-prime">Remote MCP at `https://api.z.ai/api/mcp/web_search_prime/mcp`.</tool>
     </mcp_servers>
 
     <not_installed>
