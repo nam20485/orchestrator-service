@@ -21,4 +21,13 @@ Describe 'prompt.ps1' {
         $content = Get-Content -LiteralPath $script:PromptPs1 -Raw
         $content | Should -Match 'Provide -Prompt or -PromptFile'
     }
+
+    It 'resolves the workspace via Resolve-ProjectWorkspace (no bare /workspace default)' {
+        $content = Get-Content -LiteralPath $script:PromptPs1 -Raw
+        $content | Should -Match 'Resolve-ProjectWorkspace'
+        # The old conditional -Project block must be gone.
+        $content | Should -Not -Match 'if\s*\(\s*\$Project\s*\)'
+        # The old host dir-creation block must be gone.
+        $content | Should -Not -Match 'WORKSPACE_DIR\s*-and\s*\$Workspace'
+    }
 }

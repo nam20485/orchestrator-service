@@ -7,6 +7,12 @@
 #   - worktree dir name: .worktrees/
 #   - git default branch: main
 #   - .git/info/exclude entry: .worktrees/
+#
+# Capture this file's directory at load (dot-source) time. Inside a dot-sourced
+# function $PSScriptRoot can be empty or reflect the caller's scope; this
+# captured value is stable and used by Get-WorkspaceDirFromEnvOrDotEnv to locate
+# the repo .env file.
+$script:InitProjectWorkspaceScriptDir = $PSScriptRoot
 
 function Initialize-ProjectWorkspace {
     [CmdletBinding()]
@@ -19,7 +25,7 @@ function Initialize-ProjectWorkspace {
     )
 
     # Guard against path traversal: reject any '..' segment.
-    if (($Project -split '[/\]') -contains '..') {
+    if (($Project -split '[\\/]') -contains '..') {
         throw "Invalid project slug '$Project': contains '..' segment."
     }
 
@@ -47,4 +53,120 @@ function Initialize-ProjectWorkspace {
     }
 
     return $hostProjectDir
+}
+
+function Get-WorkspaceDirFromEnvOrDotEnv {
+    <#
+        Returns the host workspace root.
+
+        Precedence:
+          1. $env:WORKSPACE_DIR (if set and non-empty).
+          2. The WORKSPACE_DIR= line in a repo-root .env file (only that one
+             line is parsed; the rest of .env — which may contain secrets — is
+             never sourced).
+          3. "" (empty) if neither is available.
+
+        The .env search starts at $PSScriptRoot and checks the parent dir, so it
+        works whether this helper is invoked from scripts/ or test/.
+    #>
+    [CmdletBinding()]
+    param()
+
+    if ($env:WORKSPACE_DIR) {
+        return $env:WORKSPACE_DIR
+    }
+
+    $searchBase = if ($script:InitProjectWorkspaceScriptDir) { $script:InitProjectWorkspaceScriptDir } else { $PSScriptRoot }
+    if ($searchBase) {
+        $candidates = @(
+            (Join-Path $searchBase ".env"),
+            (Join-Path $searchBase ".." ".env")
+        )
+        foreach ($candidate in $candidates) {
+            if (Test-Path -LiteralPath $candidate) {
+                $envPath = (Resolve-Path -LiteralPath $candidate).Path
+                foreach ($line in (Get-Content -LiteralPath $envPath)) {
+                    if ($line -match '^\s*WORKSPACE_DIR\s*=\s*(?<val>.*)$') {
+                        $val = $Matches['val'].Trim()
+                        # Strip a single pair of surrounding quotes if present.
+                        if ($val.Length -ge 2 -and
+                            (($val.StartsWith('"') -and $val.EndsWith('"')) -or
+                             ($val.StartsWith("'") -and $val.EndsWith("'")))) {
+                            $val = $val.Substring(1, $val.Length - 2)
+                        }
+                        return $val
+                    }
+                }
+                # .env exists but has no WORKSPACE_DIR line.
+                return $env:WORKSPACE_DIR
+            }
+        }
+    }
+
+    return $env:WORKSPACE_DIR
+}
+
+function Resolve-ProjectWorkspace {
+    <#
+        Resolve the container-side --dir to an isolated per-project subdir.
+
+        Project slug precedence:
+          1. -Project <slug>                       (if supplied, non-empty)
+          2. derived from -Workspace               (if it is /workspace/<slug>,
+                                                   a single path-safe segment)
+          3. auto-generated                        session-<yyyyMMdd-HHmmss>-<6hex>
+
+        The result NEVER equals the bare /workspace root. When -HostWorkspaceDir
+        is supplied, the host-side project dir is initialized as a git repo on
+        branch 'main' with '.worktrees/' in .git/info/exclude (via
+        Initialize-ProjectWorkspace) so per-bead worktrees work.
+    #>
+    [CmdletBinding()]
+    param(
+        [string]$Workspace = "/workspace",
+        [string]$Project,
+        [string]$HostWorkspaceDir
+    )
+
+    $containerRoot = "/workspace"
+
+    # 1. Explicit -Project wins.
+    # 2. Else derive from a /workspace/<slug> -Workspace value (webhook style).
+    # 3. Else auto-generate a unique session slug.
+    if ([string]::IsNullOrWhiteSpace($Project)) {
+        if ($Workspace -match '^/workspace/(?<rel>.+)$') {
+            $rel = $Matches['rel']
+            # Single path-safe segment only: no nested slashes, no '..', and
+            # matching the filesystem-safe slug pattern.
+            if ($rel -notmatch '[/\\]' -and
+                $rel -ne '..' -and
+                $rel -match '^[A-Za-z0-9][A-Za-z0-9._-]*$') {
+                $Project = $rel
+            }
+        }
+        if ([string]::IsNullOrWhiteSpace($Project)) {
+            $stamp = [DateTimeOffset]::UtcNow.ToString("yyyyMMdd-HHmmss")
+            $hex = -join (1..6 | ForEach-Object { '{0:x}' -f (Get-Random -Maximum 16) })
+            $Project = "session-$stamp-$hex"
+        }
+    }
+
+    # Reject path traversal in the resolved slug.
+    if (($Project -split '[\\/]') -contains '..') {
+        throw "Invalid project slug '$Project'"
+    }
+
+    $containerDir = "$containerRoot/$Project"
+
+    # ROOT GUARD: never allow the bare /workspace root as a project.
+    if ($containerDir.TrimEnd('/') -eq $containerRoot) {
+        throw "Refusing to use workspace root '$containerRoot' as a project; a project subdir is required."
+    }
+
+    # Ensure the host-side project dir exists as a git repo (for worktrees).
+    if (-not [string]::IsNullOrWhiteSpace($HostWorkspaceDir)) {
+        Initialize-ProjectWorkspace -WorkspaceRoot $HostWorkspaceDir -Project $Project | Out-Null
+    }
+
+    return $containerDir
 }
