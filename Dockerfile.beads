@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1.7
 # Canonical Beads ecosystem builder (br + bvr).
 #
 # This file is the single source of truth for beads versions. Both Dockerfile
@@ -18,13 +19,19 @@
 # Pinned to immutable commit SHAs for reproducibility; version comment tracks
 # the upstream tag.
 FROM rust:1.95-slim-bookworm AS rust-builder
-RUN apt-get update && apt-get install -y --no-install-recommends git pkg-config libssl-dev \
-    && rm -rf /var/lib/apt/lists/*
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    rm -f /etc/apt/apt.conf.d/docker-clean \
+    && apt-get update && apt-get install -y --no-install-recommends git pkg-config libssl-dev
 RUN rustup toolchain install nightly && rustup default nightly
 # beads_rust v0.2.15 @ d9f8d7083dee46d04a8e4741c5f535eb7fcabc97
-RUN cargo install --git https://github.com/Dicklesworthstone/beads_rust.git --rev d9f8d7083dee46d04a8e4741c5f535eb7fcabc97 --locked beads_rust
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/usr/local/cargo/git \
+    cargo install --git https://github.com/Dicklesworthstone/beads_rust.git --rev d9f8d7083dee46d04a8e4741c5f535eb7fcabc97 --locked beads_rust
 # beads_viewer_rust v0.2.1 @ e4506f63214d32c8bcac4f29479a9b80cb932a6a
-RUN cargo install --git https://github.com/Dicklesworthstone/beads_viewer_rust.git --rev e4506f63214d32c8bcac4f29479a9b80cb932a6a --locked beads_viewer_rust
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/usr/local/cargo/git \
+    cargo install --git https://github.com/Dicklesworthstone/beads_viewer_rust.git --rev e4506f63214d32c8bcac4f29479a9b80cb932a6a --locked beads_viewer_rust
 
 # --- Stage 2: Slim runtime (published image consumed via COPY --from override) ---
 FROM debian:trixie-20260518-slim
