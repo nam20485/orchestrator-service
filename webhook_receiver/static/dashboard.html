@@ -750,7 +750,7 @@ function drawGraph() {
     if (!p) continue;
     const color = STATUS_COLOR[n.ui_status] || '#8b949e';
     const id = esc(n.id);
-    const title = trunc(n.title || n.id, p.w - 16);
+    const title = esc(trunc(String(n.title || n.id || ''), p.w - 16));
     s += `<g class="gnode" data-id="${esc(n.id)}" style="cursor:pointer">`
       + `<rect x="${p.x}" y="${p.y}" width="${p.w}" height="${p.h}" rx="6" fill="#1e293b" stroke="${color}" stroke-width="2"/>`
       + `<circle cx="${p.x + 11}" cy="${p.y + 13}" r="4" fill="${color}"/>`
@@ -780,7 +780,7 @@ function attachGraphInteraction() {
     dragging = true; sx = e.clientX; sy = e.clientY; ox = graphXform.tx; oy = graphXform.ty;
   });
   window.addEventListener('mousemove', e => {
-    if (!dragging) return;
+    if (!dragging || !graphLayout) return;
     const rect = svg.getBoundingClientRect();
     graphXform.tx = ox + (e.clientX - sx) * (graphLayout.width / rect.width);
     graphXform.ty = oy + (e.clientY - sy) * (graphLayout.height / rect.height);
