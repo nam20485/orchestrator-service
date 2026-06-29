@@ -38,6 +38,11 @@ Once the user has answered your questions and you have enough clarity:
 2. Read the structural template at `/root/.config/opencode/skills/perfect-idea/application_plan_template.md` (bundled with this skill). This defines the exact section structure your output must follow.
 3. Generate the formal `application_plan.md` by filling in every section of the template with the specific, detailed information gathered during the interrogation phase. Do NOT leave any template sections as placeholder text — replace all brackets and placeholders with concrete, project-specific content.
 4. Write the completed document to `plan_docs/application_plan.md`.
+5. Commit the plan to the repository so that per-bead git worktrees (which check out branches from this repo) can see it:
+   ```bash
+   git add plan_docs/application_plan.md
+   git commit -m "Add application plan"
+   ```
 
 ### Phase 3: Handoff
 
