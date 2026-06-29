@@ -28,7 +28,7 @@ param (
     [Switch]
     $Pure,
     [Parameter()]
-    [String]
+    [SecureString]
     $Password,
     [Parameter()]
     [String]
@@ -54,19 +54,24 @@ if (-not $ServerUrl) {
 
 # Basic auth: prefer explicit args, else fall back to host env vars
 # (the opencode CLI itself also reads OPENCODE_SERVER_PASSWORD / OPENCODE_SERVER_USERNAME).
-if (-not $Password -and $env:OPENCODE_SERVER_PASSWORD) { $Password = $env:OPENCODE_SERVER_PASSWORD }
+# $Password is typed [SecureString] so it is not leaked via $PSBoundParameters, verbose
+# logs, or error records. Convert it to plain text only here, at the point of use, since
+# the opencode CLI's --password flag requires a plain value. Env-var fallbacks are
+# inherently plain strings (no SecureString equivalent), so they feed the same variable.
+$plainPassword = $null
+if ($Password) {
+    $plainPassword = ConvertFrom-SecureString -SecureString $Password -AsPlainText
+} elseif ($env:OPENCODE_SERVER_PASSWORD) {
+    $plainPassword = $env:OPENCODE_SERVER_PASSWORD
+}
 if (-not $Username -and $env:OPENCODE_SERVER_USERNAME) { $Username = $env:OPENCODE_SERVER_USERNAME }
 
-# When -Project is specified, resolve the workspace to a per-project subdir
-# and initialize it as a git repo (for worktree-based bead isolation).
-if ($Project) {
-    $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-    . (Join-Path $scriptDir "init-project-workspace.ps1")
-    $Workspace = ($Workspace.TrimEnd('/') + '/' + $Project)
-    if ($env:WORKSPACE_DIR) {
-        Initialize-ProjectWorkspace -WorkspaceRoot $env:WORKSPACE_DIR -Project $Project
-    }
-}
+# Always resolve the workspace to an isolated per-project subdir. The bare
+# /workspace root is never used as a project (see Resolve-ProjectWorkspace).
+$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+. (Join-Path $scriptDir "init-project-workspace.ps1")
+$hostWorkspaceDir = Get-WorkspaceDirFromEnvOrDotEnv
+$Workspace = Resolve-ProjectWorkspace -Workspace $Workspace -Project $Project -HostWorkspaceDir $hostWorkspaceDir
 
 # Build the invocation, only emitting flags that are actually set.
 $cmdArgs = @("attach", $ServerUrl, "--dir", $Workspace, "--log-level", $LogLevel)
@@ -75,7 +80,7 @@ if ($Continue)     { $cmdArgs += "--continue" }
 if ($Session)      { $cmdArgs += "--session", $Session }
 if ($Fork)         { $cmdArgs += "--fork" }
 if ($Pure)         { $cmdArgs += "--pure" }
-if ($Password)     { $cmdArgs += "--password", $Password }
+if ($plainPassword) { $cmdArgs += "--password", $plainPassword }
 if ($Username)     { $cmdArgs += "--username", $Username }
 
 & opencode @cmdArgs

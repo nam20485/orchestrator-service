@@ -49,6 +49,10 @@ RUN apt-get update && \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
+# Mark the bind-mounted /workspace (host UID 1000) as trusted for root so git
+# does not refuse operations with "fatal: detected dubious ownership".
+RUN git config --global --add safe.directory /workspace
+
 # PowerShell (pwsh) — tarball install (Microsoft apt repo fails on trixie SHA1 key policy)
 RUN apt-get update \
     && apt-get install -y --no-install-recommends libicu76 libssl3t64 \

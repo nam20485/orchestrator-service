@@ -62,38 +62,14 @@ if (-not $Prompt) {
     throw "Provide -Prompt or -PromptFile."
 }
 
-# When -Project is specified, resolve the workspace to a per-project subdir
-# and initialize it as a git repo (for worktree-based bead isolation).
-if ($Project) {
-    $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-    . (Join-Path $scriptDir "init-project-workspace.ps1")
-    $Workspace = ($Workspace.TrimEnd('/') + '/' + $Project)
-    if ($env:WORKSPACE_DIR) {
-        Initialize-ProjectWorkspace -WorkspaceRoot $env:WORKSPACE_DIR -Project $Project
-    }
-}
-
-# Ensure the workspace directory exists. When attaching to a container server
-# with a host bind mount at /workspace, the host-side subdir must exist before
-# opencode resolves --dir (server-side). $WORKSPACE_DIR points at the host root
-# mounted at /workspace; derive the host path and create it if needed.
-if ($env:WORKSPACE_DIR -and $Workspace -and $Workspace -match '^/workspace(/|$)') {
-    $relativePath = $Workspace -replace '^/workspace/?', ''
-    if ($relativePath) {
-        # Guard against path traversal: reject any '..' segments so $Workspace
-        # cannot create directories outside $WORKSPACE_DIR.
-        if ($relativePath -split '/' -notcontains '..') {
-            $rootPath   = (Resolve-Path -LiteralPath $env:WORKSPACE_DIR).Path.TrimEnd('/\') + [IO.Path]::DirectorySeparatorChar
-            $hostPath   = Join-Path $env:WORKSPACE_DIR $relativePath
-            $resolved   = [System.IO.Path]::GetFullPath($hostPath).TrimEnd('/\') + [IO.Path]::DirectorySeparatorChar
-            if ($resolved.StartsWith($rootPath)) {
-                if (-not (Test-Path -LiteralPath $hostPath)) {
-                    New-Item -ItemType Directory -Force -Path $hostPath | Out-Null
-                }
-            }
-        }
-    }
-}
+# Always resolve the workspace to an isolated per-project subdir. The bare
+# /workspace root is never used as a project (see Resolve-ProjectWorkspace).
+# The webhook receiver invokes this script with -Workspace /workspace/<slug>
+# and no -Project; Resolve-ProjectWorkspace derives the slug from that path.
+$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+. (Join-Path $scriptDir "init-project-workspace.ps1")
+$hostWorkspaceDir = Get-WorkspaceDirFromEnvOrDotEnv
+$Workspace = Resolve-ProjectWorkspace -Workspace $Workspace -Project $Project -HostWorkspaceDir $hostWorkspaceDir
 
 opencode run `
     --attach $ServerUrl `

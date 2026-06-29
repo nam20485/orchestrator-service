@@ -200,16 +200,47 @@ def sync_project(repo_path: str, branch: str = "main") -> None:
 # ── per-bead worktree management ───────────────────────────────────────────
 
 
+def _detect_default_branch(project_root: str) -> str:
+    """Return the repo's current default branch via ``git symbolic-ref``.
+
+    Falls back to ``"main"`` if git is unavailable, the repo has no HEAD
+    (e.g. unborn branch), or the command fails for any reason.
+    """
+    try:
+        result = subprocess.run(
+            ["git", "symbolic-ref", "--short", "HEAD"],
+            cwd=project_root,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        branch = result.stdout.strip()
+        if branch:
+            return branch
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        logger.debug(
+            "Could not detect default branch in %s; falling back to 'main'",
+            project_root,
+            exc_info=True,
+        )
+    return "main"
+
+
 def create_bead_worktree(
     project_root: str,
     bead_id: str,
-    base_branch: str = "main",
+    base_branch: str | None = None,
 ) -> str:
     """Create an isolated git worktree for *bead_id* inside the project.
 
     The worktree is placed at ``<project_root>/.worktrees/<bead_id>/`` on a
     new branch ``task/<bead_id>``.  Any stale worktree at that path is
     removed first.  Returns the worktree path.
+
+    When *base_branch* is ``None`` (the default), the repo's current
+    default branch is auto-detected via :func:`_detect_default_branch` so
+    repos whose default branch is ``master`` (or anything else) work
+    without configuration.  Pass an explicit *base_branch* to override.
     """
     wt_dir = os.path.join(project_root, _WORKTREES_DIR)
     os.makedirs(wt_dir, exist_ok=True)
@@ -217,6 +248,7 @@ def create_bead_worktree(
     safe_id = bead_id.replace("/", "-")
     wt_path = os.path.join(wt_dir, safe_id)
     branch_name = f"task/{bead_id}"
+    branch = base_branch if base_branch is not None else _detect_default_branch(project_root)
 
     # Remove a stale worktree if one exists.
     remove_bead_worktree(project_root, bead_id)
@@ -229,7 +261,7 @@ def create_bead_worktree(
         os.path.basename(project_root),
     )
     subprocess.run(
-        ["git", "worktree", "add", "-b", branch_name, wt_path, base_branch],
+        ["git", "worktree", "add", "-b", branch_name, wt_path, branch],
         cwd=project_root,
         check=True,
         capture_output=True,
