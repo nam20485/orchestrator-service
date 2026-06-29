@@ -24,8 +24,8 @@ The orchestrator service treats `/workspace` as a single global workspace. Two c
 | Scope | **Both** beads + webhook paths | Avoids inconsistent workspace models |
 | Bootstrap (no repo yet) | Project dir `git init`-ed on creation | Worktrees work from a local repo even without a remote |
 | Project slug (webhook) | `repository.full_name` sanitized (e.g., `owner-repo`) | Derived from payload |
-| Project slug (/perfect-idea) | Client script `-Project <slug>` parameter | User provides at session start |
-| Project creation (new) | Client script creates dir + `git init` | Before /perfect-idea runs |
+| Project slug (manual/`/perfect-idea`) | `-Project <slug>` override, else auto-generated `session-<ts>-<hex>` | User is NOT required to name the project; the system auto-isolates every session. Root is never used. |
+| Project creation (new) | Client script creates dir + `git init` | Before /perfect-idea runs (also when no `-Project` is given, via auto-generated slug) |
 | Project creation (existing) | Webhook handler clones on first event for that repo | Ensures workspace before dispatch |
 
 ## Target Workspace Layout
@@ -79,8 +79,9 @@ Refactor `workspace.py` from single-root clone model to multi-project worktree m
 
 - `create_workspace()` → `create_bead_worktree(project_root: str, bead_id: str, base_branch: str = "main") -> str`
   - Ensure `.worktrees/` exists in `project_root`.
-  - Remove any stale worktree at `.worktrees/<bead_id>/` (worktree remove + rmtree fallback).
+  - Remove any stale worktree at `.worktrees/<bead-id>/` (worktree remove + rmtree fallback).
   - `git worktree add .worktrees/<bead_id> -b task/<bead_id> <base_branch>` (run from `project_root`).
+  - The base branch is auto-detected (`git symbolic-ref --short HEAD`, fallback `main`) rather than hardcoded.
   - Return `project_root/.worktrees/<bead_id>`.
 
 - `cleanup_workspace()` → `remove_bead_worktree(project_root: str, bead_id: str) -> None`
@@ -178,17 +179,26 @@ while running:
   - If not exists: `mkdir` + `git init` + add `.worktrees/` to `.git/info/exclude`
   - Pass `--dir $Workspace` to opencode
 - When `-Project` is not provided:
-  - Backward-compatible: use `$WorkspaceRoot` directly (deprecated, log warning)
+  - The system auto-creates an isolated project subdir using an auto-generated slug `session-<yyyyMMdd-HHmmss>-<6hex>` (UTC), `git init`s it on `main` with `.worktrees/` excluded, and passes `--dir /workspace/<slug>`. The workspace root (`/workspace`) is NEVER used as a project — a hard guard rejects it. `-Project` remains an optional override to resume a named project.
 
 This enables the `/perfect-idea` flow:
 ```
-scripts/attach.ps1 -Project my-new-app
-# → creates /workspace/my-new-app/ + git init
-# → opencode attach --dir /workspace/my-new-app/
+scripts/attach.ps1
+# → auto-creates /workspace/session-<ts>-<hex>/ + git init
+# → opencode attach --dir /workspace/session-<ts>-<hex>/
 # user runs /perfect-idea → plan_docs/application_plan.md
 # user runs /plan-to-beads → .beads/
 # BeadsLoop discovers project on next scan
+
+# Named/resume alternative:
+scripts/attach.ps1 -Project my-new-app
+# → creates /workspace/my-new-app/ + git init
+# → opencode attach --dir /workspace/my-new-app/
 ```
+
+### Container git ownership
+
+Both the orchestratorservice and webhook images set `git config --global --add safe.directory /workspace` so bind-mounted, host-owned project repos do not trigger git's "dubious ownership" error when accessed as root inside the container.
 
 ### Phase 6: Skills (`image/.opencode/skills/`)
 
@@ -243,7 +253,7 @@ scripts/attach.ps1 -Project my-new-app
 | Stale worktree (bead crashed) | `create_bead_worktree` removes stale worktree before creating new one (`git worktree remove --force` + rmtree fallback). |
 | Worktree path inside project repo shows as untracked | `.worktrees/` added to `.git/info/exclude` (local-only, not committed). |
 | `plan_docs/` not visible in worktree | Plan must be committed to the repo before beads run. Skills updated to commit. |
-| Migration from existing single-project setup | Document manual migration: move `/workspace/.beads/` into `/workspace/<slug>/.beads/`. No automatic migration (early-stage project). |
+| Migration from existing single-project setup | A hard guard now prevents creating `.beads/` at the workspace root; the deprecated root fallback was removed. Legacy root-level `.beads/` must be moved into a project subdir manually. |
 | Per-project SQLite DB | Eliminates shared-DB contention. Each project's `br` commands use its own `BD_DB`. |
 | `BEADS_WORKSPACE_ROOT` rename | Optional rename to `workspace_base` for clarity. Keep env var name for backward compat if renaming. |
 
