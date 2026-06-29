@@ -3,11 +3,39 @@ name: trivy
 on:
   push:
     branches: [ "main", "development", "nam20485" ]
+    paths:
+      - 'Dockerfile'
+      - 'Dockerfile.webhook'
+      - 'Dockerfile.beads'
+      - 'deploy/caddy/**'
+      - 'image/**'
+      - 'scripts/docker-entrypoint.sh'
+      - 'scripts/prompt.ps1'
+      - 'webhook_receiver/**'
+      - 'pyproject.toml'
+      - 'uv.lock'
+      - '.github/workflows/trivy.yml'
   pull_request:
     branches: [ "main", "development", "nam20485" ]
+    paths:
+      - 'Dockerfile'
+      - 'Dockerfile.webhook'
+      - 'Dockerfile.beads'
+      - 'deploy/caddy/**'
+      - 'image/**'
+      - 'scripts/docker-entrypoint.sh'
+      - 'scripts/prompt.ps1'
+      - 'webhook_receiver/**'
+      - 'pyproject.toml'
+      - 'uv.lock'
+      - '.github/workflows/trivy.yml'
 
 permissions:
   contents: read
+
+concurrency:
+  group: trivy-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   scan:
@@ -25,23 +53,37 @@ jobs:
           - name: orchestrator-service
             dockerfile: ./Dockerfile
             context: .
+            cache_scope: orchestratorservice
           - name: orchestrator-webhook
             dockerfile: ./Dockerfile.webhook
             context: .
+            cache_scope: webhook
           - name: orchestrator-caddy
             dockerfile: ./deploy/caddy/Dockerfile
             context: ./deploy/caddy
+            cache_scope: caddy
           - name: beads
             dockerfile: ./Dockerfile.beads
             context: .
+            cache_scope: beads
 
     steps:
       - name: Checkout code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
+
       - name: Build image
-        run: |
-          docker build -t ${{ matrix.name }}:${{ github.sha }} -f ${{ matrix.dockerfile }} ${{ matrix.context }}
+        uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7.2.0
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          tags: ${{ matrix.name }}:${{ github.sha }}
+          push: false
+          load: true
+          cache-from: type=gha,scope=${{ matrix.cache_scope }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.cache_scope }}
 
       - name: Run Trivy vulnerability scanner
         uses: aquasecurity/trivy-action@7b7aa264d83dc58691451798b4d117d53d21edfe # v0.28.0
