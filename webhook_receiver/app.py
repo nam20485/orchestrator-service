@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import json
 import logging
+import re
+from dataclasses import replace
 from typing import Any
+from urllib.parse import urlparse
 
 from fastapi import BackgroundTasks, FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
@@ -19,8 +22,104 @@ from webhook_receiver.github import verify_signature
 from webhook_receiver.prompts import build_orchestrator_prompt
 from webhook_receiver.runner import dispatch_to_opencode
 from webhook_receiver.simulator import create_simulator_router
+from webhook_receiver.workspace import (
+    ensure_project_from_clone,
+    project_workspace_path,
+    sync_project,
+)
 
 logger = logging.getLogger(__name__)
+
+# Strict allowlist for project slugs derived from webhook payloads. Rejects
+# path-traversal segments (``..``, ``.``, ``/``) and other shell-unsafe chars.
+_SLUG_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+
+
+def _derive_project_slug(payload: dict[str, Any]) -> str:
+    """Derive a filesystem-safe project slug from a webhook payload.
+
+    Uses ``repository.full_name`` (e.g. ``owner/repo``) sanitized to
+    ``owner-repo``.  Falls back to ``repository.name`` then a constant.
+    The result is validated against a strict allowlist to prevent path
+    traversal.
+    """
+    repo = payload.get("repository", {})
+    full_name = repo.get("full_name", "")
+    if full_name:
+        slug = full_name.replace("/", "-")
+    else:
+        slug = repo.get("name", "default-project")
+
+    if not _SLUG_RE.match(slug):
+        slug = "default-project"
+    return slug
+
+
+def _validate_clone_url(url: str) -> bool:
+    """Return True if *url* is a safe HTTPS git clone URL.
+
+    Rejects non-https schemes (``file://``, ``ssh://``, ``http://``) to
+    prevent SSRF and local-file-read attacks via crafted webhook payloads.
+    """
+    if not url:
+        return False
+    try:
+        parsed = urlparse(url)
+    except ValueError:
+        return False
+    return parsed.scheme == "https" and bool(parsed.netloc)
+
+
+def _ensure_project_workspace(
+    cfg: Settings, payload: dict[str, Any]
+) -> tuple[str, Settings]:
+    """Ensure a project workspace exists and return (project_root, project_settings).
+
+    For webhooks from an existing repo, clones the repo on first arrival and
+    syncs on subsequent arrivals (best-effort pull).  Returns a modified
+    Settings with the workspace pointed at the project directory.
+    """
+    slug = _derive_project_slug(payload)
+    base = cfg.beads_workspace_root
+    repo = payload.get("repository", {})
+    clone_url = repo.get("clone_url", "")
+
+    project_root = project_workspace_path(base, slug)
+    if _validate_clone_url(clone_url):
+        ensure_project_from_clone(base, slug, clone_url)
+        sync_project(project_root)
+
+    project_settings = replace(cfg, workspace=project_root)
+    return slug, project_settings
+
+
+def _safe_dispatch(
+    settings: Settings,
+    prompt: str,
+    store: EventStore,
+    payload: dict[str, Any],
+) -> None:
+    """Background task: ensure workspace exists, then dispatch to opencode.
+
+    Wraps the clone/sync in error handling so a failed clone does not crash
+    the background worker.  Logs the error but still attempts the dispatch
+    against whatever workspace state exists (a failed clone may leave a
+    partial dir, but the agent can still work if the repo was previously
+    cloned).
+    """
+    try:
+        slug = _derive_project_slug(payload)
+        base = settings.beads_workspace_root
+        clone_url = payload.get("repository", {}).get("clone_url", "")
+        if _validate_clone_url(clone_url):
+            ensure_project_from_clone(base, slug, clone_url)
+            sync_project(project_workspace_path(base, slug))
+    except Exception:
+        logger.exception(
+            "Failed to ensure project workspace for webhook dispatch; "
+            "attempting dispatch with existing workspace state"
+        )
+    dispatch_to_opencode(settings, prompt, store)
 
 
 def create_app(
@@ -122,6 +221,22 @@ def create_app(
             max_payload_chars=cfg.max_payload_chars,
         )
 
+        # Derive the project slug synchronously (cheap) and compute the project
+        # settings.  The actual clone/sync happens in the background task so the
+        # handler returns 202 immediately without blocking on git clone.
+        project_slug = _derive_project_slug(payload)
+        project_settings = replace(
+            cfg,
+            workspace=project_workspace_path(cfg.beads_workspace_root, project_slug),
+        )
+        repo_full = payload.get("repository", {}).get("full_name", "?")
+        logger.info(
+            "Project workspace delivery_id=%s project=%s repo=%s",
+            delivery_id,
+            project_slug,
+            repo_full,
+        )
+
         logger.info(
             "Prompt assembled delivery_id=%s prompt_chars=%d prompt_lines=%d",
             delivery_id,
@@ -132,7 +247,9 @@ def create_app(
             "Prompt preview delivery_id=%s:\n%s", delivery_id, prompt[:500]
         )
 
-        background_tasks.add_task(dispatch_to_opencode, cfg, prompt, store)
+        background_tasks.add_task(
+            _safe_dispatch, project_settings, prompt, store, payload
+        )
 
         logger.info(
             "Accepted delivery_id=%s event=%s action=%s",

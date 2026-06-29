@@ -40,7 +40,6 @@ services:
       - BEADS_POLL_INTERVAL=${BEADS_POLL_INTERVAL:-10}
       - BEADS_MAX_RETRIES=${BEADS_MAX_RETRIES:-3}
       - BEADS_WORKSPACE_ROOT=${BEADS_WORKSPACE_ROOT:-/workspace}
-      - BEADS_TARGET_REPO=${BEADS_TARGET_REPO:-}
       - DASHBOARD_TOKEN=${DASHBOARD_TOKEN:-}
     depends_on:
       - orchestratorservice

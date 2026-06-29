@@ -17,6 +17,10 @@ from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Stre
 
 from webhook_receiver.beads_loop import BeadsLoop
 from webhook_receiver.event_store import EventStore
+from webhook_receiver.workspace import (
+    discover_projects,
+    project_workspace_path,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -90,8 +94,19 @@ def _cached(key: str, factory: Any, *args: Any) -> Any:
     return val
 
 
-def _workspace() -> str:
-    return os.environ.get("BEADS_WORKSPACE_ROOT", "/workspace")
+def _workspace(project: str | None = None) -> str:
+    """Resolve the workspace to query for beads data.
+
+    With *project* specified, returns that project's directory.  Without it,
+    returns the first discovered project (or the base dir as a fallback).
+    """
+    base = os.environ.get("BEADS_WORKSPACE_ROOT", "/workspace")
+    if project:
+        return project_workspace_path(base, project)
+    projects = discover_projects(base)
+    if projects:
+        return project_workspace_path(base, projects[0])
+    return base
 
 
 def _ui_status(
@@ -290,8 +305,10 @@ def _enrich_beads(
         db_status = str(b.get("status", "")).lower()
         retry_count = 0
         rstate = retry.get(bid)
-        if rstate and isinstance(rstate.get("count"), (int, float)):
-            retry_count = int(rstate["count"])
+        if rstate:
+            raw_count = rstate.get("count")
+            if isinstance(raw_count, (int, float)):
+                retry_count = int(raw_count)
 
         ui_status = _ui_status(bid, db_status, active, halted_ids, ready_ids)
         elapsed_s = None
@@ -332,9 +349,9 @@ def create_dashboard_router(
     # ── overview ───────────────────────────────────────────────────────────
 
     @router.get("/overview")
-    async def overview() -> dict[str, Any]:
-        ws = _workspace()
-        cached = await asyncio.to_thread(_cached, "beads_view", _fetch_beads_view, ws)
+    async def overview(project: str | None = None) -> dict[str, Any]:
+        ws = _workspace(project)
+        cached = await asyncio.to_thread(_cached, f"beads_view:{ws}", _fetch_beads_view, ws)
         all_beads: list[dict[str, Any]] = cached["all"]
         ready_ids: set[Any] = cached["ready_ids"]
 
@@ -384,17 +401,17 @@ def create_dashboard_router(
     # ── beads list ─────────────────────────────────────────────────────────
 
     @router.get("/beads")
-    async def beads() -> list[dict[str, Any]]:
-        ws = _workspace()
-        cached = await asyncio.to_thread(_cached, "beads_view", _fetch_beads_view, ws)
+    async def beads(project: str | None = None) -> list[dict[str, Any]]:
+        ws = _workspace(project)
+        cached = await asyncio.to_thread(_cached, f"beads_view:{ws}", _fetch_beads_view, ws)
         return _enrich_beads(cached, beads_loop)
 
     @router.get("/beads/{bead_id}")
-    async def bead_detail(bead_id: str) -> dict[str, Any]:
+    async def bead_detail(bead_id: str, project: str | None = None) -> dict[str, Any]:
         if not _valid_bead_id(bead_id):
             raise HTTPException(status_code=400, detail="Invalid bead ID")
-        ws = _workspace()
-        cached = await asyncio.to_thread(_cached, "beads_view", _fetch_beads_view, ws)
+        ws = _workspace(project)
+        cached = await asyncio.to_thread(_cached, f"beads_view:{ws}", _fetch_beads_view, ws)
         enriched = _enrich_beads(cached, beads_loop)
         bead = next((b for b in enriched if b.get("id") == bead_id), None)
         if bead is None:
@@ -404,10 +421,10 @@ def create_dashboard_router(
     # ── dependency graph ────────────────────────────────────────────────────
 
     @router.get("/graph")
-    async def graph() -> dict[str, Any]:
-        ws = _workspace()
+    async def graph(project: str | None = None) -> dict[str, Any]:
+        ws = _workspace(project)
         g = await asyncio.to_thread(
-            _cached, "beads_graph", _fetch_beads_graph, ws
+            _cached, f"beads_graph:{ws}", _fetch_beads_graph, ws
         )
 
         active: set[Any] = set()
@@ -444,8 +461,8 @@ def create_dashboard_router(
     # ── bvr pages bundle ────────────────────────────────────────────────────
 
     @router.post("/pages/refresh")
-    async def pages_refresh() -> dict[str, Any]:
-        ws = _workspace()
+    async def pages_refresh(project: str | None = None) -> dict[str, Any]:
+        ws = _workspace(project)
         ok, err = await asyncio.to_thread(_generate_pages_bundle, ws, True)
         if not ok:
             # ``initialized`` mirrors whether ``.beads`` exists, so the UI can
@@ -493,7 +510,7 @@ def create_dashboard_router(
     # ── active agents ──────────────────────────────────────────────────────
 
     @router.get("/active")
-    async def active() -> list[dict[str, Any]]:
+    async def active(project: str | None = None) -> list[dict[str, Any]]:
         if not beads_loop:
             return []
 
@@ -502,15 +519,16 @@ def create_dashboard_router(
         start_times = beads_loop.bead_start_times
         now = time.time()
 
-        ws = _workspace()
-        cached = await asyncio.to_thread(_cached, "beads_view", _fetch_beads_view, ws)
+        ws = _workspace(project)
+        cached = await asyncio.to_thread(_cached, f"beads_view:{ws}", _fetch_beads_view, ws)
         bead_map = {b.get("id", ""): b for b in cached["all"]}
 
         result: list[dict[str, Any]] = []
         for bid in active_ids:
             bead = bead_map.get(bid, {})
             rstate = retry.get(bid, {})
-            retry_count = int(rstate.get("count", 0)) if rstate else 0
+            raw_count = rstate.get("count", 0) if rstate else 0
+            retry_count = int(raw_count) if isinstance(raw_count, (int, float)) else 0
             elapsed_s = round(now - start_times[bid], 1) if bid in start_times else None
             result.append(
                 {
@@ -637,8 +655,8 @@ def create_dashboard_pages_router(dashboard_token: str | None = None) -> APIRout
         return RedirectResponse(url="/dashboard/pages/", status_code=307)
 
     @router.get("/dashboard/pages/{file_path:path}")
-    async def pages_serve(file_path: str) -> Response:
-        ws = _workspace()
+    async def pages_serve(file_path: str, project: str | None = None) -> Response:
+        ws = _workspace(project)
         ok, _ = await asyncio.to_thread(_generate_pages_bundle, ws, False)
         bundle = _bvr_bundle_dir()
 

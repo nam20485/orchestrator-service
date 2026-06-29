@@ -36,7 +36,6 @@ class Settings:
     beads_poll_interval: int
     beads_max_retries: int
     beads_workspace_root: str
-    beads_target_repo: str
     # Shared secret required to access the dashboard UI and APIs. When unset
     # (default) the entire dashboard surface is disabled and returns 404, so
     # the receiver cannot leak beads data through the proxy by default.
@@ -89,6 +88,5 @@ class Settings:
             beads_poll_interval=int(os.environ.get("BEADS_POLL_INTERVAL", "10")),
             beads_max_retries=int(os.environ.get("BEADS_MAX_RETRIES", "3")),
             beads_workspace_root=os.environ.get("BEADS_WORKSPACE_ROOT", "/workspace"),
-            beads_target_repo=os.environ.get("BEADS_TARGET_REPO", "").strip(),
             dashboard_token=(os.environ.get("DASHBOARD_TOKEN", "").strip() or None),
         )

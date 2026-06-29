@@ -34,7 +34,6 @@ def _test_settings(**overrides: object) -> Settings:
         beads_poll_interval=1,
         beads_max_retries=3,
         beads_workspace_root="/workspace",
-        beads_target_repo="",
     )
     defaults.update(overrides)
     return Settings(**defaults)
@@ -55,6 +54,8 @@ def _bead(bead_id: str = "br-1", title: str = "Task", priority: int = 1) -> dict
 # ── Stage 3: poll → close happy path ───────────────────────────────────────
 
 
+@patch("webhook_receiver.beads_loop.remove_bead_worktree")
+@patch("webhook_receiver.beads_loop.create_bead_worktree")
 @patch("webhook_receiver.beads_loop.threading.Thread")
 @patch("webhook_receiver.beads_loop.subprocess.Popen")
 @patch("webhook_receiver.beads_loop.BeadsLoop._check_bead_status", return_value="closed")
@@ -64,6 +65,8 @@ def test_beads_loop_poll_to_close_happy_path(
     mock_status: MagicMock,
     mock_popen: MagicMock,
     mock_thread: MagicMock,
+    mock_create_wt: MagicMock,
+    mock_remove_wt: MagicMock,
 ) -> None:
     """Full poll → process → spawn agent → verify close."""
     mock_proc = MagicMock()
@@ -71,6 +74,7 @@ def test_beads_loop_poll_to_close_happy_path(
     mock_proc.stdout = MagicMock()
     mock_proc.stderr = MagicMock()
     mock_popen.return_value = mock_proc
+    mock_create_wt.return_value = "/workspace/proj/.worktrees/br-1"
 
     # br ready returns a bead, bvr --robot-next also returns it
     bead = _bead()
@@ -79,13 +83,23 @@ def test_beads_loop_poll_to_close_happy_path(
         _mock_completed(json.dumps({"issues": [bead]})),  # br ready
     ]
 
-    loop = BeadsLoop(_test_settings())
-    loop._poll_and_process()
+    settings = _test_settings()
+    loop = BeadsLoop(settings)
+    # Simulate a discovered project so the scan picks it up
+    with patch(
+        "webhook_receiver.beads_loop.discover_projects", return_value=["proj"]
+    ), patch(
+        "webhook_receiver.beads_loop.project_workspace_path",
+        return_value="/workspace/proj",
+    ):
+        loop._scan_and_process()
 
     mock_popen.assert_called_once()
     assert "br-1" not in loop._active_beads
 
 
+@patch("webhook_receiver.beads_loop.remove_bead_worktree")
+@patch("webhook_receiver.beads_loop.create_bead_worktree")
 @patch("webhook_receiver.beads_loop.threading.Thread")
 @patch("webhook_receiver.beads_loop.subprocess.Popen")
 @patch("webhook_receiver.beads_loop.BeadsLoop._check_bead_status", return_value="open")
@@ -95,6 +109,8 @@ def test_beads_loop_retry_on_agent_failure(
     mock_status: MagicMock,
     mock_popen: MagicMock,
     mock_thread: MagicMock,
+    mock_create_wt: MagicMock,
+    mock_remove_wt: MagicMock,
 ) -> None:
     """Agent fails (bead still open) → retry state incremented."""
     mock_proc = MagicMock()
@@ -102,6 +118,7 @@ def test_beads_loop_retry_on_agent_failure(
     mock_proc.stdout = MagicMock()
     mock_proc.stderr = MagicMock()
     mock_popen.return_value = mock_proc
+    mock_create_wt.return_value = "/workspace/proj/.worktrees/br-fail"
 
     bead = _bead("br-fail")
     mock_run.side_effect = [
@@ -109,38 +126,55 @@ def test_beads_loop_retry_on_agent_failure(
         _mock_completed(json.dumps({"issues": [bead]})),  # br ready
     ]
 
-    loop = BeadsLoop(_test_settings())
-    loop._poll_and_process()
+    settings = _test_settings()
+    loop = BeadsLoop(settings)
+    with patch(
+        "webhook_receiver.beads_loop.discover_projects", return_value=["proj"]
+    ), patch(
+        "webhook_receiver.beads_loop.project_workspace_path",
+        return_value="/workspace/proj",
+    ):
+        loop._scan_and_process()
 
-    assert loop._retry_state["br-fail"]["count"] == 1
+    assert loop._retry_state["proj:br-fail"]["count"] == 1
 
 
-@patch("webhook_receiver.beads_loop.create_workspace")
+@patch("webhook_receiver.beads_loop.remove_bead_worktree")
+@patch("webhook_receiver.beads_loop.create_bead_worktree")
 @patch("webhook_receiver.beads_loop.BeadsLoop._spawn_agent")
 @patch("webhook_receiver.beads_loop.BeadsLoop._check_bead_status")
 @patch("webhook_receiver.beads_loop.subprocess.run")
-def test_beads_loop_workspace_creation_failure(
+def test_beads_loop_worktree_creation_failure(
     mock_run: MagicMock,
     mock_status: MagicMock,
     mock_spawn: MagicMock,
-    mock_create_ws: MagicMock,
+    mock_create_wt: MagicMock,
+    mock_remove_wt: MagicMock,
 ) -> None:
-    """Workspace clone fails → retry incremented, no agent spawned."""
-    mock_create_ws.side_effect = Exception("clone failed")
+    """Worktree creation fails → retry incremented, no agent spawned."""
+    mock_create_wt.side_effect = Exception("worktree failed")
     bead = _bead("br-wsfail")
     mock_run.side_effect = [
         _mock_completed(json.dumps({"id": "br-wsfail"})),  # bvr
         _mock_completed(json.dumps({"issues": [bead]})),  # br ready
     ]
 
-    loop = BeadsLoop(_test_settings(beads_target_repo="https://github.com/o/r.git"))
-    loop._poll_and_process()
+    settings = _test_settings()
+    loop = BeadsLoop(settings)
+    with patch(
+        "webhook_receiver.beads_loop.discover_projects", return_value=["proj"]
+    ), patch(
+        "webhook_receiver.beads_loop.project_workspace_path",
+        return_value="/workspace/proj",
+    ):
+        loop._scan_and_process()
 
     mock_spawn.assert_not_called()
-    assert loop._retry_state["br-wsfail"]["count"] == 1
+    assert loop._retry_state["proj:br-wsfail"]["count"] == 1
 
 
-@patch("webhook_receiver.beads_loop.create_workspace")
+@patch("webhook_receiver.beads_loop.remove_bead_worktree")
+@patch("webhook_receiver.beads_loop.create_bead_worktree")
 @patch("webhook_receiver.beads_loop.BeadsLoop._spawn_agent", return_value=(True, ""))
 @patch("webhook_receiver.beads_loop.BeadsLoop._check_bead_status", return_value="closed")
 @patch("webhook_receiver.beads_loop.subprocess.run")
@@ -148,23 +182,30 @@ def test_beads_loop_push_failure_still_clears_retry(
     mock_run: MagicMock,
     mock_status: MagicMock,
     mock_spawn: MagicMock,
-    mock_create_ws: MagicMock,
+    mock_create_wt: MagicMock,
+    mock_remove_wt: MagicMock,
 ) -> None:
     """Agent succeeds, push fails → retry state cleared (bead was closed)."""
-    mock_create_ws.return_value = "/workspace/br-push"
+    mock_create_wt.return_value = "/workspace/proj/.worktrees/br-push"
     bead = _bead("br-push")
     mock_run.side_effect = [
         _mock_completed(json.dumps({"id": "br-push"})),
         _mock_completed(json.dumps({"issues": [bead]})),
     ]
 
-    loop = BeadsLoop(_test_settings(beads_target_repo="https://github.com/o/r.git"))
-    with (
-        patch("webhook_receiver.beads_loop.push_branch", side_effect=Exception("push fail")),
-        patch("webhook_receiver.beads_loop.create_pr"),
-        patch("webhook_receiver.beads_loop.cleanup_workspace"),
+    settings = _test_settings()
+    loop = BeadsLoop(settings)
+    with patch(
+        "webhook_receiver.beads_loop.discover_projects", return_value=["proj"]
+    ), patch(
+        "webhook_receiver.beads_loop.project_workspace_path",
+        return_value="/workspace/proj",
     ):
-        loop._poll_and_process()
+        with (
+            patch("webhook_receiver.beads_loop.push_branch", side_effect=Exception("push fail")),
+            patch("webhook_receiver.beads_loop.create_pr"),
+        ):
+            loop._scan_and_process()
 
     assert "br-push" not in loop._retry_state
 
@@ -175,12 +216,12 @@ def test_beads_loop_push_failure_still_clears_retry(
 def test_beads_loop_concurrent_beads_lock() -> None:
     """Two beads ready, first active → second skipped."""
     loop = BeadsLoop(_test_settings())
-    loop._active_beads.add("br-active")
+    loop._active_beads.add("proj:br-active")
     with (
         patch.object(loop, "_get_next_bead", return_value={"id": "br-active"}),
         patch.object(loop, "_process_bead") as mock_process,
     ):
-        loop._poll_and_process()
+        loop._poll_and_process_project("proj", "/workspace/proj")
         mock_process.assert_not_called()
 
 
@@ -190,12 +231,13 @@ def test_beads_loop_concurrent_beads_lock() -> None:
 def test_beads_loop_injects_previous_logs_on_retry(tmp_path: Path) -> None:
     """Second attempt prompt contains error context from first failure."""
     loop = BeadsLoop(_test_settings())
-    loop._retry_state["br-ctx"] = {"count": 1, "logs": "ERROR: build failed"}
+    loop._retry_state["proj:br-ctx"] = {"count": 1, "logs": "ERROR: build failed"}
     bead = {"id": "br-ctx", "title": "T", "description": "Do work"}
     with patch("webhook_receiver.beads_loop.subprocess.run") as mock_run:
         mock_run.return_value = MagicMock(stdout="", stderr="", returncode=0)
         prompt = loop._build_bead_prompt(
-            bead, 1, str(tmp_path), previous_logs="ERROR: build failed"
+            bead, 1, str(tmp_path), "/workspace/proj",
+            previous_logs="ERROR: build failed"
         )
 
     assert "WARNING" in prompt
@@ -207,15 +249,16 @@ def test_beads_loop_halt_after_max_retries() -> None:
     """Exhausted retries → no further spawn, bead left open."""
     settings = _test_settings(beads_max_retries=2)
     loop = BeadsLoop(settings)
-    loop._retry_state["br-max"] = {"count": 2, "logs": "error"}
+    loop._retry_state["proj:br-max"] = {"count": 2, "logs": "error"}
     bead = {"id": "br-max", "title": "T", "priority": 1}
 
     with patch.object(loop, "_spawn_agent") as mock_spawn:
-        loop._process_bead(bead)
+        loop._process_bead(bead, "proj", "/workspace/proj")
         mock_spawn.assert_not_called()
 
 
-@patch("webhook_receiver.beads_loop.create_workspace")
+@patch("webhook_receiver.beads_loop.remove_bead_worktree")
+@patch("webhook_receiver.beads_loop.create_bead_worktree")
 @patch("webhook_receiver.beads_loop.BeadsLoop._spawn_agent", return_value=(True, ""))
 @patch("webhook_receiver.beads_loop.BeadsLoop._check_bead_status", return_value="closed")
 @patch("webhook_receiver.beads_loop.subprocess.run")
@@ -223,23 +266,30 @@ def test_beads_loop_clears_retry_state_on_success(
     mock_run: MagicMock,
     mock_status: MagicMock,
     mock_spawn: MagicMock,
-    mock_create_ws: MagicMock,
+    mock_create_wt: MagicMock,
+    mock_remove_wt: MagicMock,
 ) -> None:
     """Succeed after a prior retry → retry state removed."""
-    mock_create_ws.return_value = "/workspace/br-clear"
+    mock_create_wt.return_value = "/workspace/proj/.worktrees/br-clear"
     bead = _bead("br-clear")
     mock_run.side_effect = [
         _mock_completed(json.dumps({"id": "br-clear"})),
         _mock_completed(json.dumps({"issues": [bead]})),
     ]
 
-    loop = BeadsLoop(_test_settings(beads_target_repo="https://github.com/o/r.git"))
-    loop._retry_state["br-clear"] = {"count": 1, "logs": "old error"}
-    with (
-        patch("webhook_receiver.beads_loop.push_branch"),
-        patch("webhook_receiver.beads_loop.create_pr"),
-        patch("webhook_receiver.beads_loop.cleanup_workspace"),
+    settings = _test_settings()
+    loop = BeadsLoop(settings)
+    loop._retry_state["proj:br-clear"] = {"count": 1, "logs": "old error"}
+    with patch(
+        "webhook_receiver.beads_loop.discover_projects", return_value=["proj"]
+    ), patch(
+        "webhook_receiver.beads_loop.project_workspace_path",
+        return_value="/workspace/proj",
     ):
-        loop._poll_and_process()
+        with (
+            patch("webhook_receiver.beads_loop.push_branch"),
+            patch("webhook_receiver.beads_loop.create_pr"),
+        ):
+            loop._scan_and_process()
 
-    assert "br-clear" not in loop._retry_state
+    assert "proj:br-clear" not in loop._retry_state
