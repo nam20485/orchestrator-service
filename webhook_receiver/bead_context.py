@@ -29,8 +29,9 @@ BeadsRunner = Callable[[list[str]], "subprocess.CompletedProcess[str]"]
 TOOLING_REFERENCE = """\
 ## Tooling & Commands
 
-The `br` (beads) and `bvr` CLI tools are installed. Always run `br`/`bvr` from this
-workspace directory so it resolves the local `.beads/` graph.
+The `br` (beads) and `bvr` CLI tools are installed. The orchestrator sets the
+`BD_DB` environment variable to your project's beads database, so `br` commands
+resolve the correct DAG regardless of your current directory.
 
 Essential commands:
 - `br show <id>`          — full detail of a bead (status, description, deps).
@@ -47,8 +48,9 @@ Completion workflow:
   and `gh pr create` automatically after you run `br close <id>`.
 
 Filesystem hints:
+- Your workspace   — a per-bead git worktree on branch `task/<bead-id>`.
 - `/app`           — OpenCode install + config (opencode.json, AGENTS.md, .opencode/).
-- your workspace   — the working directory for code; `.beads/` holds the DAG here.
+- `BEADS_AGENT_GUIDE.md` — project overview + tooling (written into your worktree).
 """
 
 
