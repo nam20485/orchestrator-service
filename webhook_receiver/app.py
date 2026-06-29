@@ -36,6 +36,32 @@ logger = logging.getLogger(__name__)
 # path-traversal segments (``..``, ``.``, ``/``) and other shell-unsafe chars.
 _SLUG_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 
+# Safe default-branch name from webhook payloads. Rejects values that could be
+# parsed as git flags (leading ``-``) or contain path traversal; falls back to
+# ``"main"`` so a malformed/missing payload never breaks clone/sync.
+_BRANCH_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/-]*$")
+
+
+def _safe_branch(value: Any) -> str:
+    """Return a git-safe branch name from *value*, or ``"main"``.
+
+    The webhook is signature-validated so ``default_branch`` is trusted, but
+    this guards against flag-injection via ``git clone --branch <x>`` /
+    ``git checkout <x>`` and keeps non-``main`` repos working when the field is
+    absent or malformed.
+    """
+    if not isinstance(value, str):
+        return "main"
+    branch = value.strip()
+    if (
+        not branch
+        or branch.startswith("-")
+        or ".." in branch
+        or not _BRANCH_RE.match(branch)
+    ):
+        return "main"
+    return branch
+
 
 def _derive_project_slug(payload: dict[str, Any]) -> str:
     """Derive a filesystem-safe project slug from a webhook payload.
@@ -85,11 +111,12 @@ def _ensure_project_workspace(
     base = cfg.beads_workspace_root
     repo = payload.get("repository", {})
     clone_url = repo.get("clone_url", "")
+    default_branch = _safe_branch(repo.get("default_branch"))
 
     project_root = project_workspace_path(base, slug)
     if _validate_clone_url(clone_url):
-        ensure_project_from_clone(base, slug, clone_url)
-        sync_project(project_root)
+        ensure_project_from_clone(base, slug, clone_url, base_branch=default_branch)
+        sync_project(project_root, branch=default_branch)
 
     project_settings = replace(cfg, workspace=project_root)
     return slug, project_settings
@@ -112,7 +139,11 @@ def _safe_dispatch(
     try:
         slug = _derive_project_slug(payload)
         base = settings.beads_workspace_root
-        clone_url = payload.get("repository", {}).get("clone_url", "")
+        repo_info = payload.get("repository", {})
+        clone_url = repo_info.get("clone_url", "")
+        # Thread the repo's default branch (master/develop/...) into clone/sync
+        # so repos that do not default to "main" clone and pull correctly.
+        default_branch = _safe_branch(repo_info.get("default_branch"))
         resolved = project_workspace_path(base, slug)
         if os.path.realpath(resolved) == os.path.realpath(base):
             logger.error(
@@ -122,8 +153,10 @@ def _safe_dispatch(
             )
             return
         if _validate_clone_url(clone_url):
-            ensure_project_from_clone(base, slug, clone_url)
-            sync_project(resolved)
+            ensure_project_from_clone(
+                base, slug, clone_url, base_branch=default_branch
+            )
+            sync_project(resolved, branch=default_branch)
         else:
             # No valid clone URL: bootstrap a fresh main-branch git repo so
             # later ``git worktree add`` (BeadsLoop) does not fail on a

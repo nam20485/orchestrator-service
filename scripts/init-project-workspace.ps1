@@ -151,9 +151,18 @@ function Resolve-ProjectWorkspace {
         }
     }
 
-    # Reject path traversal in the resolved slug.
-    if (($Project -split '[\\/]') -contains '..') {
-        throw "Invalid project slug '$Project'"
+    # Reject path traversal / root-collapse in the resolved slug. Applies to
+    # explicit -Project, derived, and auto-generated slugs alike: must be a
+    # single path-safe segment matching the same allowlist used for derivation.
+    # This rejects '.', empty/whitespace, any path separator, '..' segments,
+    # and any non-allowlist characters (so e.g. -Project '.' cannot collapse to
+    # the bare /workspace root and 'foo/bar' cannot create nested dirs).
+    if ([string]::IsNullOrWhiteSpace($Project) -or
+        $Project -eq '.' -or
+        $Project -match '[/\\]' -or
+        ($Project -split '[\\/]') -contains '..' -or
+        $Project -notmatch '^[A-Za-z0-9][A-Za-z0-9._-]*$') {
+        throw "Invalid project slug '$Project': must be a single path-safe segment (rejected '.', path separators, '..', and non-allowlist characters)."
     }
 
     $containerDir = "$containerRoot/$Project"

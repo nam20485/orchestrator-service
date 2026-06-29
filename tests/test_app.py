@@ -262,9 +262,44 @@ def test_safe_dispatch_clones_when_valid_clone_url(
 
     assert response.status_code == 202
     ensure_clone.assert_called_once_with(
-        "/workspace", "org-repo", "https://github.com/org/repo.git"
+        "/workspace", "org-repo", "https://github.com/org/repo.git", base_branch="main"
     )
-    sync_project.assert_called_once_with("/workspace/org-repo")
+    sync_project.assert_called_once_with("/workspace/org-repo", branch="main")
+    init_project.assert_not_called()
+    dispatch.assert_called_once()
+
+
+def test_safe_dispatch_threads_payload_default_branch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Webhook with default_branch=master → clone/sync use master, not main."""
+    dispatch = MagicMock()
+    monkeypatch.setattr("webhook_receiver.app.dispatch_to_opencode", dispatch)
+    init_project = MagicMock()
+    monkeypatch.setattr("webhook_receiver.app.init_project_workspace", init_project)
+    ensure_clone = MagicMock()
+    monkeypatch.setattr("webhook_receiver.app.ensure_project_from_clone", ensure_clone)
+    sync_project = MagicMock()
+    monkeypatch.setattr("webhook_receiver.app.sync_project", sync_project)
+
+    client = TestClient(create_app(_test_settings()))
+    payload = {
+        "action": "opened",
+        "repository": {
+            "full_name": "org/repo",
+            "clone_url": "https://github.com/org/repo.git",
+            "default_branch": "master",
+        },
+        "sender": {"login": "bot"},
+    }
+
+    response = _post_issues(client, payload, delivery="d-branch")
+
+    assert response.status_code == 202
+    ensure_clone.assert_called_once_with(
+        "/workspace", "org-repo", "https://github.com/org/repo.git", base_branch="master"
+    )
+    sync_project.assert_called_once_with("/workspace/org-repo", branch="master")
     init_project.assert_not_called()
     dispatch.assert_called_once()
 
@@ -322,3 +357,31 @@ def test_safe_dispatch_normal_path_does_not_hit_root_guard(
 
     assert response.status_code == 202
     dispatch.assert_called_once()
+
+
+# ── _safe_branch: default-branch sanitization ──────────────────────────────
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        ("main", "main"),
+        ("master", "master"),
+        ("develop", "develop"),
+        ("release/1.0", "release/1.0"),
+        ("", "main"),
+        ("   ", "main"),
+        (None, "main"),
+        (123, "main"),
+        ("-x", "main"),  # leading dash would be a git flag
+        ("--upload-pack=evil", "main"),
+        ("a..b", "main"),  # path traversal
+        ("..", "main"),
+        (".", "main"),
+        ("weird branch", "main"),  # space not in allowlist
+    ],
+)
+def test_safe_branch(value: object, expected: str) -> None:
+    from webhook_receiver.app import _safe_branch
+
+    assert _safe_branch(value) == expected
