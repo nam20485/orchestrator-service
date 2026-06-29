@@ -17,9 +17,9 @@ scope: repository
 
   <template_usage>
     <summary>
-      This repository is a **GitHub template repo** (`intel-agency/workflow-orchestration-service`).
+      This repository is a **GitHub template repo** (`<org>/orchestrator-service`).
       New project repositories are created from it using automation scripts in the
-      `nam20485/workflow-launch2` repo. The scripts clone this template, seed plan docs,
+      `<org>/orchestrator-launch` repo. The scripts clone this template, seed plan docs,
       replace template placeholders, and push — producing a ready-to-go AI-orchestrated repo.
     </summary>
 
@@ -28,28 +28,28 @@ scope: repository
     </template-clone-instances>
 
     <creation_workflow>
-      <step>1. Run `./scripts/create-repo-from-slug.ps1 -Slug &lt;project-slug&gt; -Yes` from the `workflow-launch2` repo.</step>
+      <step>1. Run `./scripts/create-repo-from-slug.ps1 -Slug &lt;project-slug&gt; -Yes` from the `orchestrator-launch` repo.</step>
       <step>2. That delegates to `./scripts/create-repo-with-plan-docs.ps1` which:
-        - Creates a new GitHub repo from this template via `gh repo create --template intel-agency/workflow-orchestration-service`
+        - Creates a new GitHub repo from this template via `gh repo create --template <org>/orchestrator-service`
         - Generates a random suffix for the repo name (e.g., `project-slug-bravo84`)
         - Creates repo secrets (`ZHIPU_API_KEY`, `KIMI_CODE_ORCHESTRATOR_AGENT_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, `GH_ORCHESTRATION_AGENT_TOKEN`)
         - Clones the new repo locally
         - Copies plan docs from `./plan_docs/&lt;slug&gt;/` into the clone's `plan_docs/` directory
-        - Replaces all template placeholders (`workflow-orchestration-service` → new repo name, `intel-agency` → new owner)
+        - Replaces all template placeholders (`orchestrator-service` → new repo name, `<org>` → new owner)
         - Commits and pushes the seeded repo
       </step>
-      <step>3. On push, the clone's `validate` workflow runs CI (lint, scan, tests). The prebuilt devcontainer image is sourced from the external `intel-agency/workflow-orchestration-prebuild` repo — no `publish-docker` or `prebuild-devcontainer` workflows exist in this template repo.</step>
+      <step>3. On push, the clone's `validate` workflow runs CI (lint, scan, tests). The prebuilt devcontainer image is sourced from the external `<org>/orchestrator-service-prebuild` repo — no `publish-docker` or `prebuild-devcontainer` workflows exist in this template repo.</step>
     </creation_workflow>
 
     <template_design_constraints>
-      <rule>Template placeholders (`workflow-orchestration-service`, `intel-agency`) in file contents and paths are replaced by the creation script. Keep them consistent.</rule>
+      <rule>Template placeholders (`orchestrator-service`, `<org>`) in file contents and paths are replaced by the creation script. Keep them consistent.</rule>
       <rule>The `plan_docs/` directory contains external-generated documents seeded at clone time. Exclude it from strict linting (markdown lint, etc.).</rule>
-      <rule>The consumer `.devcontainer/devcontainer.json` references the prebuilt GHCR image from `intel-agency/workflow-orchestration-prebuild`. The Dockerfile and prebuild pipeline live in that external repo, not here.</rule>
+      <rule>The consumer `.devcontainer/devcontainer.json` references the prebuilt GHCR image from `<org>/orchestrator-service-prebuild`. The Dockerfile and prebuild pipeline live in that external repo, not here.</rule>
     </template_design_constraints>
 
     <automation_scripts>
-      <entry><repo>nam20485/workflow-launch2</repo><path>scripts/create-repo-from-slug.ps1</path><description>Entry point — takes a slug, resolves plan docs dir, delegates to create-repo-with-plan-docs.ps1</description></entry>
-      <entry><repo>nam20485/workflow-launch2</repo><path>scripts/create-repo-with-plan-docs.ps1</path><description>Full pipeline: repo create, clone, seed docs, placeholder replace, commit, push</description></entry>
+      <entry><repo>&lt;org&gt;/orchestrator-launch</repo><path>scripts/create-repo-from-slug.ps1</path><description>Entry point — takes a slug, resolves plan docs dir, delegates to create-repo-with-plan-docs.ps1</description></entry>
+      <entry><repo>&lt;org&gt;/orchestrator-launch</repo><path>scripts/create-repo-with-plan-docs.ps1</path><description>Full pipeline: repo create, clone, seed docs, placeholder replace, commit, push</description></entry>
     </automation_scripts>
   </template_usage>
 
@@ -57,7 +57,7 @@ scope: repository
     <item>opencode CLI — agent runtime (`opencode --model zai-coding-plan/glm-5 --agent orchestrator`)</item>
     <item>Z.AI GLM models (`glm-5`, `glm-4.7`, `glm-4.7-flash`) via `ZAI_CODING_API_KEY`</item>
     <item>Google Gemini models (`gemini-3.1-pro-preview`, `gemini-3.1-flash-lite-preview`, etc.) via `GEMINI_API_KEY`</item>
-    <item>GitHub Actions — workflow trigger and runner; prebuilt devcontainer from `intel-agency/workflow-orchestration-prebuild`</item>
+    <item>GitHub Actions — workflow trigger and runner; prebuilt devcontainer from `<org>/orchestrator-service-prebuild`</item>
     <item>.NET SDK 10 + Aspire + Avalonia templates, Bun, uv (all in devcontainer, sourced from external prebuild image)</item>
     <item>MCP servers (enabled): `@modelcontextprotocol/server-sequential-thinking`, `mcp-memory-service` (SQLite-vec persistent memory via uvx)</item>
     <item>MCP servers (disabled): `@modelcontextprotocol/server-github`, `https://mcp.grep.app`</item>
@@ -74,7 +74,7 @@ scope: repository
     <entry><path>.opencode/commands/</path><description>21 reusable command prompts including: orchestrate-new-project, grind-pr-reviews, fix-failing-workflows, create-application, create-app-plan, plan-app, orchestrate-dynamic-workflow, orchestrate-project-setup, resolve-pr-comments, optimize-prompt, and more.</description></entry>
     <entry><path>opencode.json</path><description>opencode config (root level) — multi-provider model definitions (ZhipuAI, OpenAI, Kimi, Google), default model, MCP server definitions, and tool permissions.</description></entry>
     <!-- Devcontainer -->
-    <entry><path>.devcontainer/devcontainer.json</path><description>Consumer devcontainer — pulls prebuilt GHCR image `ghcr.io/intel-agency/workflow-orchestration-prebuild/devcontainer:main-latest`, forwards port 4096, auto-starts `opencode serve` via `scripts/start-opencode-server.sh` on container start.</description></entry>
+    <entry><path>.devcontainer/devcontainer.json</path><description>Consumer devcontainer — pulls prebuilt GHCR image `ghcr.io/<org>/orchestrator-service-prebuild/devcontainer:main-latest`, forwards port 4096, auto-starts `opencode serve` via `scripts/start-opencode-server.sh` on container start.</description></entry>
     <!-- Scripts -->
     <entry><path>scripts/start-opencode-server.sh</path><description>Guarded `opencode serve` bootstrapper used by the devcontainer lifecycle and workflow attach path. Uses `setsid` to survive devcontainer exec session teardown.</description></entry>
     <entry><path>scripts/devcontainer-opencode.sh</path><description>Primary CLI wrapper for devcontainer-based orchestration. Supports subcommands for one-shot prompt execution and server attach mode. Used by the `orchestrator-agent` workflow.</description></entry>
@@ -130,8 +130,8 @@ scope: repository
       <item>`GITHUB_TOKEN` — provided automatically by Actions; used only for GHCR login (image pull).</item>
     </secrets>
     <devcontainer_image>
-      The devcontainer image is sourced from the external `intel-agency/workflow-orchestration-prebuild` repo.
-      Image: `ghcr.io/intel-agency/workflow-orchestration-prebuild/devcontainer:main-latest`.
+      The devcontainer image is sourced from the external `<org>/orchestrator-service-prebuild` repo.
+      Image: `ghcr.io/<org>/orchestrator-service-prebuild/devcontainer:main-latest`.
       Login via `docker/login-action` with `GITHUB_TOKEN`. There are no `publish-docker` or `prebuild-devcontainer`
       workflows in this repo — the Dockerfile and prebuild pipeline live in the external prebuild repo.
     </devcontainer_image>
@@ -160,7 +160,7 @@ scope: repository
     <rule>Pin ALL GitHub Actions by full SHA to the latest release — no tag or branch references (`@v4`, `@main`). Format: `uses: owner/action@<full-40-char-SHA> # vX.Y.Z`. The trailing comment with the semver tag is mandatory for human readability. This applies to every `uses:` line in every workflow file, including third-party actions, first-party (`actions/*`), and reusable workflows. Supply-chain attacks via tag mutation are a critical threat — SHA pinning is the only mitigation. When creating or modifying workflows, look up the SHA for the latest release of each action (e.g., via `gh api repos/actions/checkout/releases/latest --jq .tag_name` then resolve to SHA) and pin to it.</rule>
     <rule>Never add duplicate top-level `name:`, `on:`, or `jobs:` keys in workflow YAML.</rule>
     <rule>`.opencode/` is checked out by `actions/checkout`; do not COPY it in the Dockerfile.</rule>
-    <rule>The Dockerfile and prebuild pipeline live in the external `intel-agency/workflow-orchestration-prebuild` repo. Consumer devcontainer uses `"image:"` pointing to `ghcr.io/intel-agency/workflow-orchestration-prebuild/devcontainer:main-latest` — no local build in this repo.</rule>
+    <rule>The Dockerfile and prebuild pipeline live in the external `<org>/orchestrator-service-prebuild` repo. Consumer devcontainer uses `"image:"` pointing to `ghcr.io/<org>/orchestrator-service-prebuild/devcontainer:main-latest` — no local build in this repo.</rule>
     <rule>Repository labels are defined in `.github/.labels.json`. Use `scripts/import-labels.ps1` to sync them to a repo instance. When adding new labels, add them to this file — it is the single source of truth for the label set.</rule>
     <rule>Implementation approval protocol: before implementing any non-trivial change, verify that explicit approval was given for that specific item AND that no significant state or circumstances have changed since approval was given. If approval was never given, or was invalidated by changed circumstances, stop and ask before acting. When in doubt — ask, don't act.</rule>
   </coding_conventions>

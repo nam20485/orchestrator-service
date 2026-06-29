@@ -13,7 +13,7 @@ there is no `gosu`/`su-exec`/`runuser` privilege drop. Two concrete consequences
    (`${WORKSPACE_DIR}:/workspace`). Every file a container creates — agent session code,
    `.beads/beads.db`, git worktrees, `.git/` objects, venvs — lands on the host owned by `root`.
    Operators cannot delete or modify this state without `sudo`. This is the immediate trigger:
-   `/home/nam20485/orchestrator-workspace/{backend,frontend,.git,.beads}` are all `root:root`
+   `<workspace-dir>/{backend,frontend,.git,.beads}` are all `root:root`
    (`drwxr-xr-x`), requiring `sudo find … -delete` to clean up a stale project.
 
 2. **Security posture.** A process inside the container running as UID 0 has full root privileges
