@@ -184,3 +184,141 @@ def test_ignores_disallowed_event(monkeypatch: pytest.MonkeyPatch) -> None:
     assert response.status_code == 202
     assert response.json()["status"] == "ignored"
     dispatch.assert_not_called()
+
+
+# ── _safe_dispatch: workspace bootstrap & root guard ──────────────────────
+
+
+def _post_issues(
+    client: TestClient, payload: dict, delivery: str = "d1"
+):
+    body = json.dumps(payload).encode()
+    return client.post(
+        "/webhooks/github",
+        content=body,
+        headers={
+            "X-GitHub-Event": "issues",
+            "X-GitHub-Delivery": delivery,
+            "X-Hub-Signature-256": _sign(body, "test-webhook-secret"),
+            "Content-Type": "application/json",
+        },
+    )
+
+
+def test_safe_dispatch_inits_project_when_no_clone_url(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Webhook with no valid clone_url → init_project_workspace called + dispatch runs."""
+    dispatch = MagicMock()
+    monkeypatch.setattr("webhook_receiver.app.dispatch_to_opencode", dispatch)
+    init_project = MagicMock()
+    monkeypatch.setattr("webhook_receiver.app.init_project_workspace", init_project)
+    ensure_clone = MagicMock()
+    monkeypatch.setattr("webhook_receiver.app.ensure_project_from_clone", ensure_clone)
+
+    client = TestClient(create_app(_test_settings()))
+    # No clone_url (and none is a valid HTTPS URL) → bootstrap path.
+    payload = {
+        "action": "opened",
+        "repository": {"full_name": "org/repo"},
+        "sender": {"login": "bot"},
+    }
+
+    response = _post_issues(client, payload, delivery="d-init")
+
+    assert response.status_code == 202
+    # The subdir must be git-init'd (base, slug).
+    init_project.assert_called_once_with("/workspace", "org-repo")
+    # Clone path must NOT be taken.
+    ensure_clone.assert_not_called()
+    # Dispatch still happens against the bootstrapped workspace.
+    dispatch.assert_called_once()
+
+
+def test_safe_dispatch_clones_when_valid_clone_url(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Webhook with a valid HTTPS clone_url → ensure_project_from_clone + sync, no init."""
+    dispatch = MagicMock()
+    monkeypatch.setattr("webhook_receiver.app.dispatch_to_opencode", dispatch)
+    init_project = MagicMock()
+    monkeypatch.setattr("webhook_receiver.app.init_project_workspace", init_project)
+    ensure_clone = MagicMock()
+    monkeypatch.setattr("webhook_receiver.app.ensure_project_from_clone", ensure_clone)
+    sync_project = MagicMock()
+    monkeypatch.setattr("webhook_receiver.app.sync_project", sync_project)
+
+    client = TestClient(create_app(_test_settings()))
+    payload = {
+        "action": "opened",
+        "repository": {
+            "full_name": "org/repo",
+            "clone_url": "https://github.com/org/repo.git",
+        },
+        "sender": {"login": "bot"},
+    }
+
+    response = _post_issues(client, payload, delivery="d-clone")
+
+    assert response.status_code == 202
+    ensure_clone.assert_called_once_with(
+        "/workspace", "org-repo", "https://github.com/org/repo.git"
+    )
+    sync_project.assert_called_once_with("/workspace/org-repo")
+    init_project.assert_not_called()
+    dispatch.assert_called_once()
+
+
+def test_safe_dispatch_root_guard_refuses_dispatch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """If the derived slug resolves to the workspace root, dispatch is refused.
+
+    The guard is defensive: ``_derive_project_slug`` always yields a non-empty
+    slug, so we force the empty-slug case by monkeypatching it and assert the
+    background task refuses to dispatch without raising.
+    """
+    dispatch = MagicMock()
+    monkeypatch.setattr("webhook_receiver.app.dispatch_to_opencode", dispatch)
+    init_project = MagicMock()
+    monkeypatch.setattr("webhook_receiver.app.init_project_workspace", init_project)
+    # Force slug="" so project_workspace_path(base, "") == base → root guard fires.
+    monkeypatch.setattr(
+        "webhook_receiver.app._derive_project_slug", lambda payload: ""
+    )
+
+    client = TestClient(create_app(_test_settings()))
+    payload = {
+        "action": "opened",
+        "repository": {"full_name": "org/repo"},
+        "sender": {"login": "bot"},
+    }
+
+    response = _post_issues(client, payload, delivery="d-guard")
+
+    # The HTTP handler still accepts (202) — the guard is in the background task.
+    assert response.status_code == 202
+    # But the background task refused to dispatch or init at the root.
+    dispatch.assert_not_called()
+    init_project.assert_not_called()
+
+
+def test_safe_dispatch_normal_path_does_not_hit_root_guard(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Sanity: a normal non-empty slug resolves below base, so dispatch proceeds."""
+    dispatch = MagicMock()
+    monkeypatch.setattr("webhook_receiver.app.dispatch_to_opencode", dispatch)
+    monkeypatch.setattr("webhook_receiver.app.init_project_workspace", MagicMock())
+
+    client = TestClient(create_app(_test_settings()))
+    payload = {
+        "action": "opened",
+        "repository": {"full_name": "org/repo"},
+        "sender": {"login": "bot"},
+    }
+
+    response = _post_issues(client, payload, delivery="d-normal")
+
+    assert response.status_code == 202
+    dispatch.assert_called_once()

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 from dataclasses import replace
 from typing import Any
@@ -24,6 +25,7 @@ from webhook_receiver.runner import dispatch_to_opencode
 from webhook_receiver.simulator import create_simulator_router
 from webhook_receiver.workspace import (
     ensure_project_from_clone,
+    init_project_workspace,
     project_workspace_path,
     sync_project,
 )
@@ -111,9 +113,22 @@ def _safe_dispatch(
         slug = _derive_project_slug(payload)
         base = settings.beads_workspace_root
         clone_url = payload.get("repository", {}).get("clone_url", "")
+        resolved = project_workspace_path(base, slug)
+        if os.path.realpath(resolved) == os.path.realpath(base):
+            logger.error(
+                "Refusing to dispatch to workspace root base=%s slug=%r",
+                base,
+                slug,
+            )
+            return
         if _validate_clone_url(clone_url):
             ensure_project_from_clone(base, slug, clone_url)
-            sync_project(project_workspace_path(base, slug))
+            sync_project(resolved)
+        else:
+            # No valid clone URL: bootstrap a fresh main-branch git repo so
+            # later ``git worktree add`` (BeadsLoop) does not fail on a
+            # missing ``.git``.
+            init_project_workspace(base, slug)
     except Exception:
         logger.exception(
             "Failed to ensure project workspace for webhook dispatch; "

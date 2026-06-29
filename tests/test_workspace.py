@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import os
+import subprocess
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from webhook_receiver.workspace import (
@@ -169,6 +171,87 @@ def test_create_bead_worktree_removes_stale(
         if c.args and c.args[0][:3] == ["git", "worktree", "remove"]
     ]
     assert len(wt_remove_calls) >= 1
+
+
+def _git(args: list[str], cwd: str) -> str:
+    """Run a git command, returning stripped stdout (fails the test on error)."""
+    result = subprocess.run(
+        ["git", *args],
+        cwd=cwd,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    return result.stdout.strip()
+
+
+def _init_repo_on_master(project_root: str) -> None:
+    """Create a real git repo whose default branch is ``master`` with one commit."""
+    _git(["init"], cwd=project_root)
+    # Force the default branch to master regardless of the user's git config.
+    _git(["symbolic-ref", "HEAD", "refs/heads/master"], cwd=project_root)
+    # Local identity so commit works in CI without global git config.
+    _git(["config", "user.email", "test@example.com"], cwd=project_root)
+    _git(["config", "user.name", "Test"], cwd=project_root)
+    Path(project_root, "README.md").write_text("hello", encoding="utf-8")
+    _git(["add", "."], cwd=project_root)
+    _git(["commit", "-m", "init on master"], cwd=project_root)
+
+
+def test_create_bead_worktree_detects_default_branch(tmp_path: Path) -> None:
+    """A repo on ``master`` → worktree auto-detects master (no explicit base_branch)."""
+    project_root = str(tmp_path)
+    _init_repo_on_master(project_root)
+
+    wt_path = create_bead_worktree(project_root, "bead-1")
+
+    assert os.path.isdir(wt_path)
+    # The worktree is checked out on the task branch.
+    assert _git(["rev-parse", "--abbrev-ref", "HEAD"], cwd=wt_path) == "task/bead-1"
+    # The task branch was branched from master: the master commit is in its history.
+    log = _git(["log", "--oneline"], cwd=wt_path)
+    assert "init on master" in log
+    # The project's default branch is still master (detection did not mutate it).
+    assert _git(["symbolic-ref", "--short", "HEAD"], cwd=project_root) == "master"
+
+
+@patch("webhook_receiver.workspace.subprocess.run")
+def test_create_bead_worktree_explicit_base_branch_overrides_detection(
+    mock_run: MagicMock, tmp_path: str
+) -> None:
+    """An explicit base_branch is used verbatim and detection is skipped."""
+    project_root = str(tmp_path)
+    bead_id = "br-override"
+
+    create_bead_worktree(project_root, bead_id, base_branch="develop")
+
+    # No symbolic-ref detection call should have been made.
+    sym_calls = [
+        c
+        for c in mock_run.call_args_list
+        if c.args and "symbolic-ref" in c.args[0]
+    ]
+    assert len(sym_calls) == 0
+    # The worktree add command must use the explicit branch.
+    wt_calls = [
+        c
+        for c in mock_run.call_args_list
+        if c.args and "worktree" in c.args[0]
+    ]
+    assert len(wt_calls) == 1
+    cmd = wt_calls[0].args[0]
+    assert "develop" in cmd
+
+
+@patch("webhook_receiver.workspace.subprocess.run")
+def test_detect_default_branch_falls_back_to_main_on_error(
+    mock_run: MagicMock, tmp_path: str
+) -> None:
+    """If git symbolic-ref fails, detection falls back to 'main'."""
+    from webhook_receiver.workspace import _detect_default_branch
+
+    mock_run.side_effect = subprocess.CalledProcessError(1, ["git"])
+    assert _detect_default_branch(str(tmp_path)) == "main"
 
 
 # ── remove_bead_worktree ───────────────────────────────────────────────────
