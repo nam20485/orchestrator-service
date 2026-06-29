@@ -7,7 +7,7 @@
   "provider": {
     "openrouter": {
       "models": {
-        "nvidia/nemotron-3-ultra-550b-a55b:free": {},
+        "nvidia/nemotron-3-ultra-550b-a55b:free": {}
       }
     },
     "bailian-payg": {
@@ -108,22 +108,22 @@
       "type": "remote",
       "url": "https://api.z.ai/api/mcp/web_reader/mcp",
       "headers": {
-        "Authorization": "{env:ZAI_API_KEY}",
-      },
+        "Authorization": "{env:ZAI_API_KEY}"
+      }
     },
     "zread": {
       "type": "remote",
       "url": "https://api.z.ai/api/mcp/zread/mcp",
       "headers": {
-        "Authorization": "{env:ZAI_API_KEY}",
-      },
+        "Authorization": "{env:ZAI_API_KEY}"
+      }
     },
     "web-search-prime": {
       "type": "remote",
       "url": "https://api.z.ai/api/mcp/web_search_prime/mcp",
       "headers": {
-        "Authorization": "{env:ZAI_API_KEY}",
-      },
-    },
+        "Authorization": "{env:ZAI_API_KEY}"
+      }
+    }
   }
 }
