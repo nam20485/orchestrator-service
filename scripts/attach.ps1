@@ -32,7 +32,10 @@ param (
     $Password,
     [Parameter()]
     [String]
-    $Username
+    $Username,
+    [Parameter()]
+    [String]
+    $Project
 )
 
 # Resolve server URL (same precedence as prompt.ps1):
@@ -53,6 +56,17 @@ if (-not $ServerUrl) {
 # (the opencode CLI itself also reads OPENCODE_SERVER_PASSWORD / OPENCODE_SERVER_USERNAME).
 if (-not $Password -and $env:OPENCODE_SERVER_PASSWORD) { $Password = $env:OPENCODE_SERVER_PASSWORD }
 if (-not $Username -and $env:OPENCODE_SERVER_USERNAME) { $Username = $env:OPENCODE_SERVER_USERNAME }
+
+# When -Project is specified, resolve the workspace to a per-project subdir
+# and initialize it as a git repo (for worktree-based bead isolation).
+if ($Project) {
+    $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+    . (Join-Path $scriptDir "init-project-workspace.ps1")
+    $Workspace = ($Workspace.TrimEnd('/') + '/' + $Project)
+    if ($env:WORKSPACE_DIR) {
+        Initialize-ProjectWorkspace -WorkspaceRoot $env:WORKSPACE_DIR -Project $Project
+    }
+}
 
 # Build the invocation, only emitting flags that are actually set.
 $cmdArgs = @("attach", $ServerUrl, "--dir", $Workspace, "--log-level", $LogLevel)

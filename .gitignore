@@ -86,3 +86,4 @@ auth/auth.json
 .gemini/
 .qwen/
 gha-creds-*.json
+.pair/

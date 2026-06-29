@@ -102,10 +102,7 @@
     thead th.sorted { color: var(--accent); }
     tbody tr { border-bottom: 1px solid var(--border); cursor: pointer; transition: background 0.1s; }
     tbody tr:hover { background: var(--surface2); }
-    tbody tr.expanded { background: var(--surface2); }
     tbody td { padding: 0.5rem 0.75rem; vertical-align: top; }
-    tbody tr.detail-row td { padding: 0; }
-    .detail-content { padding: 0.75rem 1rem; background: var(--bg); border-top: 1px solid var(--border); }
 
     .badge {
       display: inline-block; padding: 0.15rem 0.55rem; border-radius: 4px;
@@ -151,21 +148,6 @@
     .event-type.bead_halted { background: rgba(248,81,73,0.15); color: var(--err); }
     .event-detail { color: var(--text); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-    .log-tabs { display: flex; gap: 0; margin-bottom: 0.5rem; }
-    .log-tab {
-      padding: 0.35rem 0.9rem; background: var(--surface); border: 1px solid var(--border);
-      border-bottom: none; border-radius: 4px 4px 0 0; cursor: pointer; font-size: 0.8rem;
-      color: var(--muted);
-    }
-    .log-tab.active { color: var(--text); border-color: var(--accent); }
-    .log-box {
-      background: #0d1117; border: 1px solid var(--border); border-radius: 0 4px 4px 4px;
-      padding: 0.75rem; font-family: var(--mono); font-size: 0.78rem;
-      max-height: 320px; overflow-y: auto; white-space: pre-wrap; word-break: break-all;
-      color: #adbac7;
-    }
-    .log-box.empty { color: var(--muted); }
-    .log-actions { display: flex; justify-content: flex-end; margin-top: 0.5rem; }
     button {
       background: var(--accent); color: #fff; border: none; border-radius: 4px;
       padding: 0.3rem 0.75rem; font-size: 0.8rem; cursor: pointer;
@@ -196,6 +178,56 @@
       border-radius: 4px; padding: 0.25rem 0.4rem; font-size: 0.85rem; font-family: var(--mono);
     }
     .refresh-feedback { font-size: 0.75rem; }
+
+    /* ── View selector + Graph + Pages panes ─────────────────────────────── */
+    .view-bar { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 1rem; }
+    .view-opt {
+      flex: 1 1 220px; display: flex; align-items: flex-start; gap: 0.5rem;
+      background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+      padding: 0.6rem 0.8rem; cursor: pointer; transition: border-color 0.12s, background 0.12s;
+    }
+    .view-opt:hover { border-color: var(--accent); }
+    .view-opt input { margin-top: 0.25rem; accent-color: var(--accent); }
+    .view-opt .vo-title { font-weight: 600; font-size: 0.9rem; color: var(--text); }
+    .view-opt .vo-desc { font-size: 0.75rem; color: var(--muted); }
+    .view-opt.active { border-color: var(--accent); background: var(--surface2); }
+
+    .view-pane { display: none; }
+    .view-pane.active { display: block; }
+
+    .graph-wrap {
+      background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+      position: relative; height: calc(100vh - 220px); min-height: 440px; overflow: hidden;
+    }
+    .graph-controls {
+      position: absolute; top: 0.5rem; right: 0.5rem; display: flex; gap: 0.3rem; z-index: 5;
+    }
+    .graph-controls button { padding: 0.2rem 0.6rem; }
+    .graph-status { position: absolute; top: 0.6rem; left: 0.8rem; font-size: 0.75rem; color: var(--muted); z-index: 5; }
+    .graph-legend {
+      position: absolute; bottom: 0.5rem; left: 0.5rem; display: flex; gap: 0.7rem; flex-wrap: wrap;
+      background: rgba(0,0,0,0.4); border: 1px solid var(--border); border-radius: 6px;
+      padding: 0.3rem 0.6rem; font-size: 0.72rem; z-index: 5;
+    }
+    .graph-legend .key { display: inline-flex; align-items: center; gap: 0.3rem; color: var(--muted); }
+    .graph-legend .swatch { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+    .graph-empty {
+      position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+      color: var(--muted); font-size: 0.95rem; pointer-events: none;
+    }
+    #graphSvg { width: 100%; height: 100%; display: block; background: #0d1117; cursor: grab; }
+    #graphSvg:active { cursor: grabbing; }
+    .gnode:hover rect { filter: brightness(1.25); }
+
+    .pages-wrap {
+      background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+      overflow: hidden; height: calc(100vh - 220px); min-height: 440px; display: flex; flex-direction: column;
+    }
+    .pages-bar {
+      padding: 0.5rem 0.8rem; border-bottom: 1px solid var(--border); display: flex; gap: 0.6rem;
+      align-items: center; font-size: 0.82rem; color: var(--muted);
+    }
+    .pages-frame { flex: 1; border: 0; background: #0d1117; width: 100%; }
   </style>
 </head>
 <body>
@@ -223,6 +255,23 @@
 <div class="refresh-bar"><div id="refreshBarFill" class="refresh-bar-fill"></div></div>
 
 <div class="container">
+  <!-- View selector -->
+  <div class="view-bar" id="viewBar">
+    <label class="view-opt" data-view="list">
+      <input type="radio" name="viewType" value="list">
+      <span><span class="vo-title">List</span><br><span class="vo-desc">Bead queue with live status</span></span>
+    </label>
+    <label class="view-opt" data-view="graph">
+      <input type="radio" name="viewType" value="graph">
+      <span><span class="vo-title">Graph</span><br><span class="vo-desc">Dependency DAG (interactive)</span></span>
+    </label>
+    <label class="view-opt" data-view="pages">
+      <input type="radio" name="viewType" value="pages">
+      <span><span class="vo-title">bvr Pages</span><br><span class="vo-desc">Full static site from bvr</span></span>
+    </label>
+  </div>
+
+  <div id="listPane" class="view-pane active">
   <!-- Summary cards -->
   <div class="summary" id="summaryCards"></div>
 
@@ -270,6 +319,34 @@
       </div>
     </div>
   </div>
+  </div><!-- /listPane -->
+
+  <!-- Graph view -->
+  <div id="graphPane" class="view-pane">
+    <div class="graph-wrap">
+      <div class="graph-status" id="graphStatus">Loading…</div>
+      <div class="graph-controls">
+        <button id="graphZoomIn" title="Zoom in">+</button>
+        <button id="graphZoomOut" title="Zoom out">−</button>
+        <button id="graphReset" class="secondary" title="Reset view">Reset</button>
+      </div>
+      <div class="graph-empty" id="graphEmpty" style="display:none">No beads yet. Run /plan-to-beads to create the DAG.</div>
+      <svg id="graphSvg" xmlns="http://www.w3.org/2000/svg"><g id="graphRoot"></g></svg>
+      <div class="graph-legend" id="graphLegend"></div>
+    </div>
+  </div>
+
+  <!-- bvr Pages view -->
+  <div id="pagesPane" class="view-pane">
+    <div class="pages-wrap">
+      <div class="pages-bar">
+        <span>bvr static pages</span>
+        <button id="pagesRegen" class="secondary">Regenerate</button>
+        <span id="pagesStatus"></span>
+      </div>
+      <iframe class="pages-frame" id="pagesFrame" title="bvr pages"></iframe>
+    </div>
+  </div>
 </div>
 
 <script>
@@ -277,7 +354,6 @@ const API = '/api/dashboard';
 let beadData = [];
 let sortCol = 'ui_status';
 let sortAsc = true;
-let expandedBead = null;
 let eventBuffer = [];
 const MAX_EVENTS = 200;
 
@@ -341,8 +417,7 @@ function renderBeads() {
 
   let html = '';
   for (const b of beadData) {
-    const expanded = expandedBead === b.id;
-    html += `<tr class="${expanded ? 'expanded' : ''}" data-bead-id="${esc(b.id)}">`;
+    html += `<tr data-bead-id="${esc(b.id)}" title="Open detail in a new tab">`;
     html += `<td><span class="badge ${esc(b.ui_status)}">${esc(b.ui_status)}</span></td>`;
     html += `<td class="id-cell">${esc(b.id)}</td>`;
     html += `<td>${esc(b.title)}</td>`;
@@ -351,10 +426,6 @@ function renderBeads() {
     html += `<td>${b.retry_count > 0 ? esc(String(b.retry_count)) : ''}</td>`;
     html += `<td>${b.elapsed_s != null ? esc(String(b.elapsed_s)) + 's' : ''}</td>`;
     html += '</tr>';
-
-    if (expanded) {
-      html += `<tr class="detail-row"><td colspan="7"><div class="detail-content" id="detail-${esc(b.id)}">Loading...</div></td></tr>`;
-    }
   }
   tbody.innerHTML = html;
 
@@ -367,58 +438,12 @@ function renderBeads() {
   document.querySelectorAll('thead th').forEach(th => {
     th.classList.toggle('sorted', th.dataset.col === sortCol);
   });
-
-  // Load detail if expanded
-  if (expandedBead) loadBeadDetail(expandedBead);
-}
-
-async function loadBeadDetail(beadId) {
-  const el = document.getElementById('detail-' + beadId);
-  if (!el) return;
-  const bead = beadData.find(b => b.id === beadId);
-  let html = `<div style="margin-bottom:0.5rem;font-size:0.8rem;color:var(--muted);">${esc(bead.description || 'No description.')}</div>`;
-  html += `<div class="log-tabs"><div class="log-tab active" data-log-tab="stdout">stdout</div><div class="log-tab" data-log-tab="stderr">stderr</div></div>`;
-  html += `<div class="log-box" id="logbox-${esc(beadId)}">Loading logs...</div>`;
-  html += `<div class="log-actions"><button class="secondary" id="refresh-${esc(beadId)}">Refresh</button></div>`;
-  el.innerHTML = html;
-
-  // Attach event listeners
-  el.querySelectorAll('.log-tab').forEach(tab => {
-    tab.addEventListener('click', () => switchLog(beadId, tab.dataset.logTab));
-  });
-  const refreshBtn = document.getElementById('refresh-' + beadId);
-  if (refreshBtn) refreshBtn.addEventListener('click', () => loadBeadLog(beadId));
-  loadBeadLog(beadId);
-}
-
-let currentLogTab = {};
-async function loadBeadLog(beadId) {
-  try {
-    const r = await fetch(`${API}/beads/${encodeURIComponent(beadId)}/logs?tail=200`);
-    const d = await r.json();
-    const tab = currentLogTab[beadId] || 'stdout';
-    const box = document.getElementById('logbox-' + beadId);
-    if (!box) return;
-    const content = tab === 'stdout' ? d.stdout : d.stderr;
-    box.textContent = content || '(empty)';
-    box.className = 'log-box' + (content ? '' : ' empty');
-  } catch (e) {
-    const box = document.getElementById('logbox-' + beadId);
-    if (box) { box.textContent = 'Failed to load logs.'; box.className = 'log-box empty'; }
-  }
-}
-
-function switchLog(beadId, tab) {
-  currentLogTab[beadId] = tab;
-  document.querySelectorAll(`#detail-${beadId} .log-tab`).forEach(el => {
-    el.classList.toggle('active', el.dataset.logTab === tab);
-  });
-  loadBeadLog(beadId);
 }
 
 function toggleBead(id) {
-  expandedBead = expandedBead === id ? null : id;
-  renderBeads();
+  // Open a full detail page in a new tab. The detail page is isolated from
+  // this page's 5s + SSE refresh, so reading stdout/stderr is not disrupted.
+  window.open('/dashboard/bead/' + encodeURIComponent(id), '_blank');
 }
 
 // ── Active agents ──────────────────────────────────────────────────────────
@@ -541,7 +566,10 @@ let autoRefresh = localStorage.getItem('autoRefresh') !== '0'; // default on
 let refreshTimer = null;
 let cycleStart = 0;
 
-function pollAll() { fetchOverview(); fetchBeads(); fetchActive(); }
+function pollAll() {
+  fetchOverview(); fetchBeads(); fetchActive();
+  if (currentView === 'graph') fetchGraph().then(() => { if (currentView === 'graph') renderGraph(); });
+}
 
 function scheduleRefresh() {
   stopRefresh();
@@ -613,11 +641,201 @@ document.getElementById('manualRefresh').addEventListener('click', () => {
   setTimeout(() => { fb.textContent = ''; }, 1500);
 });
 
+// ── View selector + Graph + Pages ──────────────────────────────────────────
+const VIEWS = ['list', 'graph', 'pages'];
+const STATUS_COLOR = {
+  active: '#388bfd', ready: '#3fb950', blocked: '#f0c14b',
+  closed: '#6e7681', halted: '#f85149', open: '#e6edf3',
+};
+let currentView = VIEWS.includes(localStorage.getItem('dashboard.viewType'))
+  ? localStorage.getItem('dashboard.viewType') : 'list';
+let graphData = { nodes: [], edges: [], initialized: false };
+let graphLayout = null;
+let graphXform = { scale: 1, tx: 0, ty: 0 };
+
+function applyView(v) {
+  currentView = VIEWS.includes(v) ? v : 'list';
+  localStorage.setItem('dashboard.viewType', currentView);
+  document.querySelectorAll('.view-pane').forEach(p =>
+    p.classList.toggle('active', p.id === currentView + 'Pane'));
+  document.querySelectorAll('.view-opt').forEach(o => {
+    const on = o.dataset.view === currentView;
+    o.classList.toggle('active', on);
+    const input = o.querySelector('input');
+    if (input) input.checked = on;
+  });
+  if (currentView === 'graph') renderGraph();
+  if (currentView === 'pages') ensurePages();
+}
+document.querySelectorAll('.view-opt input').forEach(r =>
+  r.addEventListener('change', e => applyView(e.target.value)));
+
+async function fetchGraph() {
+  try {
+    const r = await fetch(`${API}/graph`);
+    graphData = await r.json();
+  } catch (e) {
+    graphData = { nodes: [], edges: [], initialized: false };
+  }
+}
+
+function computeLayout(nodes) {
+  const byDepth = new Map();
+  nodes.forEach(n => {
+    const d = (n.depth != null && Number.isFinite(+n.depth)) ? +n.depth : 0;
+    if (!byDepth.has(d)) byDepth.set(d, []);
+    byDepth.get(d).push(n);
+  });
+  const depths = [...byDepth.keys()].sort((a, b) => a - b);
+  const LAYER_W = 230, NODE_H = 46, GAP_Y = 22, PAD = 40, PAD_X = 30;
+  const positions = {};
+  let maxColHeight = 0;
+  depths.forEach(d => {
+    const list = byDepth.get(d);
+    const h = list.length * NODE_H + Math.max(0, list.length - 1) * GAP_Y;
+    if (h > maxColHeight) maxColHeight = h;
+  });
+  const totalH = maxColHeight + PAD * 2;
+  depths.forEach((d, i) => {
+    const list = byDepth.get(d);
+    const colH = list.length * NODE_H + Math.max(0, list.length - 1) * GAP_Y;
+    let y = (totalH - colH) / 2;
+    const x = PAD_X + i * LAYER_W;
+    list.forEach(n => {
+      const w = Math.min(196, Math.max(116, (n.title || n.id).length * 6.6 + 30));
+      positions[n.id] = { x, y, w, h: NODE_H };
+      y += NODE_H + GAP_Y;
+    });
+  });
+  return { positions, width: PAD_X + depths.length * LAYER_W, height: totalH };
+}
+
+function renderGraph() {
+  const root = document.getElementById('graphRoot');
+  const svg = document.getElementById('graphSvg');
+  const status = document.getElementById('graphStatus');
+  const empty = document.getElementById('graphEmpty');
+  if (!graphData.initialized || !graphData.nodes.length) {
+    root.innerHTML = '';
+    svg.removeAttribute('viewBox');
+    empty.style.display = 'flex';
+    status.textContent = graphData.initialized ? 'No graph data' : 'Beads not initialized';
+    return;
+  }
+  empty.style.display = 'none';
+  graphLayout = computeLayout(graphData.nodes);
+  graphXform = { scale: 1, tx: 0, ty: 0 };
+  drawGraph();
+  status.textContent = `${graphData.nodes.length} nodes · ${graphData.edges.length} edges`;
+}
+
+function drawGraph() {
+  if (!graphLayout) return;
+  const root = document.getElementById('graphRoot');
+  const svg = document.getElementById('graphSvg');
+  svg.setAttribute('viewBox', `0 0 ${graphLayout.width} ${graphLayout.height}`);
+  root.setAttribute('transform',
+    `translate(${graphXform.tx},${graphXform.ty}) scale(${graphXform.scale})`);
+  const pos = graphLayout.positions;
+  let s = '<defs><marker id="arrow" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#2d3a4d"/></marker></defs>';
+  for (const e of graphData.edges) {
+    const a = pos[e.source], b = pos[e.target];
+    if (!a || !b) continue;
+    const x1 = a.x + a.w, y1 = a.y + a.h / 2, x2 = b.x, y2 = b.y + b.h / 2;
+    const cx = (x1 + x2) / 2;
+    s += `<path d="M${x1},${y1} C${cx},${y1} ${cx},${y2} ${x2},${y2}" fill="none" stroke="#2d3a4d" stroke-width="1.5" marker-end="url(#arrow)"/>`;
+  }
+  for (const n of graphData.nodes) {
+    const p = pos[n.id];
+    if (!p) continue;
+    const color = STATUS_COLOR[n.ui_status] || '#8b949e';
+    const id = esc(n.id);
+    const title = esc(trunc(String(n.title || n.id || ''), p.w - 16));
+    s += `<g class="gnode" data-id="${esc(n.id)}" style="cursor:pointer">`
+      + `<rect x="${p.x}" y="${p.y}" width="${p.w}" height="${p.h}" rx="6" fill="#1e293b" stroke="${color}" stroke-width="2"/>`
+      + `<circle cx="${p.x + 11}" cy="${p.y + 13}" r="4" fill="${color}"/>`
+      + `<text x="${p.x + 12}" y="${p.y + 22}" fill="#e6edf3" font-size="11" font-family="ui-monospace,monospace">${id}</text>`
+      + `<text x="${p.x + 12}" y="${p.y + 38}" fill="#adbac7" font-size="11">${title}</text>`
+      + `</g>`;
+  }
+  root.innerHTML = s;
+  root.querySelectorAll('.gnode').forEach(g =>
+    g.addEventListener('click', () => showBeadFromGraph(g.dataset.id)));
+}
+
+function trunc(str, maxPx) {
+  const n = Math.max(5, Math.floor(maxPx / 6.5));
+  return str.length > n ? str.slice(0, n - 1) + '…' : str;
+}
+
+function showBeadFromGraph(id) {
+  window.open('/dashboard/bead/' + encodeURIComponent(id), '_blank');
+}
+
+function attachGraphInteraction() {
+  const svg = document.getElementById('graphSvg');
+  let dragging = false, sx = 0, sy = 0, ox = 0, oy = 0;
+  svg.addEventListener('mousedown', e => {
+    if (e.target.closest('.gnode')) return;
+    dragging = true; sx = e.clientX; sy = e.clientY; ox = graphXform.tx; oy = graphXform.ty;
+  });
+  window.addEventListener('mousemove', e => {
+    if (!dragging || !graphLayout) return;
+    const rect = svg.getBoundingClientRect();
+    graphXform.tx = ox + (e.clientX - sx) * (graphLayout.width / rect.width);
+    graphXform.ty = oy + (e.clientY - sy) * (graphLayout.height / rect.height);
+    drawGraph();
+  });
+  window.addEventListener('mouseup', () => { dragging = false; });
+  svg.addEventListener('wheel', e => {
+    e.preventDefault();
+    graphXform.scale = Math.max(0.2, Math.min(4, graphXform.scale * (e.deltaY < 0 ? 1.1 : 0.9)));
+    drawGraph();
+  }, { passive: false });
+}
+document.getElementById('graphZoomIn').addEventListener('click', () => { graphXform.scale = Math.min(4, graphXform.scale * 1.2); drawGraph(); });
+document.getElementById('graphZoomOut').addEventListener('click', () => { graphXform.scale = Math.max(0.2, graphXform.scale / 1.2); drawGraph(); });
+document.getElementById('graphReset').addEventListener('click', () => { graphXform = { scale: 1, tx: 0, ty: 0 }; drawGraph(); });
+
+(function renderGraphLegend() {
+  const items = [['active', 'Active'], ['ready', 'Ready'], ['blocked', 'Blocked'], ['halted', 'Halted'], ['closed', 'Closed']];
+  document.getElementById('graphLegend').innerHTML = items.map(([k, l]) =>
+    `<span class="key"><span class="swatch" style="background:${STATUS_COLOR[k]}"></span>${l}</span>`).join('');
+})();
+
+// ── bvr Pages ───────────────────────────────────────────────────────────────
+function ensurePages() {
+  const frame = document.getElementById('pagesFrame');
+  if (!frame.getAttribute('src')) frame.setAttribute('src', '/dashboard/pages/');
+}
+document.getElementById('pagesRegen').addEventListener('click', async () => {
+  const st = document.getElementById('pagesStatus');
+  const frame = document.getElementById('pagesFrame');
+  st.textContent = 'regenerating…'; st.style.color = 'var(--muted)';
+  try {
+    const r = await fetch(`${API}/pages/refresh`, { method: 'POST' });
+    const d = await r.json();
+    if (d.ok) {
+      st.textContent = 'regenerated'; st.style.color = 'var(--ok)';
+      frame.setAttribute('src', '/dashboard/pages/?' + Date.now());
+    } else if (d.initialized === false) {
+      st.textContent = 'beads not initialized'; st.style.color = 'var(--err)';
+    } else {
+      st.textContent = 'failed: ' + (d.error || 'unknown'); st.style.color = 'var(--err)';
+    }
+  } catch (e) {
+    st.textContent = 'request failed'; st.style.color = 'var(--err)';
+  }
+  setTimeout(() => { st.textContent = ''; }, 2500);
+});
+
 // ── Init ───────────────────────────────────────────────────────────────────
 fetchEvents(); connectSSE();
 updateRefreshUI();
 scheduleRefresh();
 startProgressBar();
+attachGraphInteraction();
+applyView(currentView);
 </script>
 
 </body>

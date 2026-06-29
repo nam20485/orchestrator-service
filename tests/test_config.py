@@ -31,7 +31,6 @@ def test_settings_from_env_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
         "BEADS_POLL_INTERVAL",
         "BEADS_MAX_RETRIES",
         "BEADS_WORKSPACE_ROOT",
-        "BEADS_TARGET_REPO",
         "DASHBOARD_TOKEN",
     ):
         monkeypatch.delenv(name, raising=False)
@@ -46,7 +45,6 @@ def test_settings_from_env_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
     assert cfg.beads_poll_interval == 10
     assert cfg.beads_max_retries == 3
     assert cfg.beads_workspace_root == "/workspace"
-    assert cfg.beads_target_repo == ""
     assert cfg.dashboard_token is None
 
 

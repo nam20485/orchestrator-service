@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Bead Detail — Orchestration Dashboard</title>
+  <style>
+    :root {
+      --bg: #0f1419;
+      --surface: #1a2332;
+      --surface2: #1e293b;
+      --border: #2d3a4d;
+      --text: #e6edf3;
+      --muted: #8b949e;
+      --accent: #388bfd;
+      --ok: #3fb950;
+      --err: #f85149;
+      --ready: #3fb950;
+      --blocked: #f0c14b;
+      --active: #388bfd;
+      --closed: #6e7681;
+      --halted: #f85149;
+      --open: #e6edf3;
+      --mono: ui-monospace, "Cascadia Code", "SF Mono", monospace;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.5;
+    }
+    .topbar {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 0.75rem 1.5rem;
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      flex-wrap: wrap;
+    }
+    .topbar h1 { font-size: 1.1rem; margin: 0; }
+    .topbar a.back {
+      font-size: 0.85rem; color: var(--accent); text-decoration: none;
+      white-space: nowrap;
+    }
+    .topbar a.back:hover { text-decoration: underline; }
+    .topbar .spacer { flex: 1; }
+    .topbar .meta { font-size: 0.8rem; color: var(--muted); display: flex; align-items: center; gap: 0.5rem; }
+    .loop-dot {
+      display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 4px;
+    }
+    .loop-dot.live { background: var(--ok); animation: pulse 2s infinite; }
+    .loop-dot.paused { background: var(--muted); }
+    @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
+
+    .container { max-width: 1200px; margin: 0 auto; padding: 1.5rem; }
+
+    .head-card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 8px; padding: 1rem 1.25rem; margin-bottom: 1.25rem;
+    }
+    .head-row { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; }
+    .id-cell { font-family: var(--mono); font-size: 0.9rem; color: var(--muted); }
+    .title { font-size: 1.1rem; font-weight: 700; }
+    .kv { font-size: 0.8rem; color: var(--muted); display: flex; gap: 1.25rem; flex-wrap: wrap; margin-top: 0.5rem; }
+    .kv b { color: var(--text); font-weight: 600; }
+    .description { margin-top: 0.75rem; font-size: 0.85rem; color: var(--text); white-space: pre-wrap; }
+
+    .badge {
+      display: inline-block; padding: 0.15rem 0.55rem; border-radius: 4px;
+      font-size: 0.72rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em;
+    }
+    .badge.ready { background: rgba(63,185,80,0.15); color: var(--ready); }
+    .badge.blocked { background: rgba(240,193,75,0.15); color: var(--blocked); }
+    .badge.active { background: rgba(56,139,253,0.15); color: var(--active); animation: pulse 2s infinite; }
+    .badge.closed { background: rgba(110,118,129,0.15); color: var(--closed); }
+    .badge.halted { background: rgba(248,81,73,0.15); color: var(--halted); }
+    .badge.open { background: rgba(230,237,243,0.1); color: var(--open); }
+
+    .log-tabs { display: flex; gap: 0; }
+    .log-tab {
+      padding: 0.35rem 0.9rem; background: var(--surface); border: 1px solid var(--border);
+      border-bottom: none; border-radius: 4px 4px 0 0; cursor: pointer; font-size: 0.8rem;
+      color: var(--muted);
+    }
+    .log-tab.active { color: var(--text); border-color: var(--accent); }
+    .log-box {
+      background: #0d1117; border: 1px solid var(--border); border-radius: 0 4px 4px 4px;
+      padding: 0.75rem; font-family: var(--mono); font-size: 0.78rem;
+      height: calc(100vh - 360px); min-height: 240px; overflow-y: auto;
+      white-space: pre-wrap; word-break: break-all; color: #adbac7;
+    }
+    .log-box.empty { color: var(--muted); }
+
+    .controls {
+      display: flex; align-items: center; gap: 0.75rem; margin-top: 0.6rem; flex-wrap: wrap;
+      font-size: 0.8rem; color: var(--muted);
+    }
+    .switch { display: inline-flex; align-items: center; gap: 0.4rem; cursor: pointer; user-select: none; }
+    .switch input { accent-color: var(--accent); }
+    .controls input[type=number] {
+      width: 60px; background: var(--bg); color: var(--text); border: 1px solid var(--border);
+      border-radius: 4px; padding: 0.2rem 0.4rem; font-size: 0.8rem; font-family: var(--mono);
+    }
+    button {
+      background: var(--accent); color: #fff; border: none; border-radius: 4px;
+      padding: 0.3rem 0.75rem; font-size: 0.8rem; cursor: pointer;
+    }
+    button:hover { filter: brightness(1.1); }
+    button.secondary { background: var(--surface2); border: 1px solid var(--border); }
+
+    .error-banner {
+      background: rgba(248,81,73,0.12); border: 1px solid var(--halted); color: var(--err);
+      border-radius: 6px; padding: 0.6rem 1rem; font-size: 0.85rem; margin-bottom: 1rem;
+    }
+  </style>
+</head>
+<body>
+  <div class="topbar">
+    <a class="back" href="/dashboard">&larr; Back to dashboard</a>
+    <h1 id="pageTitle">Bead</h1>
+    <div class="spacer"></div>
+    <div class="meta">
+      <span id="liveDot" class="loop-dot paused"></span>
+      <span id="liveText">auto-refresh: off</span>
+    </div>
+  </div>
+
+  <div class="container">
+    <div id="errorBanner" class="error-banner" style="display:none"></div>
+    <div class="head-card" id="headCard">
+      <div class="head-row">
+        <span class="id-cell" id="beadId">…</span>
+        <span class="title" id="beadTitle">Loading…</span>
+        <span class="badge open" id="beadStatus">open</span>
+      </div>
+      <div class="kv" id="beadKv"></div>
+      <div class="description" id="beadDesc"></div>
+    </div>
+
+    <div class="log-tabs">
+      <div class="log-tab active" id="tabStdout" data-log-tab="stdout">stdout</div>
+      <div class="log-tab" id="tabStderr" data-log-tab="stderr">stderr</div>
+    </div>
+    <div class="log-box empty" id="logBox">Loading logs…</div>
+
+    <div class="controls">
+      <label class="switch">
+        <input type="checkbox" id="autoToggle"> Auto-refresh
+      </label>
+      <label>every
+        <input type="number" id="intervalInput" min="1" max="120" value="5">s
+      </label>
+      <button class="secondary" id="refreshBtn">Refresh now</button>
+      <span id="lastRefresh"></span>
+    </div>
+  </div>
+
+<script>
+const API = '/api/dashboard';
+let BEAD_ID = decodeURIComponent(
+  (window.location.pathname.split('/dashboard/bead/')[1] || '').replace(/\/+$/, '')
+);
+
+function esc(s) {
+  const d = document.createElement('div');
+  d.textContent = s || '';
+  return d.innerHTML;
+}
+
+// ── bead metadata ───────────────────────────────────────────────────────────
+async function loadMeta() {
+  try {
+    const r = await fetch(`${API}/beads/${encodeURIComponent(BEAD_ID)}`);
+    if (r.status === 404) {
+      showError(`Bead “${esc(BEAD_ID)}” was not found.`);
+      // The bead no longer exists — stop polling so we don't hammer the logs
+      // endpoint forever for something that is gone.
+      autoRefresh = false;
+      autoToggle.checked = false;
+      localStorage.setItem('beadDetailAutoRefresh', '0');
+      stop();
+      updateLiveUI();
+      return;
+    }
+    if (!r.ok) throw new Error('status ' + r.status);
+    const b = await r.json();
+    document.title = `Bead ${b.id} — ${b.title || ''}`;
+    document.getElementById('pageTitle').textContent = 'Bead';
+    document.getElementById('beadId').textContent = b.id;
+    document.getElementById('beadTitle').textContent = b.title || b.id;
+    const badge = document.getElementById('beadStatus');
+    badge.textContent = b.ui_status;
+    badge.className = 'badge ' + esc(b.ui_status);
+
+    const kv = document.getElementById('beadKv');
+    const parts = [];
+    if (b.type) parts.push(`<span>type: <b>${esc(b.type)}</b></span>`);
+    parts.push(`<span>priority: <b>${esc(String(b.priority))}</b></span>`);
+    if (b.retry_count > 0) parts.push(`<span>retries: <b>${esc(String(b.retry_count))}</b></span>`);
+    if (b.elapsed_s != null) parts.push(`<span>elapsed: <b>${esc(String(b.elapsed_s))}s</b></span>`);
+    if (b.is_active) parts.push(`<span>active: <b>yes</b></span>`);
+    kv.innerHTML = parts.join('');
+
+    document.getElementById('beadDesc').textContent = b.description || 'No description.';
+  } catch (e) {
+    showError('Failed to load bead metadata.');
+  }
+}
+
+function showError(msg) {
+  const el = document.getElementById('errorBanner');
+  el.textContent = msg;
+  el.style.display = 'block';
+}
+
+// ── logs ────────────────────────────────────────────────────────────────────
+let currentTab = 'stdout';
+
+async function loadLog() {
+  const box = document.getElementById('logBox');
+  try {
+    const r = await fetch(`${API}/beads/${encodeURIComponent(BEAD_ID)}/logs?tail=200`);
+    const d = await r.json();
+    const content = currentTab === 'stdout' ? d.stdout : d.stderr;
+    box.textContent = content || '(empty)';
+    box.className = 'log-box' + (content ? '' : ' empty');
+    const lr = document.getElementById('lastRefresh');
+    lr.textContent = 'updated ' + new Date().toLocaleTimeString();
+  } catch (e) {
+    box.textContent = 'Failed to load logs.';
+    box.className = 'log-box empty';
+  }
+}
+
+document.getElementById('tabStdout').addEventListener('click', () => switchTab('stdout'));
+document.getElementById('tabStderr').addEventListener('click', () => switchTab('stderr'));
+function switchTab(tab) {
+  currentTab = tab;
+  document.getElementById('tabStdout').classList.toggle('active', tab === 'stdout');
+  document.getElementById('tabStderr').classList.toggle('active', tab === 'stderr');
+  loadLog();
+}
+
+// ── auto-refresh ────────────────────────────────────────────────────────────
+let autoRefresh = localStorage.getItem('beadDetailAutoRefresh') !== '0'; // default on
+let refreshSec = Math.max(1, parseInt(localStorage.getItem('beadDetailRefreshSec'), 10) || 5);
+let refreshTimer = null;
+
+const autoToggle = document.getElementById('autoToggle');
+const intervalInput = document.getElementById('intervalInput');
+autoToggle.checked = autoRefresh;
+intervalInput.value = refreshSec;
+
+function updateLiveUI() {
+  document.getElementById('liveDot').className = 'loop-dot ' + (autoRefresh ? 'live' : 'paused');
+  document.getElementById('liveText').textContent =
+    autoRefresh ? `auto-refresh: on (${refreshSec}s)` : 'auto-refresh: off';
+}
+
+function refreshAll() {
+  // Keep the head card (status/elapsed/retry) in sync with the log pane.
+  loadMeta();
+  loadLog();
+}
+
+function schedule() {
+  stop();
+  if (!autoRefresh) { updateLiveUI(); return; }
+  refreshAll();
+  refreshTimer = setTimeout(schedule, refreshSec * 1000);
+}
+function stop() { if (refreshTimer) { clearTimeout(refreshTimer); refreshTimer = null; } }
+
+autoToggle.addEventListener('change', () => {
+  autoRefresh = autoToggle.checked;
+  localStorage.setItem('beadDetailAutoRefresh', autoRefresh ? '1' : '0');
+  schedule();
+});
+intervalInput.addEventListener('change', () => {
+  refreshSec = Math.max(1, Math.min(120, parseInt(intervalInput.value, 10) || 5));
+  intervalInput.value = refreshSec;
+  localStorage.setItem('beadDetailRefreshSec', String(refreshSec));
+  schedule();
+});
+document.getElementById('refreshBtn').addEventListener('click', refreshAll);
+
+// ── init ────────────────────────────────────────────────────────────────────
+loadMeta();
+updateLiveUI();
+schedule();
+</script>
+</body>
+</html>

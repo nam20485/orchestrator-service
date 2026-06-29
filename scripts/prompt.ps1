@@ -34,7 +34,10 @@ param (
     $Prompt,
     [Parameter()]
     [String]
-    $PromptFile
+    $PromptFile,
+    [Parameter()]
+    [String]
+    $Project
 )
 
 if (-not $ServerUrl) {
@@ -57,6 +60,17 @@ if ($PromptFile) {
 }
 if (-not $Prompt) {
     throw "Provide -Prompt or -PromptFile."
+}
+
+# When -Project is specified, resolve the workspace to a per-project subdir
+# and initialize it as a git repo (for worktree-based bead isolation).
+if ($Project) {
+    $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+    . (Join-Path $scriptDir "init-project-workspace.ps1")
+    $Workspace = ($Workspace.TrimEnd('/') + '/' + $Project)
+    if ($env:WORKSPACE_DIR) {
+        Initialize-ProjectWorkspace -WorkspaceRoot $env:WORKSPACE_DIR -Project $Project
+    }
 }
 
 # Ensure the workspace directory exists. When attaching to a container server

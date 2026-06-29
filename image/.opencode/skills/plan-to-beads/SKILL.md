@@ -16,6 +16,13 @@ The `br` CLI must be installed in the execution environment. It is pre-installed
 ```
 cargo install --git https://github.com/Dicklesworthstone/beads_rust.git --rev d9f8d7083dee46d04a8e4741c5f535eb7fcabc97 --locked beads_rust
 ```
+
+This skill runs inside a **project workspace** — an isolated directory per
+project (e.g. `/workspace/<project-slug>/`). The `.beads/` directory is created
+here and the orchestrator's `BeadsLoop` will discover this project automatically
+on its next scan. Every bead executes in its own git worktree under
+`.worktrees/<bead-id>/`, so commits to the project's `main` branch (including
+`plan_docs/application_plan.md` and `.beads/`) are visible to all bead agents.
 </prerequisites>
 
 <instructions>

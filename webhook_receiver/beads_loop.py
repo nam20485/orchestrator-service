@@ -10,26 +10,31 @@ import time
 from dataclasses import replace
 from pathlib import Path
 
+from webhook_receiver import bead_context
 from webhook_receiver.config import Settings
 from webhook_receiver.event_store import EventStore
 from webhook_receiver.runner import _prompt_script_invocation, _stream_to_logger_and_file
 from webhook_receiver.workspace import (
-    cleanup_workspace,
+    create_bead_worktree,
     create_pr,
-    create_workspace,
+    discover_projects,
+    project_workspace_path,
     push_branch,
+    remove_bead_worktree,
 )
 
 logger = logging.getLogger(__name__)
 
 
 class BeadsLoop:
-    """Background thread that drains the Beads DAG via ``bvr --robot-next``.
+    """Background thread that drains the Beads DAG for every project.
 
-    Uses bvr's graph-aware triage (PageRank, betweenness, blocker ratio) to
-    select the highest-impact unblocked task, spawns an isolated agent for it,
-    verifies closure via ``br show``, and handles retries with error context.
-    Falls back to ``br ready --json`` + priority sort if bvr is unavailable.
+    Scans the workspace base dir for project subdirs (those containing a
+    ``.beads/`` directory), then for each project uses ``bvr --robot-next``
+    (graph-aware triage) to select the highest-impact unblocked task, spawns an
+    isolated agent in a per-bead git worktree, verifies closure via ``br show``,
+    and handles retries with error context.  Falls back to ``br ready --json``
+    + priority sort if bvr is unavailable.
     """
 
     def __init__(self, settings: Settings, event_store: EventStore | None = None) -> None:
@@ -41,6 +46,7 @@ class BeadsLoop:
         self._retry_state: dict[str, dict[str, object]] = {}
         self._bead_start_times: dict[str, float] = {}
         self._halted_beads: set[str] = set()
+        self._bead_projects: dict[str, str] = {}
         self._logged_init_warning = False
 
     # ── public read-only properties for dashboard ──────────────────────────
@@ -65,6 +71,12 @@ class BeadsLoop:
         with self._lock:
             return frozenset(self._halted_beads)
 
+    @property
+    def bead_projects(self) -> dict[str, str]:
+        """Map of active bead IDs to their project slug."""
+        with self._lock:
+            return dict(self._bead_projects)
+
     def _emit(self, event_type: str, **data: object) -> None:
         if self._event_store:
             self._event_store.emit(event_type, **data)
@@ -73,14 +85,13 @@ class BeadsLoop:
         """Main loop — blocks until :meth:`stop` is called."""
         self._running = True
         logger.info(
-            "BeadsLoop started (poll_interval=%ds workspace=%s target_repo=%s)",
+            "BeadsLoop started (poll_interval=%ds base=%s)",
             self._settings.beads_poll_interval,
             self._settings.beads_workspace_root,
-            self._settings.beads_target_repo or "(none)",
         )
         while self._running:
             try:
-                self._poll_and_process()
+                self._scan_and_process()
             except Exception:
                 logger.exception("Error in BeadsLoop iteration")
             time.sleep(self._settings.beads_poll_interval)
@@ -88,57 +99,78 @@ class BeadsLoop:
     def stop(self) -> None:
         self._running = False
 
-    def _poll_and_process(self) -> None:
-        bead = self._get_next_bead()
+    def _scan_and_process(self) -> None:
+        """Discover projects and process one bead per project (serial per project)."""
+        base = self._settings.beads_workspace_root
+        projects = discover_projects(base)
+        for slug in projects:
+            project_root = project_workspace_path(base, slug)
+            try:
+                self._poll_and_process_project(slug, project_root)
+            except Exception:
+                logger.exception(
+                    "Error processing project=%s (%s)", slug, project_root
+                )
+
+    def _poll_and_process_project(
+        self, project_slug: str, project_root: str
+    ) -> None:
+        """Poll one project for the next bead and process it."""
+        bead = self._get_next_bead(project_root)
 
         if bead is None:
-            self._log_overview_if_idle()
+            self._log_overview_if_idle(project_root)
             return
 
         bead_id = bead.get("id", "")
         if not bead_id:
             return
 
+        key = self._key(project_slug, bead_id)
+
         with self._lock:
-            if bead_id in self._active_beads or bead_id in self._halted_beads:
+            if key in self._active_beads or key in self._halted_beads:
                 return
-            self._active_beads.add(bead_id)
-            self._bead_start_times[bead_id] = time.time()
+            self._active_beads.add(key)
+            self._bead_start_times[key] = time.time()
+            self._bead_projects[key] = project_slug
 
         self._emit(
             "bead_picked_up",
             bead_id=bead_id,
             title=bead.get("title", bead_id),
             priority=bead.get("priority"),
+            project=project_slug,
         )
 
         try:
-            self._process_bead(bead)
+            self._process_bead(bead, project_slug, project_root)
         finally:
             with self._lock:
-                self._active_beads.discard(bead_id)
-                self._bead_start_times.pop(bead_id, None)
+                self._active_beads.discard(key)
+                self._bead_start_times.pop(key, None)
+                self._bead_projects.pop(key, None)
 
     # ── bead selection: bvr graph-aware first, br priority fallback ────────
 
-    def _get_next_bead(self) -> dict | None:
-        """Select the next bead to process.
+    def _get_next_bead(self, project_root: str) -> dict | None:
+        """Select the next bead to process for *project_root*.
 
         Tries ``bvr --robot-next`` (graph-aware) first.
         Falls back to ``br ready --json`` + priority sort if bvr fails.
         """
-        bead = self._get_next_bead_bvr()
+        bead = self._get_next_bead_bvr(project_root)
         if bead is not None:
             return bead
 
-        ready = self._get_ready_beads()
+        ready = self._get_ready_beads(project_root)
         return self._select_next_bead(ready)
 
-    def _get_next_bead_bvr(self) -> dict | None:
+    def _get_next_bead_bvr(self, project_root: str) -> dict | None:
         """Query ``bvr --robot-next`` for the single highest-impact task."""
         try:
             result = self._run_beads_cmd(
-                ["bvr", "--robot-next", "--format", "json"]
+                ["bvr", "--robot-next", "--format", "json"], project_root
             )
         except FileNotFoundError:
             logger.debug("bvr not found — falling back to br ready")
@@ -163,22 +195,26 @@ class BeadsLoop:
 
         return _extract_bead(data)
 
-    def _log_overview_if_idle(self) -> None:
+    def _log_overview_if_idle(self, project_root: str) -> None:
         """Log a compact project snapshot via ``bvr --robot-overview`` when idle."""
         try:
             result = self._run_beads_cmd(
-                ["bvr", "--robot-overview", "--format", "json"]
+                ["bvr", "--robot-overview", "--format", "json"], project_root
             )
             stdout = result.stdout.strip()
             if stdout:
-                logger.info("BeadsLoop idle — bvr overview: %s", stdout[:500])
+                logger.info(
+                    "BeadsLoop idle — bvr overview (%s): %s",
+                    os.path.basename(project_root),
+                    stdout[:500],
+                )
         except (FileNotFoundError, subprocess.CalledProcessError, json.JSONDecodeError):
             logger.debug("No beads ready (bvr overview unavailable)")
 
-    def _get_ready_beads(self) -> list[dict]:
+    def _get_ready_beads(self, project_root: str) -> list[dict]:
         """Query ``br ready --json`` for all open, unblocked tasks."""
         try:
-            result = self._run_beads_cmd(["br", "ready", "--json"])
+            result = self._run_beads_cmd(["br", "ready", "--json"], project_root)
         except FileNotFoundError:
             logger.warning("br not found — skipping BeadsLoop poll")
             return []
@@ -216,18 +252,19 @@ class BeadsLoop:
 
     # ── bead processing ────────────────────────────────────────────────────
 
-    def _process_bead(self, bead: dict) -> None:
+    def _process_bead(
+        self, bead: dict, project_slug: str, project_root: str
+    ) -> None:
         bead_id = bead.get("id", "")
         title = bead.get("title", bead_id)
-        ws_root = self._settings.beads_workspace_root
-        target_repo = self._settings.beads_target_repo
+        key = self._key(project_slug, bead_id)
 
-        if bead_id not in self._retry_state:
+        if key not in self._retry_state:
             with self._lock:
-                self._retry_state.setdefault(bead_id, {"count": 0, "logs": ""})
+                self._retry_state.setdefault(key, {"count": 0, "logs": ""})
 
         with self._lock:
-            retries = self._retry_state[bead_id]["count"]
+            retries = self._retry_count(self._retry_state[key])
         if retries >= self._settings.beads_max_retries:
             logger.error(
                 "Bead %s exceeded max retries (%d). Halting for human intervention.",
@@ -239,41 +276,42 @@ class BeadsLoop:
                 bead_id=bead_id,
                 reason="max_retries_exceeded",
                 retries=retries,
+                project=project_slug,
             )
             with self._lock:
-                self._halted_beads.add(bead_id)
+                self._halted_beads.add(key)
             return
 
-        ws_path = ws_root
-        if target_repo:
-            try:
-                ws_path = create_workspace(ws_root, bead_id, target_repo)
-            except Exception:
-                logger.exception("Failed to create workspace for bead %s", bead_id)
-                with self._lock:
-                    self._retry_state[bead_id]["count"] += 1
-                return
+        ws_path: str | None = None
+        try:
+            ws_path = create_bead_worktree(project_root, bead_id)
+        except Exception:
+            logger.exception("Failed to create worktree for bead %s", bead_id)
+            with self._lock:
+                self._retry_state[key]["count"] = (
+                    self._retry_count(self._retry_state[key]) + 1
+                )
+            return
 
         try:
             with self._lock:
-                prev_logs = self._retry_state[bead_id]["logs"]
+                prev_logs = str(self._retry_state[key].get("logs", ""))
             success, logs = self._spawn_agent(
-                bead, ws_path, retries, prev_logs
+                bead, ws_path, retries, project_root, prev_logs
             )
 
             if success:
                 logger.info("Successfully completed bead %s", bead_id)
-                self._emit("bead_closed", bead_id=bead_id)
-                if target_repo and ws_path != ws_root:
-                    try:
-                        push_branch(ws_path, bead_id)
-                        create_pr(ws_path, bead_id, title)
-                    except Exception:
-                        logger.exception(
-                            "Failed to push/create PR for bead %s", bead_id
-                        )
+                self._emit("bead_closed", bead_id=bead_id, project=project_slug)
+                try:
+                    push_branch(ws_path, bead_id)
+                    create_pr(ws_path, bead_id, title)
+                except Exception:
+                    logger.exception(
+                        "Failed to push/create PR for bead %s", bead_id
+                    )
                 with self._lock:
-                    self._retry_state.pop(bead_id, None)
+                    self._retry_state.pop(key, None)
             else:
                 logger.error(
                     "Agent failed to complete bead %s (attempt %d)",
@@ -281,29 +319,64 @@ class BeadsLoop:
                     retries + 1,
                 )
                 with self._lock:
-                    self._retry_state[bead_id]["count"] += 1
-                    self._retry_state[bead_id]["logs"] = (logs or "")[-3000:]
+                    self._retry_state[key]["count"] = (
+                        self._retry_count(self._retry_state[key]) + 1
+                    )
+                    self._retry_state[key]["logs"] = (logs or "")[-3000:]
                 self._emit(
                     "bead_failed",
                     bead_id=bead_id,
                     attempt=retries + 1,
                     max_retries=self._settings.beads_max_retries,
+                    project=project_slug,
                 )
         finally:
-            if target_repo and ws_path != ws_root:
-                cleanup_workspace(ws_root, bead_id)
+            remove_bead_worktree(project_root, bead_id)
 
     def _build_bead_prompt(
-        self, bead: dict, retry_count: int, previous_logs: str = ""
+        self,
+        bead: dict,
+        retry_count: int,
+        ws_path: str,
+        project_root: str,
+        previous_logs: str = "",
     ) -> str:
-        """Build the agent prompt for a bead task (fully unit-testable)."""
+        """Build the agent prompt for a bead task (fully unit-testable).
+
+        Writes durable context (project overview + tooling) into the workspace as
+        ``BEADS_AGENT_GUIDE.md`` (and ``AGENTS.md`` when absent), then assembles a
+        prompt that points the agent at those files and embeds the volatile progress
+        snapshot. Context errors never block spawning — on failure the prompt falls
+        back to the minimal task description.
+        """
         bead_id = bead.get("id", "")
         title = bead.get("title", bead_id)
         description = bead.get("description", "")
 
+        try:
+            guide = bead_context.build_agent_guide(ws_path)
+            bead_context.write_context_files(ws_path, guide)
+        except Exception:  # noqa: BLE001 — context files are best-effort
+            logger.debug(
+                "Failed to write bead context files for %s", bead_id, exc_info=True
+            )
+
+        try:
+            snapshot = bead_context.progress_snapshot(
+                ws_path, bead_id, lambda args: self._run_beads_cmd(args, project_root)
+            )
+        except Exception:  # noqa: BLE001 — snapshot is best-effort
+            snapshot = "(Progress snapshot unavailable.)"
+
         prompt = (
             f"You have been assigned Bead {bead_id}: {title}.\n\n"
-            f"Context & Requirements:\n{description}\n"
+            f"## Project & Tooling Context\n"
+            f"This workspace contains `BEADS_AGENT_GUIDE.md` and "
+            f"`plan_docs/application_plan.md` — READ THEM FIRST for the full "
+            f"application overview, available commands (`br`/`bvr`), and the "
+            f"completion workflow.\n\n"
+            f"## Progress\n{snapshot}\n\n"
+            f"## Context & Requirements\n{description}\n"
         )
         if previous_logs:
             prompt += (
@@ -323,11 +396,14 @@ class BeadsLoop:
         bead: dict,
         ws_path: str,
         retry_count: int,
+        project_root: str,
         previous_logs: str = "",
     ) -> tuple[bool, str]:
         bead_id = bead.get("id", "")
 
-        prompt = self._build_bead_prompt(bead, retry_count, previous_logs)
+        prompt = self._build_bead_prompt(
+            bead, retry_count, ws_path, project_root, previous_logs
+        )
 
         logger.info(
             "Injecting prompt for bead %s into service (attempt %d, workspace=%s)",
@@ -350,9 +426,7 @@ class BeadsLoop:
         cmd = _prompt_script_invocation(modified, prompt_path)
 
         env = os.environ.copy()
-        beads_db = os.path.join(
-            self._settings.beads_workspace_root, ".beads", "beads.db"
-        )
+        beads_db = os.path.join(project_root, ".beads", "beads.db")
         env["BD_DB"] = beads_db
 
         stdout_path = log_dir / f"{prompt_path.stem}.stdout"
@@ -398,7 +472,7 @@ class BeadsLoop:
             t2.join()
 
             _duration = time.time() - _agent_start
-            status = self._check_bead_status(bead_id)
+            status = self._check_bead_status(bead_id, project_root)
             self._emit(
                 "agent_completed",
                 bead_id=bead_id,
@@ -419,10 +493,12 @@ class BeadsLoop:
             logger.error("Error executing prompt for bead %s: %s", bead_id, exc)
             return False, str(exc)
 
-    def _check_bead_status(self, bead_id: str) -> str:
+    def _check_bead_status(self, bead_id: str, project_root: str) -> str:
         """Query ``br show <id> --json`` and return the bead status."""
         try:
-            result = self._run_beads_cmd(["br", "show", bead_id, "--json"])
+            result = self._run_beads_cmd(
+                ["br", "show", bead_id, "--json"], project_root
+            )
         except (FileNotFoundError, subprocess.CalledProcessError):
             return "unknown"
 
@@ -443,6 +519,17 @@ class BeadsLoop:
 
     # ── helpers ────────────────────────────────────────────────────────────
 
+    @staticmethod
+    def _key(project_slug: str, bead_id: str) -> str:
+        """Composite key for project-scoped loop state."""
+        return f"{project_slug}:{bead_id}"
+
+    @staticmethod
+    def _retry_count(state: dict[str, object]) -> int:
+        """Extract the integer retry count from a retry-state dict."""
+        raw = state.get("count", 0)
+        return int(raw) if isinstance(raw, (int, float)) else 0
+
     _NOT_INITIALIZED_SIGNATURES = (
         "NOT_INITIALIZED",
         "no workspace config or single-repo beads data could be resolved",
@@ -461,11 +548,13 @@ class BeadsLoop:
             )
             self._logged_init_warning = True
 
-    def _run_beads_cmd(self, args: list[str]) -> subprocess.CompletedProcess[str]:
+    def _run_beads_cmd(
+        self, args: list[str], cwd: str | None = None
+    ) -> subprocess.CompletedProcess[str]:
         """Run a ``br``/``bvr`` command with RUST_LOG=error for clean output."""
         return subprocess.run(
             args,
-            cwd=self._settings.beads_workspace_root,
+            cwd=cwd or self._settings.beads_workspace_root,
             capture_output=True,
             text=True,
             check=True,
