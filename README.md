@@ -12,9 +12,9 @@ The system is a three-tier software factory built around the [Beads](https://git
 | **2. Planning** | `/plan-to-beads` skill | Scrum agent | `.beads/` DAG |
 | **3. Execution** | (automatic) | `BeadsLoop` background thread | Working software + PRs |
 
-The `BeadsLoop` runs as a background daemon thread in `webhook-receiver`, polling `br ready --json` every 10 s and spawning isolated agents per bead to implement, test, and close each task.
+The `BeadsLoop` runs as a background daemon thread in `webhook-receiver`. It scans `/workspace/<project-slug>/` for projects (subdirs containing `.beads/`), then for each project polls `br ready --json` and spawns isolated agents in per-bead git worktrees (`.worktrees/<bead-id>/`) to implement, test, and close each task.
 
-> **"Ready at will."** The service starts before any work is planned. On a fresh `/workspace` (no `.beads/` yet), `BeadsLoop` logs `INFO` once ("Beads not initialized — waiting for /plan-to-beads") and stays idle. When a user triggers `/plan-to-beads`, beads are created and the loop picks them up automatically — no restart required. This is a **normal state**, not an error.
+> **"Ready at will."** The service starts before any work is planned. When no projects exist (no `.beads/` dirs found), `BeadsLoop` stays idle. When a user triggers `/plan-to-beads` in a project workspace, beads are created and the loop discovers the project on its next scan — no restart required. This is a **normal state**, not an error.
 
 ## OpenCode server + webhook receiver (Docker)
 
@@ -26,7 +26,7 @@ export WORKSPACE_DIR='…'       # host directory mounted at /workspace (agent w
 docker compose up --build
 ```
 
-`WORKSPACE_DIR` is **required** — it is the host directory bind-mounted into both `orchestratorservice` and `webhook-receiver` at `/workspace`. This is where agent sessions run and where `.beads/` DAG state lives. Create it before first start (e.g. `mkdir -p ~/orchestrator-workspace && export WORKSPACE_DIR=~/orchestrator-workspace`).
+`WORKSPACE_DIR` is **required** — it is the host directory bind-mounted into both `orchestratorservice` and `webhook-receiver` at `/workspace`. This is where agent sessions run. Projects live in subdirectories (`/workspace/<project-slug>/`), each containing its own `.beads/` DAG and per-bead git worktrees. Create it before first start (e.g. `mkdir -p ~/orchestrator-workspace && export WORKSPACE_DIR=~/orchestrator-workspace`).
 
 > **Migration from the old named volume:** If you previously ran with the `opencode-workspace` named volume, copy its contents to your host directory before starting:
 > ```bash
@@ -110,9 +110,7 @@ Content type: `application/json`. Subscribe to the events you need; restrict wit
 | `BEADS_ENABLED` | `true` | Enable the `BeadsLoop` background execution thread |
 | `BEADS_POLL_INTERVAL` | `10` | Seconds between `br ready --json` polls |
 | `BEADS_MAX_RETRIES` | `3` | Max retries per bead before halting for human intervention |
-| `BEADS_WORKSPACE_ROOT` | `/workspace` | Root directory for beads DAG and per-bead clones |
-| `BEADS_TARGET_REPO` | *(empty)* | Target repo URL for per-bead workspace clones |
-
+| `BEADS_WORKSPACE_ROOT` | `/workspace` | Base directory containing per-project workspaces (`/workspace/<slug>/`) |
 Per-dispatch run logs: `/tmp/orchestrator-webhook/prompt-*.md` (the prompt) and `prompt-*.stderr` (pwsh stderr).
 
 ### Webhook simulator (local dev)

@@ -34,7 +34,6 @@ def _test_settings(**overrides: object) -> Settings:
         beads_poll_interval=10,
         beads_max_retries=3,
         beads_workspace_root="/workspace",
-        beads_target_repo="",
         dashboard_token="test-dashboard-token",
     )
     defaults.update(overrides)
