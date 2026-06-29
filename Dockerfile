@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1.7
 # --- Stage 1: Rust Builder (Beads ecosystem: br) ---
 # Self-contained fallback so `docker build` and validate.yml PR builds work
 # without a published beads image. In docker-publish.yml the `rust-builder`
@@ -7,11 +8,15 @@
 # br. Pinned to immutable commit SHAs for reproducibility. beads_rust 0.2.15
 # (via the `asupersync` dependency) uses `#![feature]`, requiring nightly.
 FROM rust:1.95-slim-bookworm AS rust-builder
-RUN apt-get update && apt-get install -y --no-install-recommends git pkg-config libssl-dev \
-    && rm -rf /var/lib/apt/lists/*
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    rm -f /etc/apt/apt.conf.d/docker-clean \
+    && apt-get update && apt-get install -y --no-install-recommends git pkg-config libssl-dev
 RUN rustup toolchain install nightly && rustup default nightly
 # beads_rust v0.2.15 @ d9f8d7083dee46d04a8e4741c5f535eb7fcabc97
-RUN cargo install --git https://github.com/Dicklesworthstone/beads_rust.git --rev d9f8d7083dee46d04a8e4741c5f535eb7fcabc97 --locked beads_rust
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/usr/local/cargo/git \
+    cargo install --git https://github.com/Dicklesworthstone/beads_rust.git --rev d9f8d7083dee46d04a8e4741c5f535eb7fcabc97 --locked beads_rust
 
 # --- Stage 2: Final Image ---
 FROM debian:trixie-20260518-slim
