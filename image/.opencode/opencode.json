@@ -7,9 +7,7 @@
   "provider": {
     "openrouter": {
       "models": {
-        "moonshotai/kimi-k2.6:free": {},
-        "nvidia/nemotron-3-ultra-550b-a55b:free": {},
-        "nvidia/nemotron-3-super-120b-a12b:free": {}
+        "nvidia/nemotron-3-ultra-550b-a55b:free": {}
       }
     },
     "bailian-payg": {
@@ -28,18 +26,6 @@
               "budgetTokens": 8192
             }
           }
-        },
-        "qwen3.7-max": {
-          "name": "Qwen3.7 Max",
-          "options": {
-            "thinking": {
-              "type": "enabled",
-              "budgetTokens": 8192
-            }
-          }
-        },
-        "deepseek-v3.2": {
-          "name": "DeepSeek V3.2"
         },
         "qwen3.6-flash": {
           "name": "Qwen3.6 Flash",
@@ -73,20 +59,6 @@
           "limit": {
             "context": 200000,
             "output": 131072
-          }
-        },
-        "glm-4.7-flashx": {
-          "name": "GLM-4.7-FlashX",
-          "limit": {
-            "context": 200000,
-            "output": 131072
-          }
-        },
-        "glm-4.5": {
-          "name": "GLM-4.5",
-          "limit": {
-            "context": 131072,
-            "output": 96000
           }
         }
       }
@@ -132,31 +104,25 @@
         "MEMORY_FILE_PATH": "/app/.memory/memory.jsonl"
       }
     },
-    "microsoft-learn": {
+    "web-reader": {
       "type": "remote",
-      "url": "https://learn.microsoft.com/api/mcp",
-      "enabled": true
+      "url": "https://api.z.ai/api/mcp/web_reader/mcp",
+      "headers": {
+        "Authorization": "{env:ZAI_CODING_API_KEY}"
+      }
     },
-    "notion": {
+    "zread": {
       "type": "remote",
-      "url": "https://mcp.notion.com/mcp"
+      "url": "https://api.z.ai/api/mcp/zread/mcp",
+      "headers": {
+        "Authorization": "{env:ZAI_CODING_API_KEY}"
+      }
     },
-    "playwright": {
-      "type": "local",
-      "command": [
-        "npx",
-        "@playwright/mcp@latest"
-      ]
-    },
-    "notion-mcp-server": {
-      "type": "local",
-      "command": [
-        "npx",
-        "-y",
-        "@notionhq/notion-mcp-server"
-      ],
-      "environment": {
-        "NOTION_TOKEN": "{env:NOTION_MCP_CONNECTIONS_API_KEY}"
+    "web-search-prime": {
+      "type": "remote",
+      "url": "https://api.z.ai/api/mcp/web_search_prime/mcp",
+      "headers": {
+        "Authorization": "{env:ZAI_CODING_API_KEY}"
       }
     }
   }
