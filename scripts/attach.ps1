@@ -28,7 +28,7 @@ param (
     [Switch]
     $Pure,
     [Parameter()]
-    [String]
+    [SecureString]
     $Password,
     [Parameter()]
     [String]
@@ -54,7 +54,16 @@ if (-not $ServerUrl) {
 
 # Basic auth: prefer explicit args, else fall back to host env vars
 # (the opencode CLI itself also reads OPENCODE_SERVER_PASSWORD / OPENCODE_SERVER_USERNAME).
-if (-not $Password -and $env:OPENCODE_SERVER_PASSWORD) { $Password = $env:OPENCODE_SERVER_PASSWORD }
+# $Password is typed [SecureString] so it is not leaked via $PSBoundParameters, verbose
+# logs, or error records. Convert it to plain text only here, at the point of use, since
+# the opencode CLI's --password flag requires a plain value. Env-var fallbacks are
+# inherently plain strings (no SecureString equivalent), so they feed the same variable.
+$plainPassword = $null
+if ($Password) {
+    $plainPassword = ConvertFrom-SecureString -SecureString $Password -AsPlainText
+} elseif ($env:OPENCODE_SERVER_PASSWORD) {
+    $plainPassword = $env:OPENCODE_SERVER_PASSWORD
+}
 if (-not $Username -and $env:OPENCODE_SERVER_USERNAME) { $Username = $env:OPENCODE_SERVER_USERNAME }
 
 # Always resolve the workspace to an isolated per-project subdir. The bare
@@ -71,7 +80,7 @@ if ($Continue)     { $cmdArgs += "--continue" }
 if ($Session)      { $cmdArgs += "--session", $Session }
 if ($Fork)         { $cmdArgs += "--fork" }
 if ($Pure)         { $cmdArgs += "--pure" }
-if ($Password)     { $cmdArgs += "--password", $Password }
+if ($plainPassword) { $cmdArgs += "--password", $plainPassword }
 if ($Username)     { $cmdArgs += "--username", $Username }
 
 & opencode @cmdArgs
