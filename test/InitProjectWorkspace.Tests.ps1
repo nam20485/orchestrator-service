@@ -100,3 +100,52 @@ Describe 'Resolve-ProjectWorkspace worktree pass-through' {
         }
     }
 }
+
+Describe 'Resolve-ProjectWorkspace symlink-escape guard' {
+    BeforeAll {
+        # Sibling temp roots so an escape target can live OUTSIDE the workspace
+        # root while still in the OS temp area.
+        $script:TempBase = [System.IO.Path]::GetTempPath().TrimEnd('/\')
+    }
+
+    It 'rejects a pass-through path whose real target escapes the workspace root' {
+        $old = $env:BEADS_WORKSPACE_ROOT
+        $root = Join-Path $script:TempBase ("ipw-root-" + [Guid]::NewGuid().ToString('N'))
+        $escape = Join-Path $script:TempBase ("ipw-escape-" + [Guid]::NewGuid().ToString('N'))
+        try {
+            New-Item -ItemType Directory -Force -Path (Join-Path $escape 'bead1') | Out-Null
+            New-Item -ItemType Directory -Force -Path (Join-Path $root 'proj') | Out-Null
+            # `.worktrees` is a tracked-looking symlink pointing OUTSIDE root.
+            try {
+                New-Item -ItemType SymbolicLink -Path (Join-Path $root 'proj' '.worktrees') -Target $escape -ErrorAction Stop | Out-Null
+            } catch {
+                Set-ItResult -Skipped -Because "symlink creation is unavailable on this host ('$($_.Exception.Message)')."
+                return
+            }
+            $env:BEADS_WORKSPACE_ROOT = $root
+            $candidate = ((Join-Path $root 'proj' '.worktrees' 'bead1') -replace '\\', '/')
+            { Resolve-ProjectWorkspace -Workspace $candidate -Project '' } | Should -Throw
+        }
+        finally {
+            $env:BEADS_WORKSPACE_ROOT = $old
+            Remove-Item -LiteralPath $root, $escape -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    It 'passes through an EXISTING real (non-symlink) worktree dir under root' {
+        $old = $env:BEADS_WORKSPACE_ROOT
+        $root = Join-Path $script:TempBase ("ipw-real-" + [Guid]::NewGuid().ToString('N'))
+        try {
+            $wt = Join-Path $root 'proj' '.worktrees' 'bead1'
+            New-Item -ItemType Directory -Force -Path $wt | Out-Null
+            $env:BEADS_WORKSPACE_ROOT = $root
+            $candidate = ($wt -replace '\\', '/')
+            $result = Resolve-ProjectWorkspace -Workspace $candidate -Project ''
+            $result | Should -Be $candidate
+        }
+        finally {
+            $env:BEADS_WORKSPACE_ROOT = $old
+            Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+}

@@ -21,6 +21,12 @@ check_contains() {
 
 check_contains "Dockerfile.webhook" "scripts/prompt.ps1" "prompt.ps1 COPY"
 check_contains "Dockerfile.webhook" "scripts/init-project-workspace.ps1" "init-project-workspace.ps1 COPY"
+# The webhook image only COPYs scripts re-included by .dockerignore (scripts/*
+# is ignored). Grep the re-include lines so a future regression that drops one
+# fails here, instead of only failing at `docker build` time with
+# "file not found or excluded by .dockerignore".
+check_contains ".dockerignore" "!scripts/prompt.ps1" ".dockerignore re-include prompt.ps1"
+check_contains ".dockerignore" "!scripts/init-project-workspace.ps1" ".dockerignore re-include init-project-workspace.ps1"
 
 if [ "$fail" -ne 0 ]; then
     echo "webhook image scripts: FAIL" >&2
