@@ -501,27 +501,65 @@ class BeadsLoop:
             return False, str(exc)
 
     def _check_bead_status(self, bead_id: str, project_root: str) -> str:
-        """Query ``br show <id> --json`` and return the bead status."""
+        """Query ``br show <id> --json`` and return the bead status.
+
+        Every path that resolves to ``"unknown"`` logs a WARNING with the
+        reason and a truncated raw-output snippet, so a downstream "bead still
+        unknown" is traceable to its cause instead of being a silent dead-end.
+        """
         try:
             result = self._run_beads_cmd(
                 ["br", "show", bead_id, "--json"], project_root
             )
-        except (FileNotFoundError, subprocess.CalledProcessError):
+        except FileNotFoundError:
+            logger.warning("br show %s failed: br not found", bead_id)
+            return "unknown"
+        except subprocess.CalledProcessError as exc:
+            logger.warning(
+                "br show %s failed (exit %s): %.300s",
+                bead_id,
+                exc.returncode,
+                (exc.stderr or "").strip(),
+            )
             return "unknown"
 
         stdout = result.stdout.strip()
         if not stdout:
+            logger.warning("br show %s returned empty stdout", bead_id)
             return "unknown"
 
         try:
             data = json.loads(stdout)
         except json.JSONDecodeError:
+            logger.warning(
+                "br show %s returned invalid JSON: %.300s", bead_id, stdout
+            )
             return "unknown"
+
+        # `br show --json` may return a top-level array (one element for a
+        # single id) or a single object/wrapped object. Normalize an array to
+        # its first element before extracting the status.
+        if isinstance(data, list):
+            data = data[0] if data else {}
 
         if isinstance(data, dict):
             issue = data.get("issue", data)
-            return str(issue.get("status", "unknown")).lower()
+            status = issue.get("status")
+            if status is None:
+                logger.warning(
+                    "br show %s parsed but no 'status' field: %.300s",
+                    bead_id,
+                    stdout,
+                )
+                return "unknown"
+            return str(status).lower()
 
+        logger.warning(
+            "br show %s returned unexpected %s shape: %.300s",
+            bead_id,
+            type(data).__name__,
+            stdout,
+        )
         return "unknown"
 
     # ── helpers ────────────────────────────────────────────────────────────
