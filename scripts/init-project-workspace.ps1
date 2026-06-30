@@ -128,13 +128,20 @@ function Resolve-ProjectWorkspace {
         [string]$HostWorkspaceDir
     )
 
-    $containerRoot = "/workspace"
+    # Container workspace root. Defaults to /workspace (the bind-mount target).
+    # Follows BEADS_WORKSPACE_ROOT so this matches wherever the BeadsLoop actually
+    # places project worktrees (webhook_receiver.config.beads_workspace_root).
+    $containerRoot = if ([string]::IsNullOrWhiteSpace($env:BEADS_WORKSPACE_ROOT)) { "/workspace" } else { $env:BEADS_WORKSPACE_ROOT.TrimEnd('/\') }
+    $sep = [IO.Path]::DirectorySeparatorChar
+    $rootPattern = '^' + [regex]::Escape($containerRoot.TrimEnd('/\')) + [regex]::Escape($sep) + '(?<rel>.+)$'
 
     # 1. Explicit -Project wins.
-    # 2. Else derive from a /workspace/<slug> -Workspace value (webhook style).
-    # 3. Else auto-generate a unique session slug.
+    # 2. Else derive from a <root>/<slug> -Workspace value (webhook style).
+    # 3. Else pass through an already-multi-segment <root>/<...> path unchanged
+    #    (a per-bead worktree created server-side by the BeadsLoop).
+    # 4. Else auto-generate a unique session slug.
     if ([string]::IsNullOrWhiteSpace($Project)) {
-        if ($Workspace -match '^/workspace/(?<rel>.+)$') {
+        if ($Workspace -match $rootPattern) {
             $rel = $Matches['rel']
             # Single path-safe segment only: no nested slashes, no '..', and
             # matching the filesystem-safe slug pattern.
@@ -142,6 +149,22 @@ function Resolve-ProjectWorkspace {
                 $rel -ne '..' -and
                 $rel -match '^[A-Za-z0-9][A-Za-z0-9._-]*$') {
                 $Project = $rel
+            }
+            else {
+                $segs = $rel -split '[\\/]'
+                # Multi-segment path already under <root>/: a ready-made working
+                # directory (e.g. a per-bead worktree created server-side by
+                # workspace.create_bead_worktree). Pass it through ONLY when it has
+                # no traversal ('..'), self ('.'), or empty ('//') segments AND
+                # resolves strictly under <root>/ — never the bare root itself.
+                # The repo/worktree already exists; the root guard and
+                # Initialize-ProjectWorkspace are intentionally skipped here.
+                if ($segs -notcontains '..' -and $segs -notcontains '.' -and $segs -notcontains '') {
+                    $passThrough = $Workspace.TrimEnd('/\')
+                    if ($passThrough -ne $containerRoot -and $passThrough.StartsWith($containerRoot + $sep)) {
+                        return $passThrough
+                    }
+                }
             }
         }
         if ([string]::IsNullOrWhiteSpace($Project)) {
