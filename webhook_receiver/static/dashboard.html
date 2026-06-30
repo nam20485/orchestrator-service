@@ -72,6 +72,14 @@
     .stat-card.closed .num { color: var(--closed); }
     .stat-card.halted .num { color: var(--halted); }
     .stat-card.total .num { color: var(--text); }
+    /* Status-card filter affordance (clickable summary cards) */
+    .stat-card[data-status] { cursor: pointer; transition: border-color .12s, background .12s, box-shadow .12s; }
+    .stat-card[data-status]:hover { border-color: var(--accent); }
+    .stat-card[data-status]:focus-visible { outline: none; border-color: var(--accent); }
+    .stat-card.selected {
+      border-color: var(--accent); background: var(--surface2);
+      box-shadow: 0 0 0 1px var(--accent);
+    }
 
     .grid { display: grid; gap: 1.5rem; grid-template-columns: 1fr 440px; }
     @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
@@ -357,6 +365,29 @@ let sortAsc = true;
 let eventBuffer = [];
 const MAX_EVENTS = 200;
 
+// ── Status-card filter (List view) ──────────────────────────────────────────
+// statusFilter === null means "show all" (Total card highlighted). Otherwise it
+// is one of the 5 known ui_status values. Persisted across reloads in
+// localStorage so it survives the 5s auto-refresh and a page reload.
+const STATUS_FILTERS = ['ready', 'blocked', 'active', 'closed', 'halted'];
+let statusFilter = STATUS_FILTERS.includes(localStorage.getItem('dashboard.statusFilter'))
+  ? localStorage.getItem('dashboard.statusFilter') : null;
+
+function setStatusFilter(f) {
+  statusFilter = STATUS_FILTERS.includes(f) ? f : null;
+  localStorage.setItem('dashboard.statusFilter', statusFilter || '');
+  applyFilterHighlight();
+  renderBeads();
+}
+
+function applyFilterHighlight() {
+  document.querySelectorAll('#summaryCards .stat-card[data-status]').forEach(card => {
+    const st = card.dataset.status;
+    const active = statusFilter === null ? st === 'total' : st === statusFilter;
+    card.classList.toggle('selected', active);
+  });
+}
+
 // ── Clock ──────────────────────────────────────────────────────────────────
 function tick() {
   document.getElementById('clock').textContent = new Date().toLocaleTimeString();
@@ -377,9 +408,12 @@ async function fetchOverview() {
       ['closed',  'Closed',  c.closed],
       ['halted',  'Halted',  c.halted],
     ];
-    document.getElementById('summaryCards').innerHTML = cards.map(([cls, label, num]) =>
-      `<div class="stat-card ${cls}"><div class="num">${num}</div><div class="label">${label}</div></div>`
-    ).join('');
+    document.getElementById('summaryCards').innerHTML = cards.map(([cls, label, num]) => {
+      const title = cls === 'total' ? 'Show all beads' : 'Filter to ' + label;
+      return `<div class="stat-card ${cls}" data-status="${cls}" role="button" tabindex="0" title="${title}">`
+        + `<div class="num">${num}</div><div class="label">${label}</div></div>`;
+    }).join('');
+    applyFilterHighlight();
 
     const running = d.loop_status.running;
     const dot = document.getElementById('loopDot');
@@ -394,20 +428,29 @@ async function fetchBeads() {
   try {
     const r = await fetch(`${API}/beads`);
     beadData = await r.json();
-    document.getElementById('beadCount').textContent = beadData.length;
     renderBeads();
   } catch (e) { /* ignore */ }
 }
 
 function renderBeads() {
   const tbody = document.getElementById('beadBody');
+  // Apply the active status-card filter, if any (counts stay global on the cards).
+  const rows = statusFilter ? beadData.filter(b => b.ui_status === statusFilter) : beadData;
+  // Beads panel header: show the filtered subset vs total when a filter is on.
+  document.getElementById('beadCount').textContent = statusFilter
+    ? `${rows.length} / ${beadData.length}` : `${beadData.length}`;
+
   if (!beadData.length) {
     tbody.innerHTML = '<tr><td colspan="7"><div class="empty-msg">No beads found. Run /plan-to-beads to create the DAG.</div></td></tr>';
     return;
   }
+  if (!rows.length) {
+    tbody.innerHTML = `<tr><td colspan="7"><div class="empty-msg">No beads with status &lsquo;${esc(statusFilter)}&rsquo;.</div></td></tr>`;
+    return;
+  }
 
   // Sort
-  beadData.sort((a, b) => {
+  rows.sort((a, b) => {
     let va = a[sortCol], vb = b[sortCol];
     if (va == null) va = '';
     if (vb == null) vb = '';
@@ -416,7 +459,7 @@ function renderBeads() {
   });
 
   let html = '';
-  for (const b of beadData) {
+  for (const b of rows) {
     html += `<tr data-bead-id="${esc(b.id)}" title="Open detail in a new tab">`;
     html += `<td><span class="badge ${esc(b.ui_status)}">${esc(b.ui_status)}</span></td>`;
     html += `<td class="id-cell">${esc(b.id)}</td>`;
@@ -558,6 +601,27 @@ document.querySelectorAll('thead th').forEach(th => {
     renderBeads();
   });
 });
+
+// ── Status-card filter handlers ─────────────────────────────────────────────
+// Event delegation on #summaryCards: the cards are rebuilt every overview
+// fetch, so attaching once on the parent (which is stable) is reliable.
+function handleCardClick(card) {
+  const st = card.dataset.status;
+  if (st === 'total') { setStatusFilter(null); return; }
+  setStatusFilter(st === statusFilter ? null : st); // toggle off if already active
+}
+(function attachCardHandlers() {
+  const wrap = document.getElementById('summaryCards');
+  wrap.addEventListener('click', e => {
+    const card = e.target.closest('.stat-card[data-status]');
+    if (card) handleCardClick(card);
+  });
+  wrap.addEventListener('keydown', e => {
+    if (e.key !== 'Enter' && e.key !== ' ') return;
+    const card = e.target.closest('.stat-card[data-status]');
+    if (card) { e.preventDefault(); handleCardClick(card); }
+  });
+})();
 
 // ── Refresh scheduling + progress ──────────────────────────────────────────
 const REFRESH_DEFAULT = 5;
