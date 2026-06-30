@@ -36,6 +36,7 @@ tests/
 scripts/*
 !scripts/docker-entrypoint.sh
 !scripts/prompt.ps1
+!scripts/git-trust.sh
 
 # Secrets (mounted at runtime via compose, not baked into image)
 auth/
