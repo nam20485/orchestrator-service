@@ -285,6 +285,23 @@ class BeadsLoop:
         ws_path: str | None = None
         try:
             ws_path = create_bead_worktree(project_root, bead_id)
+        except subprocess.CalledProcessError as exc:
+            # Surface the captured git stderr so failures (e.g. "fatal:
+            # detected dubious ownership", branch/ref errors) are actionable
+            # instead of just an opaque exit code + traceback.
+            logger.error(
+                "Failed to create worktree for bead %s (git exit %d).\n"
+                "command: %s\nstderr: %s",
+                bead_id,
+                exc.returncode,
+                " ".join(exc.cmd or []),
+                (exc.stderr or "").strip(),
+            )
+            with self._lock:
+                self._retry_state[key]["count"] = (
+                    self._retry_count(self._retry_state[key]) + 1
+                )
+            return
         except Exception:
             logger.exception("Failed to create worktree for bead %s", bead_id)
             with self._lock:
