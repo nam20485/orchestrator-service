@@ -193,6 +193,9 @@ def _init_repo_on_master(project_root: str) -> None:
     # Local identity so commit works in CI without global git config.
     _git(["config", "user.email", "test@example.com"], cwd=project_root)
     _git(["config", "user.name", "Test"], cwd=project_root)
+    # Disable GPG signing — global commit.gpgsign=true would make GPG prompt
+    # interactively for a passphrase, hanging the test subprocess.
+    _git(["config", "commit.gpgsign", "false"], cwd=project_root)
     Path(project_root, "README.md").write_text("hello", encoding="utf-8")
     _git(["add", "."], cwd=project_root)
     _git(["commit", "-m", "init on master"], cwd=project_root)

@@ -97,7 +97,10 @@ COPY webhook_receiver ./webhook_receiver
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev
 
-COPY scripts/prompt.ps1 ./scripts/
+# prompt.ps1 dot-sources init-project-workspace.ps1 (Resolve-ProjectWorkspace /
+# Initialize-ProjectWorkspace), so both must be present in-image for the
+# beads-loop dispatch to resolve a per-bead worktree path in-container.
+COPY scripts/prompt.ps1 scripts/init-project-workspace.ps1 ./scripts/
 
 ENV PROMPT_SCRIPT=/app/scripts/prompt.ps1 \
     OPENCODE_SERVER_URL=http://orchestratorservice:4099 \

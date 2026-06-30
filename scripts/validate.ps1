@@ -92,6 +92,7 @@ try {
 
         Invoke-BashStep -Name 'opencode.json' -ScriptPath './test/test-opencode-json.sh'
         Invoke-BashStep -Name 'beads versions' -ScriptPath './test/test-beads-versions-consistency.sh'
+        Invoke-BashStep -Name 'webhook scripts' -ScriptPath './test/test-webhook-scripts.sh'
 
         if (Get-CommandOrWarn 'shellcheck') {
             Invoke-ValidateStep -Name 'shellcheck' -Action {
@@ -131,6 +132,7 @@ try {
         }
         Invoke-BashStep -Name 'opencode.json (test)' -ScriptPath './test/test-opencode-json.sh'
         Invoke-BashStep -Name 'beads versions (test)' -ScriptPath './test/test-beads-versions-consistency.sh'
+        Invoke-BashStep -Name 'webhook scripts' -ScriptPath './test/test-webhook-scripts.sh'
     }
 
     Write-Host ""
