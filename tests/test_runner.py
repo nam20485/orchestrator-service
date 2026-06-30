@@ -85,6 +85,18 @@ def test_prompt_script_invocation_rejects_non_ps1(tmp_path: Path) -> None:
         _prompt_script_invocation(settings, tmp_path / "p.md")
 
 
+def test_prompt_script_invocation_carries_worktree_workspace(tmp_path: Path) -> None:
+    """The beads loop sets workspace=<worktree>; the dispatched cmd must carry it
+    as -Workspace so the agent runs inside the worktree (not a re-derived slug).
+    Regression guard for the beads-loop → prompt.ps1 worktree hand-off.
+    """
+    worktree = "/workspace/my-app/.worktrees/my-app-a1b2"
+    settings = _test_settings(prompt_script=tmp_path / "prompt.ps1", workspace=worktree)
+    cmd = _prompt_script_invocation(settings, tmp_path / "prompt.md")
+    assert "-Workspace" in cmd
+    assert cmd[cmd.index("-Workspace") + 1] == worktree
+
+
 # ── _stream_to_logger_and_file ────────────────────────────────────────────
 
 
