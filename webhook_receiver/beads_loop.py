@@ -285,12 +285,23 @@ class BeadsLoop:
         ws_path: str | None = None
         try:
             ws_path = create_bead_worktree(project_root, bead_id)
+        except subprocess.CalledProcessError as exc:
+            # Surface the captured git stderr so failures (e.g. "fatal:
+            # detected dubious ownership", branch/ref errors) are actionable
+            # instead of just an opaque exit code + traceback.
+            logger.error(
+                "Failed to create worktree for bead %s (git exit %d).\n"
+                "command: %s\nstderr: %s",
+                bead_id,
+                exc.returncode,
+                " ".join(exc.cmd or []),
+                (exc.stderr or "").strip(),
+            )
+            self._increment_retry(key)
+            return
         except Exception:
             logger.exception("Failed to create worktree for bead %s", bead_id)
-            with self._lock:
-                self._retry_state[key]["count"] = (
-                    self._retry_count(self._retry_state[key]) + 1
-                )
+            self._increment_retry(key)
             return
 
         try:
@@ -318,11 +329,7 @@ class BeadsLoop:
                     bead_id,
                     retries + 1,
                 )
-                with self._lock:
-                    self._retry_state[key]["count"] = (
-                        self._retry_count(self._retry_state[key]) + 1
-                    )
-                    self._retry_state[key]["logs"] = (logs or "")[-3000:]
+                self._increment_retry(key, logs)
                 self._emit(
                     "bead_failed",
                     bead_id=bead_id,
@@ -529,6 +536,25 @@ class BeadsLoop:
         """Extract the integer retry count from a retry-state dict."""
         raw = state.get("count", 0)
         return int(raw) if isinstance(raw, (int, float)) else 0
+
+    # Sentinel meaning "caller did not pass logs" — distinct from None, which is
+    # a legitimate agent-failure logs value that the caller coerces to "".
+    _NO_LOGS: object = object()
+
+    def _increment_retry(self, key: str, logs: object = _NO_LOGS) -> None:
+        """Increment the retry counter for ``key`` under the loop lock.
+
+        When ``logs`` is explicitly passed it is stored (truncated to the last
+        3000 chars) as the latest agent-failure output; otherwise the stored
+        logs are left untouched.
+        """
+        with self._lock:
+            self._retry_state[key]["count"] = (
+                self._retry_count(self._retry_state[key]) + 1
+            )
+            if logs is not self._NO_LOGS:
+                text = logs if isinstance(logs, str) else ""
+                self._retry_state[key]["logs"] = text[-3000:]
 
     _NOT_INITIALIZED_SIGNATURES = (
         "NOT_INITIALIZED",

@@ -595,6 +595,36 @@ def test_process_bead_worktree_creation_failure(
         assert loop._retry_state["proj:br-wsfail"]["count"] == 1
 
 
+@patch("webhook_receiver.beads_loop.create_bead_worktree")
+def test_process_bead_worktree_creation_failure_logs_stderr(
+    mock_create_wt: MagicMock, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A git CalledProcessError must surface its captured stderr so failures
+    like 'fatal: detected dubious ownership' are actionable, not just an
+    opaque exit code + traceback.
+    """
+    from subprocess import CalledProcessError
+
+    mock_create_wt.side_effect = CalledProcessError(
+        returncode=128,
+        cmd=["git", "worktree", "add", "-b", "task/br-git", "main"],
+        stderr="fatal: detected dubious ownership in repository at '/workspace/proj'",
+    )
+
+    loop = BeadsLoop(_test_settings())
+    bead = {"id": "br-git", "title": "T", "priority": 1}
+
+    with patch.object(loop, "_spawn_agent") as mock_spawn:
+        caplog.set_level("ERROR", logger="webhook_receiver.beads_loop")
+        loop._process_bead(bead, "proj", "/workspace/proj")
+        mock_spawn.assert_not_called()
+        assert loop._retry_state["proj:br-git"]["count"] == 1
+
+    # Both the exit code and the git stderr text must appear in the log.
+    assert "128" in caplog.text
+    assert "dubious ownership" in caplog.text
+
+
 @patch("webhook_receiver.beads_loop.remove_bead_worktree")
 @patch("webhook_receiver.beads_loop.create_bead_worktree")
 @patch("webhook_receiver.beads_loop.BeadsLoop._spawn_agent")

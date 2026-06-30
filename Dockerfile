@@ -49,9 +49,9 @@ RUN apt-get update && \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-# Mark the bind-mounted /workspace (host UID 1000) as trusted for root so git
-# does not refuse operations with "fatal: detected dubious ownership".
-RUN git config --global --add safe.directory /workspace
+# Trust all bind-mounted repos for git (see scripts/git-trust.sh for rationale).
+COPY scripts/git-trust.sh /tmp/git-trust.sh
+RUN bash /tmp/git-trust.sh && rm -f /tmp/git-trust.sh
 
 # PowerShell (pwsh) — tarball install (Microsoft apt repo fails on trixie SHA1 key policy)
 RUN apt-get update \
