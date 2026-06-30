@@ -45,9 +45,14 @@ RUN apt-get update \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-# Mark the bind-mounted /workspace (host UID 1000) as trusted for root so git
-# does not refuse operations with "fatal: detected dubious ownership".
-RUN git config --global --add safe.directory /workspace
+# Trust all bind-mounted repos under /workspace for root so git does not refuse
+# operations with "fatal: detected dubious ownership" (CVE-2022-24765). The
+# container only ever operates on the /workspace bind mount, whose per-session
+# project dirs are created at runtime by the host (UID 1000) — paths git can't
+# know at build time. safe.directory is NOT recursive, so enumerating only
+# /workspace wouldn't cover /workspace/<project>/; '*' is the git-documented
+# pattern for root-running containers on bind-mounted repos of arbitrary owner.
+RUN git config --global --add safe.directory '*'
 
 # GitHub CLI (for PR creation in beads_loop workspace management)
 RUN mkdir -p /etc/apt/keyrings \
