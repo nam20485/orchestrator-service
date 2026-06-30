@@ -26,8 +26,8 @@ there is no `gosu`/`su-exec`/`runuser` privilege drop. Two concrete consequences
 
 | Location | Root assumption |
 |---|---|
-| `Dockerfile` (orchestratorservice) | No `USER`. Installers write to `/root/.local/bin` (uv), `/root/.opencode/bin` (opencode), `/root/.config/opencode` (config). `ENV PATH="/root/.opencode/bin:${PATH}"`. `RUN mkdir -p /workspace && chmod 755 /workspace`. Config-copy step targets `/root/.config/opencode`. |
-| `Dockerfile.webhook` | No `USER`. Same `/root/.local/bin` (uv), `/root/.opencode/bin` (opencode), `PATH`. `uv sync` creates `/app/.venv` as root. |
+| `Dockerfile` (orchestratorservice) | No `USER`. Installers write to `/root/.local/bin` (uv), `/root/.opencode/bin` (opencode), `/root/.config/opencode` (config). `ENV PATH="/root/.opencode/bin:${PATH}"` (dead code — binary already in `/usr/local/bin`). `RUN mkdir -p /workspace && chmod 755 /workspace`. Config-copy step targets `/root/.config/opencode`. `scripts/git-trust.sh` writes `safe.directory` to `/root/.gitconfig`. |
+| `Dockerfile.webhook` | No `USER`. Same `/root/.local/bin` (uv), `/root/.opencode/bin` (opencode), `PATH` (same dead-code entry). `uv sync` creates `/app/.venv` as root. `--mount=type=cache,target=/root/.cache/uv` cache mount at root path. `scripts/git-trust.sh` writes to `/root/.gitconfig`. |
 | `deploy/caddy/Dockerfile` | Uses upstream `caddy:2.10.0-alpine` which runs as root. Caddyfile binds `:80` (privileged port < 1024). |
 | `scripts/docker-entrypoint.sh` | Already uses `$HOME` for `auth.json` (`${HOME:-/root}`) — no logic change needed, but `HOME` must resolve to the non-root home at runtime. |
 | `compose*.yaml` | No `user:` directive on any service. |
@@ -49,15 +49,16 @@ there is no `gosu`/`su-exec`/`runuser` privilege drop. Two concrete consequences
 - Changing the workspace multi-project model (covered by
   `plan_docs/multi-project-workspace-isolation.md`).
 - Multi-arch support (image remains amd64-only).
+- `Dockerfile.beads` changes — build-only image consumed via `COPY --from`; never runs as a service, so non-root is unnecessary.
 
 ## Design Decisions
 
 | Decision | Choice | Rationale |
 |---|---|---|
-| Where the user is defined | **Baked into each image** via `USER` + build `ARG` (default UID/GID `1000:1000`) | Deterministic; image is non-root by default without relying on compose. Compose `user:` override remains available for host-UID mismatch. |
+| Where the user is defined | **`app` user created in image** via build `ARG` (default UID/GID `1000:1000`); privilege drop via `gosu` in entrypoint (no `USER` directive) | Entrypoint starts as root for volume fixup, then `exec gosu app` drops privileges. Compose `user:` override remains available for host-UID mismatch. |
 | User name | `app` (home `/home/app`) | Conventional, short, unambiguous. |
 | UID/GID configurability | Build args `APP_UID` / `APP_GID` (default `1000`); compose can override at runtime via `user:` | Build-time default matches common host user; runtime override handles hosts where the operator UID ≠ 1000. |
-| Install paths | Repath all `/root/...` → `/home/app/...` (uv, opencode, config dirs, `PATH`) | Installers (`curl \| sh`) honor `$HOME`; running the install `RUN` steps as `USER app` with `HOME=/home/app` writes to the right place without post-hoc `chown`. |
+| Install paths | Repath all `/root/...` → `/home/app/...` (uv, opencode, config dirs) | Installers (`curl \| sh`) honor `$HOME`; `RUN` steps use `HOME=/home/app` prefix so installers write to `/home/app`. All steps run as root; `chown -R app:app /home/app` after installs. |
 | `/app` ownership | `chown -R app:app /app` after `COPY`/`uv sync` | Runtime user must read config and (for webhook) write `.venv`/caches. |
 | `/workspace` | No image change; works automatically when container UID == host UID | Bind mount is host-owned; matching UID gives seamless read/write with no `chown`. |
 | `opencode-memory` named volume | Entrypoint `chown -R app:app /app/.memory` if owned by root (first-mount fixup) | Named volumes are root-owned on first attach; one-time recursive chown guarded by ownership check keeps it idempotent and cheap. |
@@ -73,13 +74,13 @@ there is no `gosu`/`su-exec`/`runuser` privilege drop. Two concrete consequences
 ### User & paths (orchestratorservice + webhook images)
 
 ```
-USER app (UID/GID = APP_UID:APP_GID, default 1000:1000)
+Container starts as root; entrypoint drops to app via gosu (no USER in Dockerfile)
 HOME=/home/app
-PATH includes /home/app/.opencode/bin
+PATH — no custom entries needed (all binaries in /usr/local/bin)
 
 /home/app/
-  .local/bin/uv, uvx          (was /root/.local/bin)
-  .opencode/bin/opencode      (was /root/.opencode/bin)
+  .local/bin/uv, uvx          (was /root/.local/bin; not on PATH — /usr/local/bin copy is authoritative)
+  .opencode/bin/opencode      (was /root/.opencode/bin; not on PATH — /usr/local/bin copy is authoritative)
   .config/opencode/           (was /root/.config/opencode — global config tree)
   .local/share/opencode/auth.json   (written by entrypoint at runtime)
   .gitconfig                  (safe.directory + identity, webhook image only)
@@ -117,15 +118,21 @@ cap_add:
    RUN groupadd -g "${APP_GID}" app \
     && useradd -l -u "${APP_UID}" -g "${APP_GID}" -m -d /home/app app
    ```
-3. Set `ENV HOME=/home/app` and `ENV PATH="/home/app/.opencode/bin:${PATH}"` (replace the
-   `/root/.opencode/bin` entry).
-4. Reorder so the `uv`, `opencode`, and config-copy `RUN` steps execute as `USER app` (so
-   `curl | sh` installers write to `/home/app`). For steps that must run as root (apt installs,
-   `/usr/local/bin` copies, `/etc/...`), keep them before the `USER app` switch or use
-   `chown`/`cp` into system paths.
-   - uv installer: install to `/home/app/.local` (run as `app`), then symlink/copy `uv`,`uvx` to
-     `/usr/local/bin` as root (world-executable) so PATH is robust.
-   - opencode installer: same pattern — install as `app`, copy binary to `/usr/local/bin/opencode`.
+3. Set `ENV HOME=/home/app`. **Remove** the existing `ENV PATH="/root/.opencode/bin:${PATH}"`
+   line entirely — it is dead code (the `opencode` binary is already copied to
+   `/usr/local/bin/opencode`, which is on the default PATH). No replacement PATH entry needed.
+4. All `RUN` steps execute as root (no `USER app` in the Dockerfile — the gosu entrypoint
+   handles privilege drop at runtime; see step 8). Set `HOME=/home/app` for installer
+   `RUN` commands so `curl | sh` scripts write to `/home/app` instead of `/root`:
+   ```dockerfile
+   RUN HOME=/home/app curl -LsSf https://astral.sh/uv/0.10.9/install.sh | sh
+   ```
+   The existing Dockerfile **already** copies `uv`/`uvx` to `/usr/local/bin` (lines 86-88) —
+   keep this pattern, just update the source path from `/root/.local/bin/` to
+   `/home/app/.local/bin/`. Same for opencode. After all installs:
+   ```dockerfile
+   RUN chown -R app:app /home/app
+   ```
 5. Replace the config-copy target:
    ```dockerfile
    RUN rm -rf /home/app/.config/opencode \
@@ -136,13 +143,13 @@ cap_add:
    ```
 6. `/workspace`: keep `mkdir -p /workspace && chmod 755 /workspace` (root creates; runtime user
    writes via UID match on the bind mount).
-7. Declare `USER app` before `ENTRYPOINT`/`CMD`. Note: if the entrypoint must perform the
-   runtime volume `chown` below, do **not** set `USER app` here — instead start as root and drop
-   privileges inside the entrypoint (see step 8). The two options are mutually exclusive; pick one
-   entrypoint model and apply it consistently to both images.
-8. Entrypoint (`scripts/docker-entrypoint.sh`): the entrypoint **must start as root** to perform the
-   first-mount memory-volume fixup, then drop to `app` before `exec`-ing the server. Install `gosu`
-   in the image and structure the entrypoint as:
+7. **Do not** declare `USER app` in the Dockerfile. The container starts as root; the
+   entrypoint drops privileges via `gosu` (see step 8). This is the single entrypoint
+   model — there is no alternative.
+8. **Entrypoint privilege drop (decided: gosu model).** Install `gosu` in the image
+   (`apt-get install -y gosu`). The entrypoint (`scripts/docker-entrypoint.sh`) starts as
+   root, performs the first-mount memory-volume `chown`, then drops to `app` via `gosu`
+   before `exec`-ing the server:
    ```sh
    MEM_DIR="/app/.memory"
    if [ -d "$MEM_DIR" ] && [ "$(stat -c %u "$MEM_DIR")" = "0" ]; then
@@ -150,24 +157,30 @@ cap_add:
    fi
    exec gosu app "$@"
    ```
-   Do **not** set `USER app` in the Dockerfile when using this root entrypoint — the `gosu` drop is
-   what makes the process non-root. (Guarded by a root-ownership check so the `chown` is a no-op on
-   subsequent starts.) If you instead keep `USER app` baked in and skip the runtime `chown`, the
-   operator must pre-`chown` the named volume once on the host — document that as the alternative.
+   The Dockerfile has **no** `USER` directive — `gosu` is the sole privilege-drop mechanism.
+   The ownership check makes the `chown` a no-op on subsequent starts (idempotent).
 
 ### Phase 2 — `webhook-receiver` image (`Dockerfile.webhook`)
 
-1. Same `APP_UID`/`APP_GID` args + `groupadd`/`useradd` + `ENV HOME=/home/app` + `PATH` fix.
-2. Repath uv (`/home/app/.local`) and opencode (`/home/app/.opencode`) installers; copy binaries to
-   `/usr/local/bin`.
-3. `uv sync --frozen --no-dev` must run as `app` (or `chown -R app:app /app` after) so `.venv` is
-   writable/usable at runtime.
-4. Add git configuration for the `app` user:
+1. Same `APP_UID`/`APP_GID` args + `groupadd`/`useradd` + `ENV HOME=/home/app`. **Remove** the
+   dead `ENV PATH="/root/.opencode/bin:${PATH}"` line (same as orchestratorservice — binary is
+   in `/usr/local/bin`).
+2. Repath uv (`/home/app/.local`) and opencode (`/home/app/.opencode`) installers using
+   `HOME=/home/app` prefix on `RUN` commands (same pattern as Phase 1 step 4); copy binaries
+   to `/usr/local/bin`.
+3. Update the `uv sync` cache mount target from `/root/.cache/uv` to `/home/app/.cache/uv`:
    ```dockerfile
-   USER app
-   RUN git config --global --add safe.directory '*' \
-    && git config --global user.name "orchestrator-bot" \
-    && git config --global user.email "bot@orchestrator.local"
+   RUN --mount=type=cache,target=/home/app/.cache/uv \
+       HOME=/home/app uv sync --frozen --no-dev
+   ```
+   Then `chown -R app:app /app` so `.venv` is writable at runtime.
+4. Git configuration: `scripts/git-trust.sh` already writes `safe.directory` to
+   `$HOME/.gitconfig` (which is `/home/app/.gitconfig` after `ENV HOME=/home/app`). Add git
+   identity defaults (runs as root with `HOME=/home/app`):
+   ```dockerfile
+   RUN HOME=/home/app git config --global user.name "orchestrator-bot" \
+    && HOME=/home/app git config --global user.email "bot@orchestrator.local" \
+    && chown app:app /home/app/.gitconfig
    ```
    Bake **fixed** identity defaults (no `${VAR}` expansion here — that would freeze the build-time
    value into `~/.gitconfig`, not honor runtime overrides). For per-run author identity, set the
@@ -176,7 +189,9 @@ cap_add:
    `~/.gitconfig` from the current env; git honors these over the baked config at commit time.
    (`safe.directory '*'` covers the bind-mounted `/workspace`.)
 5. `WORKDIR /app` + `chown -R app:app /app`.
-6. Declare `USER app` before `CMD`.
+6. **Do not** declare `USER app` — same gosu entrypoint model as orchestratorservice.
+   (The webhook-receiver entrypoint is simpler — no volume fixup needed — but uses the same
+   `exec gosu app "$@"` pattern for consistency.)
 
 ### Phase 3 — `webhook-proxy` image (`deploy/caddy/Dockerfile`)
 
@@ -188,10 +203,9 @@ cap_add:
    # rely on CAP_NET_BIND_SERVICE (compose) for :80/:443.
    USER caddy
    ```
-   (Upstream `caddy` image ships a `caddy` user; verify UID and that `/data`,`/config` are
-   writable by it — see Open Questions.)
-2. If upstream `caddy` user cannot write `/data`/`/config`, add an init `chown` via a small
-   entrypoint wrapper or `COPY --chown=caddy:caddy`.
+   Upstream `caddy:2.10.0-alpine` ships a `caddy` user at UID 1000 with `/data` and `/config`
+   owned by `caddy:caddy` — no additional chown or wrapper needed.
+2. *(Removed — verified: upstream caddy user can write `/data`/`/config` out of the box.)*
 
 ### Phase 4 — Compose
 
@@ -205,6 +219,10 @@ cap_add:
      - CAP_NET_BIND_SERVICE
    ```
 3. No change to volume declarations; ownership handled by image/entrypoint.
+4. `compose.build.yaml` — **no changes needed** (build overlay only adds `build:` context and
+   `pull_policy: never`; inherits `user:`/`cap_add:` from base service definitions).
+5. `compose.https.yaml` — **no changes needed** (port overlay only adds `443:443`; inherits
+   `cap_add:` from base `webhook-proxy` service definition).
 
 ### Phase 5 — Tests
 
@@ -215,8 +233,14 @@ cap_add:
    - `docker run --rm <image> sh -c 'opencode --version && br --version'` → binaries on PATH.
 2. **New** pytest: assert `git config --global --get safe.directory` returns `*` in webhook image
    (or assert via a container exec in CI).
-3. Update `test/test-compose-config.sh` if `user:`/`cap_add` affect the config assertion.
-4. Update `scripts/validate.ps1` test list if a new script is added.
+3. **New** test: `auth.json` write path — verify entrypoint writes
+   `/home/app/.local/share/opencode/auth.json` (not `/root/...`) and the file is readable by
+   `opencode serve` running as `app`.
+4. **New** test: named volume first-mount fixup — simulate a fresh `opencode-memory` volume
+   (root-owned empty dir), start the container, verify `/app/.memory` is `chown`-ed to `app:app`
+   by the entrypoint.
+5. Update `test/test-compose-config.sh` if `user:`/`cap_add` affect the config assertion.
+6. Update `scripts/validate.ps1` test list if a new script is added.
 
 ### Phase 6 — Documentation
 
@@ -224,8 +248,11 @@ cap_add:
    (`APP_UID`/`APP_GID`), the one-time host migration (`sudo chown -R $UID:$GID $WORKSPACE_DIR`
    for pre-existing root-owned files), and the Caddy `CAP_NET_BIND_SERVICE` requirement.
 2. **docs/deployment-compose.md** — document `APP_UID`/`APP_GID` and the cap requirement.
-3. **AGENTS.md** — update "Learned Workspace Facts": containers run as non-root `app` (UID 1000);
-   workspace files are operator-owned; note the one-time migration.
+3. **AGENTS.md** — update "Learned Workspace Facts": containers run as non-root `app` (UID 1000)
+   via gosu entrypoint; workspace files are operator-owned; note the one-time migration. Also
+   **remove** the stale claim that `docker-entrypoint.sh` exports `OPENCODE_CONFIG` and
+   `OPENCODE_CONFIG_DIR` — the entrypoint does not set these variables; `opencode serve`
+   auto-loads config from `~/.config/opencode` (the global config dir).
 4. **GEMINI.md** — mirror the AGENTS.md workspace-fact update.
 
 ## Edge Cases & Risks
@@ -240,7 +267,8 @@ cap_add:
 | uv/opencode installers fail as non-root | Install as `app` to `/home/app`, copy binaries to `/usr/local/bin` as root. Binaries are world-executable. |
 | Git "dubious ownership" on `/workspace` | `git config --global --add safe.directory '*'` for `app` (webhook image). |
 | Git commits fail (no identity) | Default `user.name`/`user.email` baked; env override (`GIT_AUTHOR_NAME`/`GIT_AUTHOR_EMAIL`). |
-| Entrypoint needs root for volume chown but `USER app` is set | Decision: entrypoint runs as `app`; volume fixup uses ownership check and is a no-op when already correct. If first-mount chown is required as root, use a tiny root entrypoint that chowns then `exec gosu app "$@"` — see Open Questions (prefer the simpler no-extra-dep path if volumes are pre-chowned in the image). |
+| Entrypoint privilege model | **Decided: root entrypoint + gosu.** Container starts as root (no `USER` in Dockerfile); entrypoint performs first-mount volume `chown` (guarded by ownership check), then `exec gosu app "$@"` drops to non-root before running the server. |
+| SSH key access for git push | If SSH keys are bind-mounted or injected for git push over SSH, they must be owned by UID `APP_UID` with mode 600. Document operator responsibility for key file permissions. SSH agent forwarding (`SSH_AUTH_SOCK`) works regardless of container UID. |
 | `br`/`bvr` require root | None expected — pure userspace Rust binaries. Verify in Phase 5. |
 | Build reproducibility / `validate.yml` build job | All changes are deterministic; pinned versions unchanged. CI build job must pass. |
 
@@ -280,10 +308,11 @@ cap_add:
 
 | File | Change |
 |---|---|
-| `Dockerfile` | Add `APP_UID`/`APP_GID` args, create `app` user, repath `/root`→`/home/app`, `USER app`, config-copy retarget |
-| `Dockerfile.webhook` | Same user/repath; `uv sync` as `app`; git `safe.directory` + identity; `USER app` |
-| `deploy/caddy/Dockerfile` | `USER caddy` (verify upstream UID/writable volumes) |
-| `scripts/docker-entrypoint.sh` | Idempotent `opencode-memory` volume `chown` (ownership-guarded) |
+| `Dockerfile` | Add `APP_UID`/`APP_GID` args, create `app` user, repath `/root`→`/home/app`, gosu entrypoint, config-copy retarget, remove dead `PATH` env |
+| `Dockerfile.webhook` | Same user/repath; `uv sync` cache mount repathed; git identity defaults; gosu entrypoint; remove dead `PATH` env |
+| `deploy/caddy/Dockerfile` | `USER caddy` (upstream UID 1000, volumes writable — verified) |
+| `scripts/docker-entrypoint.sh` | Add gosu privilege drop + idempotent `opencode-memory` volume `chown` (ownership-guarded) |
+| `scripts/git-trust.sh` | No script change needed (already uses `$HOME`); invoked with `HOME=/home/app` in Dockerfiles |
 | `compose.yaml` | `user:` on all services; `cap_add: CAP_NET_BIND_SERVICE` on `webhook-proxy` |
 | `compose.development.yaml` | Same as `compose.yaml` |
 | `test/test-docker-user.sh` | **New** — UID/PATH/bind-mount ownership assertions |
@@ -294,25 +323,34 @@ cap_add:
 | `AGENTS.md` | "Learned Workspace Facts" update |
 | `GEMINI.md` | Mirror AGENTS.md workspace-fact update |
 
-## Open Questions (resolve before implementation)
+## Resolved Questions
 
-1. **Entrypoint privilege model.** Does the memory-volume `chown` need to run as root on first
-   mount? Options: (a) keep entrypoint as `app` and pre-`chown` the volume path in the image build
-   (works only if the path exists at build time — named volumes mount at runtime, so no); (b) tiny
-   root entrypoint that chowns then `exec gosu app "$@"` (adds a `gosu` dependency); (c) accept
-   that the MCP memory server may fail on very first start until a one-time host `chown` is done.
-   **Recommendation:** option (b) with `gosu` (small, standard) — cleanest UX. Confirm during
-   implementation.
-2. **Upstream caddy user UID & writable volumes.** Verify the `caddy:2.10.0-alpine` `caddy` user
-   UID and that `/data`/`/config` are writable by it; if not, add a `COPY --chown` or wrapper.
-3. **`APP_UID` default.** Confirm `1000` matches the deployment host(s); if the primary operator
-   uses a different UID, adjust the default or rely on the runtime override.
-4. **`br`/`bvr` as non-root.** Expected fine (userspace binaries), but verify no root assumption in
-   the beads runtime (e.g. lockfile perms in `/workspace/<slug>/.beads/`).
+All questions resolved before implementation:
+
+1. **Entrypoint privilege model → gosu root entrypoint.** Container starts as root; entrypoint
+   chowns first-mount volumes then `exec gosu app "$@"`. Adds `gosu` as a dependency (small,
+   standard, available in Debian repos). No `USER` directive in either Dockerfile.
+2. **Upstream caddy user → verified.** `caddy:2.10.0-alpine` ships a `caddy` user at UID 1000.
+   `/data` and `/config` are owned by `caddy:caddy` in the upstream image. No additional chown
+   or wrapper needed.
+3. **`APP_UID` default → 1000 confirmed.** Matches the primary operator's UID. Runtime override
+   via compose `user:` directive available for hosts with different UIDs.
+4. **`br`/`bvr` as non-root → no issues.** Pure userspace Rust binaries with no root
+   assumptions. Beads database (`beads.db`) and lockfiles in `/workspace/<slug>/.beads/` are
+   created by the runtime user (UID match on bind mount).
+
+## Rollback
+
+If the non-root container causes issues after deployment, revert to the previous image tag
+(e.g. `ghcr.io/nam20485/orchestrator-service:main-latest` from before the change). No data
+migration is needed: files created by the non-root container are operator-owned on the host
+and remain accessible. Pre-existing root-owned files from before the migration are unaffected
+by rollback.
 
 ## Estimated Effort
 
-**~1–2 days** of focused work: the repathing is mechanical but touches two Dockerfiles end-to-end,
-the Caddy port/user wrinkle needs verification, and the bulk of effort is testing (build + a full
-beads cycle + webhook dispatch + Caddy proxy, all as non-root) plus the one-time-migration
-documentation. Well-bounded; no architectural changes.
+**~2–3 days** of focused work: the Dockerfile repathing is mechanical but touches two
+Dockerfiles end-to-end, the gosu entrypoint addition needs careful testing (especially the
+first-mount volume chown), and the bulk of effort is integration testing (build + a full beads
+cycle + webhook dispatch + Caddy proxy, all as non-root) plus the one-time-migration
+documentation and CI iteration. Well-bounded; no architectural changes.
