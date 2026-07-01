@@ -27,6 +27,14 @@ ARG OPENCODE_VERSION=1.17.8
 #ARG DOTNET_SDK_VERSION=10.0.300
 ARG NODE_LTS_VERSION=24.14.0
 ARG POWERSHELL_VERSION=7.6.2
+ARG APP_UID=1000
+ARG APP_GID=1000
+
+# Non-root user for runtime (gosu drops privileges in the entrypoint).
+RUN groupadd -g "${APP_GID}" app \
+    && useradd -l -u "${APP_UID}" -g "${APP_GID}" -m -d /home/app app
+
+ENV HOME=/home/app
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
@@ -35,6 +43,7 @@ RUN apt-get update && \
         file \
         git \
         gnupg \
+        gosu \
         jq \
         make \
         openssh-client \
@@ -81,19 +90,20 @@ RUN curl -fsSL "https://nodejs.org/dist/v${NODE_LTS_VERSION}/node-v${NODE_LTS_VE
     && tar -xzf /tmp/node.tar.gz -C /usr/local --strip-components=1 \
     && rm /tmp/node.tar.gz
 
-# uv (Astral Python package manager)
-RUN curl -LsSf https://astral.sh/uv/0.10.9/install.sh | sh \
-    && cp /root/.local/bin/uv /usr/local/bin/uv \
-    && cp /root/.local/bin/uvx /usr/local/bin/uvx \
+# uv (Astral Python package manager) — install to /home/app, copy binaries to /usr/local/bin
+RUN HOME=/home/app curl -LsSf https://astral.sh/uv/0.10.9/install.sh | sh \
+    && cp /home/app/.local/bin/uv /usr/local/bin/uv \
+    && cp /home/app/.local/bin/uvx /usr/local/bin/uvx \
     && chmod +x /usr/local/bin/uv /usr/local/bin/uvx
 
 #RUN curl -fsSL https://opencode.ai/install | bash -s -- --no-modify-path
-# opencode CLI
-RUN curl -fsSL https://opencode.ai/install | bash -s -- --version "${OPENCODE_VERSION}" --no-modify-path \
-    && cp /root/.opencode/bin/opencode /usr/local/bin/opencode \
+# opencode CLI — install to /home/app, copy binary to /usr/local/bin
+RUN HOME=/home/app curl -fsSL https://opencode.ai/install | bash -s -- --version "${OPENCODE_VERSION}" --no-modify-path \
+    && cp /home/app/.opencode/bin/opencode /usr/local/bin/opencode \
     && chmod +x /usr/local/bin/opencode
 
-ENV PATH="/root/.opencode/bin:${PATH}"
+# Ensure the app user owns its home directory (installers wrote as root)
+RUN chown -R app:app /home/app
 
 # Beads CLI (br) from the Rust builder stage. In docker-publish.yml this stage
 # is overridden with the published GHCR beads image so Rust is compiled once.
@@ -111,10 +121,11 @@ COPY image/ /app/
 # not /app). opencode.json + AGENTS.md sit side-by-side there, so the
 # `instructions: ["AGENTS.md"]` path still resolves. Removed from /app afterward
 # so the server cwd (/app) cannot rediscover it as a project .opencode dir.
-RUN rm -rf /root/.config/opencode \
-    && mkdir -p /root/.config/opencode \
-    && cp -r /app/.opencode/. /root/.config/opencode/ \
-    && rm -rf /app/.opencode
+RUN rm -rf /home/app/.config/opencode \
+    && mkdir -p /home/app/.config/opencode \
+    && cp -r /app/.opencode/. /home/app/.config/opencode/ \
+    && rm -rf /app/.opencode \
+    && chown -R app:app /home/app/.config/opencode /app
 
 COPY scripts/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh

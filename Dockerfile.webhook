@@ -32,6 +32,14 @@ LABEL org.opencontainers.image.title=orchestrator-webhook
 ARG DEBIAN_FRONTEND=noninteractive
 ARG OPENCODE_VERSION=1.15.13
 ARG POWERSHELL_VERSION=7.6.2
+ARG APP_UID=1000
+ARG APP_GID=1000
+
+# Non-root user for runtime (gosu drops privileges in the entrypoint).
+RUN groupadd -g "${APP_GID}" app \
+    && useradd -l -u "${APP_UID}" -g "${APP_GID}" -m -d /home/app app
+
+ENV HOME=/home/app
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
@@ -39,6 +47,7 @@ RUN apt-get update \
     curl \
     gnupg \
     git \
+    gosu \
     python3 \
     libicu76 \
     libssl3t64 \
@@ -68,15 +77,24 @@ RUN curl -fsSL "https://github.com/PowerShell/PowerShell/releases/download/v${PO
     && ln -sf /opt/powershell/pwsh /usr/local/bin/pwsh \
     && rm /tmp/powershell.tar.gz
 
-# uv
-RUN curl -LsSf https://astral.sh/uv/0.10.9/install.sh | sh \
-    && cp /root/.local/bin/uv /usr/local/bin/uv \
+# uv — install to /home/app, copy binary to /usr/local/bin
+RUN HOME=/home/app curl -LsSf https://astral.sh/uv/0.10.9/install.sh | sh \
+    && cp /home/app/.local/bin/uv /usr/local/bin/uv \
     && chmod +x /usr/local/bin/uv
 
-# opencode CLI (client for --attach)
-RUN curl -fsSL https://opencode.ai/install | bash -s -- --version "${OPENCODE_VERSION}" --no-modify-path \
-    && cp /root/.opencode/bin/opencode /usr/local/bin/opencode \
+# opencode CLI (client for --attach) — install to /home/app, copy binary to /usr/local/bin
+RUN HOME=/home/app curl -fsSL https://opencode.ai/install | bash -s -- --version "${OPENCODE_VERSION}" --no-modify-path \
+    && cp /home/app/.opencode/bin/opencode /usr/local/bin/opencode \
     && chmod +x /usr/local/bin/opencode
+
+# Git identity defaults for the app user (commits/br need an identity).
+# Runtime override via GIT_AUTHOR_NAME/GIT_AUTHOR_EMAIL env vars.
+RUN HOME=/home/app git config --global user.name "orchestrator-bot" \
+    && HOME=/home/app git config --global user.email "bot@orchestrator.local" \
+    && chown app:app /home/app/.gitconfig
+
+# Ensure the app user owns its home directory (installers wrote as root)
+RUN chown -R app:app /home/app
 
 # Beads ecosystem binaries (br + bvr) from the Rust builder stage. In
 # docker-publish.yml this stage is overridden with the published GHCR beads
@@ -84,8 +102,7 @@ RUN curl -fsSL https://opencode.ai/install | bash -s -- --version "${OPENCODE_VE
 COPY --from=rust-builder /usr/local/cargo/bin/br /usr/local/bin/br
 COPY --from=rust-builder /usr/local/cargo/bin/bvr /usr/local/bin/bvr
 
-ENV PATH="/root/.opencode/bin:${PATH}" \
-    UV_COMPILE_BYTECODE=1 \
+ENV UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy \
     UV_PYTHON=python3
 
@@ -94,13 +111,16 @@ WORKDIR /app
 COPY pyproject.toml uv.lock README.md ./
 COPY webhook_receiver ./webhook_receiver
 
-RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen --no-dev
+RUN --mount=type=cache,target=/home/app/.cache/uv \
+    HOME=/home/app uv sync --frozen --no-dev
 
 # prompt.ps1 dot-sources init-project-workspace.ps1 (Resolve-ProjectWorkspace /
 # Initialize-ProjectWorkspace), so both must be present in-image for the
 # beads-loop dispatch to resolve a per-bead worktree path in-container.
 COPY scripts/prompt.ps1 scripts/init-project-workspace.ps1 ./scripts/
+
+# Ensure the app user owns /app (.venv, scripts, config — runtime user must read/write)
+RUN chown -R app:app /app
 
 ENV PROMPT_SCRIPT=/app/scripts/prompt.ps1 \
     OPENCODE_SERVER_URL=http://orchestratorservice:4099 \
@@ -110,4 +130,7 @@ ENV PROMPT_SCRIPT=/app/scripts/prompt.ps1 \
 
 EXPOSE 8080
 
+# Privilege drop via gosu (no USER directive — container starts as root,
+# gosu drops to app before running the server).
+ENTRYPOINT ["gosu", "app"]
 CMD ["uv", "run", "orchestrator-webhook"]
