@@ -51,10 +51,12 @@ fi
 chown -R app:app "${HOME_DIR}/.local/share/opencode" 2>/dev/null || true
 
 # First-mount fixup: named volumes (e.g. opencode-memory) are root-owned on
-# first attach. Chown to app:app if still root-owned (idempotent — no-op on
-# subsequent starts). Runs as root before the gosu privilege drop.
+# first attach, or may pre-date an APP_UID rebuild (stale prior-UID owner).
+# Chown to app:app whenever the owner differs from the current app user
+# (idempotent — no-op on subsequent starts). Runs as root before the gosu drop.
 MEM_DIR="/app/.memory"
-if [ -d "$MEM_DIR" ] && [ "$(stat -c %u "$MEM_DIR")" = "0" ]; then
+APP_UID="$(id -u app 2>/dev/null || printf '%s\n' 0)"
+if [ -d "$MEM_DIR" ] && [ "$(stat -c %u "$MEM_DIR")" != "$APP_UID" ]; then
   chown -R app:app "$MEM_DIR" 2>/dev/null || true
 fi
 

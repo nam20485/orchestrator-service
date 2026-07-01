@@ -2,10 +2,12 @@
 set -e
 
 # First-mount fixup: named volumes (caddy_data, caddy_config) are root-owned on
-# first attach and may pre-date the non-root switch. Chown to caddy:caddy if
-# still root-owned (idempotent). Runs as root before the privilege drop.
+# first attach and may pre-date the non-root switch or a rebuild that re-assigned
+# the caddy UID. Chown to caddy:caddy whenever the owner differs from the current
+# caddy user (idempotent). Runs as root before the privilege drop.
+CADDY_UID="$(id -u caddy 2>/dev/null || printf '%s\n' 0)"
 for d in /data /config; do
-  if [ -d "$d" ] && [ "$(stat -c %u "$d")" = "0" ]; then
+  if [ -d "$d" ] && [ "$(stat -c %u "$d")" != "$CADDY_UID" ]; then
     chown -R caddy:caddy "$d" 2>/dev/null || true
   fi
 done
