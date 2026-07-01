@@ -40,9 +40,9 @@ Provider credentials are injected at container start by `scripts/docker-entrypoi
 
 ### Non-root execution
 
-All three containers run as a non-root user (`app`, UID 1000 by default; Caddy uses its upstream `caddy` user). This means files created in `WORKSPACE_DIR` are owned by the host operator — no `sudo` needed to delete or modify them.
+All three containers run as a non-root user (`app`, UID 1000 by default; Caddy runs as a `caddy` user created in the image — the pinned upstream `caddy:2.10.0-alpine` ships none). This means files created in `WORKSPACE_DIR` are owned by the host operator — no `sudo` needed to delete or modify them.
 
-The `app`/`caddy` users and their file ownership are baked into the images at **build** time (`ARG APP_UID`/`APP_GID`, default 1000), and `orchestratorservice`/`webhook-receiver` start as root so their entrypoint can `chown` named volumes and then drop privileges via `gosu`. For this reason the compose files intentionally set **no** runtime `user:` — a runtime UID override would bypass the gosu drop and start the container as an arbitrary numeric UID that cannot write the 1000-owned `/home/app`, `/app/.memory`, `/data`, or `/config`.
+The `app`/`caddy` users and their file ownership are baked into the images at **build** time (`ARG APP_UID`/`APP_GID`, default 1000, configure the `app` user only), and all three start as root so their entrypoint can `chown` named volumes and then drop privileges (`gosu` for `app`, `su-exec` for `caddy`). For this reason the compose files intentionally set **no** runtime `user:` — a runtime UID override would bypass the drop and start the container as an arbitrary numeric UID that cannot write the 1000-owned `/home/app` or `/app/.memory`.
 
 **Override the UID/GID** if your host user is not UID 1000 by **rebuilding** the images so the `app` user is re-baked to match your host:
 

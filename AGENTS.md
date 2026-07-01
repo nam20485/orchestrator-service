@@ -22,7 +22,7 @@
 - Agent sessions run in `/workspace` (compose bind mount `${WORKSPACE_DIR}:/workspace`; host-side subdir is created by `scripts/prompt.ps1` before attach); `/app` is server config only—keep working tree separate from OpenCode install/config.
 - Root repo `AGENTS.md` is Cursor memory plus host-repo validation docs; the container uses `image/AGENTS.md` copied to `/app/AGENTS.md` (overwrites any root copy).
 - Provider auth: `scripts/docker-entrypoint.sh` writes `/home/app/.local/share/opencode/auth.json` from host/CI env vars before `opencode serve` starts; supported vars include `ZAI_CODING_API_KEY` (or `ZAI_API_KEY`), `OPENROUTER_API_KEY`, and `MODEL_STUDIO_API_KEY`; Alibaba Model Studio Singapore (`bailian-payg`) defaults to `bailian-payg/qwen3.6-plus` with `bailian-payg/qwen3.6-flash` as `small_model`.
-- Non-root execution: all three containers run as non-root (`app` UID 1000 by default via gosu entrypoint; Caddy uses upstream `caddy` user). Workspace files are operator-owned — no `sudo` for cleanup. The `app`/`caddy` users are baked at **build** time (`ARG APP_UID`/`APP_GID`); the compose files set **no** runtime `user:` because it would bypass the root→`gosu` drop and break ownership on non-1000 hosts. To run as a different UID, **rebuild** with `--build-arg APP_UID=$(id -u) --build-arg APP_GID=$(id -g)` (via `compose.build.yaml`), not a runtime env var. One-time migration for pre-existing root-owned files: `sudo chown -R $(id -u):$(id -g) $WORKSPACE_DIR`.
+- Non-root execution: all three containers run as non-root (`app` UID 1000 by default via gosu entrypoint; Caddy runs as a `caddy` user created in the image — the pinned `caddy:2.10.0-alpine` ships no non-root user — via a root entrypoint + `su-exec` drop, with `:80`/`:443` granted by a file capability on `/usr/bin/caddy` (`setcap cap_net_bind_service=+ep`) plus compose `cap_add: CAP_NET_BIND_SERVICE`). Workspace files are operator-owned — no `sudo` for cleanup. The `app`/`caddy` users are baked at **build** time (`ARG APP_UID`/`APP_GID` configure `app` only); the compose files set **no** runtime `user:` because it would bypass the root→`gosu`/`su-exec` drop and break ownership on non-1000 hosts. To run as a different UID, **rebuild** with `--build-arg APP_UID=$(id -u) --build-arg APP_GID=$(id -g)` (via `compose.build.yaml`), not a runtime env var. One-time migration for pre-existing root-owned files: `sudo chown -R $(id -u):$(id -g) $WORKSPACE_DIR`.
 - `zai-coding-plan/glm-4.7` needs `ZAI_CODING_API_KEY`; `OPENROUTER_API_KEY` alone does not authenticate that provider.
 - MCP `memory-graph` in `image/opencode.json` uses `@modelcontextprotocol/server-memory` with `MEMORY_FILE_PATH=/app/.memory/memory.jsonl`; compose volume `opencode-memory` persists it.
 - OpenCode config: use `default_agent` (not `agent`); remote MCPs like `microsoft-learn` need `type: "remote"` and `enabled: true`.
@@ -84,15 +84,17 @@ These docs are **historical/archived** and do NOT reflect current architecture. 
 - `plan_docs/archive/maestro_architecture_options.md` — Future architecture options for the maestro. NOT implemented.
 - `docs/agent-loop-dev-plans/` — Original refactor plans with inaccuracies. Corrected by `plan_docs/agent-loop-refactor/architecture.md` ("Corrections from Original Plans" section).
 
-## Testing
+## Validation
 
-- Full suite: `pwsh -NoProfile -File ./scripts/validate.ps1 -Test` (or `-All` for lint + scan + test).
-- Python: `uv sync --group dev` then `uv run pytest tests/ -q`.
-- Pester: `pwsh -NoProfile -File ./test/run-pester-tests.ps1`.
-- Bash: `test/test-docker-entrypoint.sh`, `test/test-compose-config.sh`, `test/test-caddyfile.sh`, `test/test-opencode-json.sh`.
-- Webhook fixtures: `test/fixtures/github/` (use `FAKE-KEY-FOR-TESTING-…` only; never `ghp_`, `sk-`, `AKIA`, etc. in fixtures).
+All changes must be validated — as they are implemented and before committing. The three mandatory steps are **build, scan, test**; locally this repo runs **lint, scan, test** (build is CI-only).
 
-## Change validation (mandatory)
+| Check | Command | CI job (`validate.yml`) |
+|-------|---------|-------------------------|
+| All (local) | `./scripts/validate.ps1 -All` | lint + scan + test (not build) |
+| Lint | `./scripts/validate.ps1 -Lint` | `lint` |
+| Secret scan | `./scripts/validate.ps1 -Scan` | `scan` |
+| Tests | `./scripts/validate.ps1 -Test` | `test` |
+| Docker image build | *(CI only)* | `build` |
 
 After any non-trivial change (code, config, workflows, Docker):
 
@@ -100,7 +102,89 @@ After any non-trivial change (code, config, workflows, Docker):
 2. Fix all failures; re-run until clean.
 3. Only then commit and push.
 
-Missing local tools: `pwsh -NoProfile -File ./scripts/install-dev-tools.ps1`.
+The validation script must mirror exactly what CI runs — keep `scripts/validate.ps1` and `.github/workflows/validate.yml` in sync. Missing local tools: `pwsh -NoProfile -File ./scripts/install-dev-tools.ps1`.
+
+### Missing Validation Script
+
+If the expected validation script does not exist:
+
+1. **Create it** at the repo root with the platform-appropriate extension (`.ps1` for Windows, `.sh` for Unix).
+2. **Implement build → scan → test** in order; each step must fail fast (non-zero exit) on error.
+3. **Make it executable** (`chmod +x` on Unix; on Windows ensure execution policy allows it).
+4. **Commit it** as its own change before running, so CI picks it up on the same branch.
+5. **Mirror CI/CD** — match any existing pipeline config (`.github/workflows/`, `azure-pipelines.yml`); if none exists, choose sensible defaults and document them in a comment at the top.
+
+## Testing
+
+An automated test suite must be maintained, with results and coverage reports generated automatically. **Test coverage must stay > 85%** as new code is added.
+
+- Full suite: `pwsh -NoProfile -File ./scripts/validate.ps1 -Test` (or `-All` for lint + scan + test).
+- Python: `uv sync --group dev` then `uv run pytest tests/ -q`.
+- Pester: `pwsh -NoProfile -File ./test/run-pester-tests.ps1`.
+- Bash: `test/test-docker-entrypoint.sh`, `test/test-compose-config.sh`, `test/test-caddyfile.sh`, `test/test-opencode-json.sh`.
+- Webhook fixtures: `test/fixtures/github/` (use `FAKE-KEY-FOR-TESTING-…` only; never `ghp_`, `sk-`, `AKIA`, etc. in fixtures).
+
+### Test Driven Development (TDD)
+
+When implementing new features, use TDD:
+
+- Implement failing tests to cover the required functionality.
+- Implement changes to make the tests pass.
+- Iterate creating tests and implementing changes until the functionality is complete.
+
+## Committing
+
+### Pre-commit checklist
+
+- Ran `./scripts/validate.ps1 -All` (or the relevant `-Lint` / `-Scan` / `-Test` subset).
+- Secret scan clean (`.cursor/skills/scan-uncommitted-secrets` or `validate.ps1 -Scan`).
+- No real API keys or tokens in committed files.
+- Always run the `/safe-commit` skill before committing.
+
+### Branching
+
+- Create a new branch for each feature or bug fix.
+- Use a descriptive name in the form `<base-branch-prefix>/<branch-name>`, i.e. `mn/new-feature` or `dev/<branch-name>`.
+
+### Pull Requests
+
+- Create a pull request for each branch with a descriptive title and description.
+- Request a review from the appropriate team member before merging.
+- Address **all** review comments before merging; for each, leave a reply explaining the resolution and mark the thread RESOLVED.
+
+## Delegation
+
+- Delegate work to the appropriate subagent type when possible.
+- If you are the top-level agent — especially if your type is not relevant to the current task — prefer delegating.
+- Delegate to parallel agents to speed up work and reduce implementation time.
+
+## Orchestration
+
+Use orchestration agents to **decompose and delegate** work instead of implementing it all yourself. Pick the **smallest layer** that fits the scope — do not spawn a higher layer for work a lower one (or you directly) can handle.
+
+- `orchestrator` — top-level coordinator for multi-step, multi-agent tasks. Breaks the work into a dependency graph and dispatches units to specialists (`planner`, `developer`, `code-reviewer`, `qa-tester`, `researcher`) in parallel batches. Use as the default for non-trivial, multi-part work.
+- `team-lead` — owns a **single workstream** (one feature/epic/fix) end-to-end: reviews the plan, assigns specialists, and enforces the definition of done. Use when the work fits within one accountable owner.
+- `team-orchestrator` — runs a **program of multiple parallel workstreams** by delegating each to a `team-lead` and managing cross-team dependencies. Use only for efforts too large for one `team-lead`; otherwise delegate straight to a `team-lead`.
+
+## Making Changes
+
+- Always make the smallest, most surgical change possible.
+- Only make changes that are necessary to fix the issue at hand.
+- Ignore areas not relevant to the current task.
+
+## Investigation
+
+- Never guess at the cause of an issue.
+- Always investigate using first-hand sources: logs, code, output.
+- Do not make or report assertions without specific details (line numbers, files, log messages) to back them up.
+- Do not start implementing a solution until you have decisively found the root cause.
+
+## Planning
+
+- Always create a plan before starting any non-trivial task (e.g. >= 3 steps or >= 5 minutes of work).
+- Present plans for approval before starting any non-trivial task.
+- Always use TODO lists to track work; mark items complete as done.
+- Present a summary after completing all plans/tasks.
 
 ## Scripts (`scripts/`)
 
@@ -122,25 +206,9 @@ PowerShell thin wrappers and helpers. Dot-source auth helpers; run others direct
 
 Notes: `prompt.ps1`/`attach.ps1` resolve server URL as: `-ServerUrl` > `$OPENCODE_SERVER_URL` > `$OPENCODE_HOST`/`$OPENCODE_PORT` > `http://localhost:4099`. They rely on host `OPENCODE_SERVER_PASSWORD` (never hardcoded). Default model in `prompt.ps1` is `zai-coding-plan/glm-4.7`.
 
-## Validation commands
+## After Push
 
-| Check | Command | CI job (`validate.yml`) |
-|-------|---------|-------------------------|
-| All (local) | `./scripts/validate.ps1 -All` | lint + scan + test (not build) |
-| Lint | `./scripts/validate.ps1 -Lint` | `lint` |
-| Secret scan | `./scripts/validate.ps1 -Scan` | `scan` |
-| Tests | `./scripts/validate.ps1 -Test` | `test` |
-| Docker image build | *(CI only)* | `build` |
-
-## Pre-commit checklist
-
-- Ran `./scripts/validate.ps1 -All` (or the relevant `-Lint` / `-Scan` / `-Test` subset).
-- Secret scan clean (`.cursor/skills/scan-uncommitted-secrets` or `validate.ps1 -Scan`).
-- No real API keys or tokens in committed files.
-
-## After push
-
-Monitor CI until green: `gh run list --limit 5`, `gh run watch <id>`, `gh run view <id> --log-failed`. Required workflow: **validate** (lint, scan, test, build). Do not mark work complete while CI is red.
+Monitor CI until green: `gh run list --limit 5`, `gh run watch <id>`, `gh run view <id> --log-failed`. Required workflow: **validate** (lint, scan, test, build). Do not mark work complete while CI is red. If a workflow fails, investigate and fix before proceeding; repeat until all workflows pass.
 
 ### Diagnosing GHA failures (mandatory — no guessing)
 
@@ -189,6 +257,8 @@ When a root cause is determined and communicated, **display the log line(s) that
 
 ## Tool Use Instructions
 
+Always use sequential-thinking and the Memory knowledge-graph for all non-trivial tasks.
+
 ### Querying Microsoft Documentation
 
 - **Tools:** `microsoft_docs_search`, `microsoft_docs_fetch`, `microsoft_code_sample_search`
@@ -210,3 +280,30 @@ When a root cause is determined and communicated, **display the log line(s) that
 - **Entities** are named typed nodes with observations; **relations** are directed active-voice links; **observations** are atomic facts (one per observation).
 - At task start, search or read relevant memory; after significant work, update memory with new patterns, configurations, or insights.
 - Prefer `search_nodes` / `open_nodes` over `read_graph` unless a full-graph view is required.
+- For **durable, reusable context only** — never transient scratch state or secrets/PII (the store is plaintext). Search before creating to avoid duplicates; keep observations atomic, specific, and active-voiced.
+
+### Web & Repository Research (Z.AI MCP)
+
+Three **remote** Z.AI MCP servers authenticate via the `Authorization: {env:Z_AI_API_KEY}` header and require no local install. Use them for reliable, structured external information retrieval instead of ad-hoc fetching.
+
+- **`web-search-prime`** → `webSearchPrime` — Web search returning titles, URLs, summaries, site names, and icons. Use for best-practice surveys, competitive analysis, dependency/API research, and factual questions needing current external info. Key params: `content_size` (`medium` default, `high` for comprehensive), `location` (`cn` / `us`), `search_domain_filter` (whitelist a domain), `search_recency_filter` (`oneDay` / `oneWeek` / `oneMonth` / `oneYear` / `noLimit`). Keep queries ≤ 70 chars.
+- **`web-reader`** → `webReader` — Fetches a URL and converts it to large-model-friendly input (markdown/text/html). Returns page title, main content, metadata, and optional link/image summaries. Use to read API docs, articles, release notes, and reference pages. Prefer this over generic `webfetch` when available.
+- **`zread`** — Reads **public** GitHub repositories without cloning: `search_doc` (search docs/issues/commits/PRs/contributors), `get_repo_structure` (directory tree + file list), and `read_file` (full file contents). Use for dependency evaluation, "how does library X work?" questions, and issue/commit history lookups. Requires `owner/repo` names; only public repos are supported.
+
+Decision points:
+
+- Need current facts from the open web → `webSearchPrime`, then `webReader` to drill into a specific result.
+- Need to understand an open-source repo → `zread` first (`get_repo_structure` + `search_doc`), then `read_file` for implementation details.
+- For broad, multi-source surveys, delegate to the `researcher` subagent; use these tools directly for quick, single-shot lookups.
+
+### Exa Search (MCP)
+
+The **remote** Exa MCP server authenticates via `exaApiKey={env:EXA_API_KEY}` and requires no local install. Use it as a complement to Z.AI when its neural search, code-context, or crawling fits better.
+
+- **`web_search_exa`** — Keyword/neural web search. Fallback when Z.AI `webSearchPrime` is rate-limited.
+- **`web_search_advanced_exa`** — Filtered search (date, domain, text-match, count). Scoped queries.
+- **`web_fetch_exa`** — Fetch a URL to clean markdown/text. Alternative to Z.AI `webReader`.
+- **`get_code_context_exa`** — Code context (functions, types, usage) for "how is X used?" before `zread` for full files.
+- **`crawling_exa`** — Crawl multiple pages of a site; collect a doc subsite in one call.
+
+Prefer Z.AI `webSearchPrime`/`webReader` as the default for single-shot lookups; reach for Exa when its neural search, code-context, or crawling fits better.

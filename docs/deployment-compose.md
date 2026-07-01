@@ -20,11 +20,11 @@ Two env vars are always required: `WORKSPACE_DIR` (host dir → `/workspace`) an
 
 All three containers run as a non-root user:
 - `orchestratorservice` and `webhook-receiver` run as `app` (UID 1000 by default) via a `gosu` entrypoint privilege drop.
-- `webhook-proxy` (Caddy) uses the upstream `caddy` user (UID 1000) via `USER caddy` in the image.
+- `webhook-proxy` (Caddy) runs as a non-root `caddy` user created in the image — the pinned upstream `caddy:2.10.0-alpine` ships no non-root user — via a root entrypoint that chowns `caddy_data`/`caddy_config` and drops to `caddy` with `su-exec`. `:80`/`:443` binding uses a file capability on `/usr/bin/caddy` (`setcap cap_net_bind_service=+ep`) plus compose `cap_add: CAP_NET_BIND_SERVICE`.
 
 This means files created in `WORKSPACE_DIR` are owned by the host operator — no `sudo` needed to delete or modify them.
 
-The `app`/`caddy` users and their file ownership are baked into the images at **build** time (`ARG APP_UID`/`APP_GID`, default 1000). `orchestratorservice`/`webhook-receiver` start as root so their entrypoint can `chown` named volumes and then drop privileges via `gosu`. The compose files therefore set **no** runtime `user:` — a runtime UID override would bypass the gosu drop and start the container as an arbitrary numeric UID that cannot write the 1000-owned `/home/app`, `/app/.memory`, `/data`, or `/config`.
+The `app` user (`orchestratorservice`/`webhook-receiver`) and the `caddy` user (`webhook-proxy`) and their file ownership are baked into the images at **build** time. `ARG APP_UID`/`APP_GID` (default 1000) configure the `app` user only; `caddy` is a fixed system UID. `orchestratorservice`/`webhook-receiver` start as root so their entrypoint can `chown` named volumes and then drop privileges via `gosu`; `webhook-proxy` does the same via its own root entrypoint + `su-exec`. The compose files therefore set **no** runtime `user:` — a runtime UID override would bypass the drop and start the container as an arbitrary numeric UID that cannot write the 1000-owned `/home/app` or `/app/.memory`.
 
 ### Override UID/GID
 
