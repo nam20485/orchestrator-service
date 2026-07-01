@@ -24,17 +24,17 @@ All three containers run as a non-root user:
 
 This means files created in `WORKSPACE_DIR` are owned by the host operator — no `sudo` needed to delete or modify them.
 
+The `app`/`caddy` users and their file ownership are baked into the images at **build** time (`ARG APP_UID`/`APP_GID`, default 1000). `orchestratorservice`/`webhook-receiver` start as root so their entrypoint can `chown` named volumes and then drop privileges via `gosu`. The compose files therefore set **no** runtime `user:` — a runtime UID override would bypass the gosu drop and start the container as an arbitrary numeric UID that cannot write the 1000-owned `/home/app`, `/app/.memory`, `/data`, or `/config`.
+
 ### Override UID/GID
 
-If your host user is not UID 1000, override at runtime:
+If your host user is not UID 1000, you must **rebuild** the images so the `app` user is re-baked to match your host UID (a runtime `user:` override does not work with the prebuilt images):
 
 ```bash
-export APP_UID=$(id -u)
-export APP_GID=$(id -g)
+docker compose -f compose.yaml -f compose.build.yaml build \
+  --build-arg APP_UID=$(id -u) --build-arg APP_GID=$(id -g)
 docker compose up -d
 ```
-
-Or rebuild with build args: `docker build --build-arg APP_UID=$(id -u) --build-arg APP_GID=$(id -g) -t ... .`
 
 ### One-time migration
 

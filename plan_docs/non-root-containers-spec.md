@@ -55,9 +55,9 @@ there is no `gosu`/`su-exec`/`runuser` privilege drop. Two concrete consequences
 
 | Decision | Choice | Rationale |
 |---|---|---|
-| Where the user is defined | **`app` user created in image** via build `ARG` (default UID/GID `1000:1000`); privilege drop via `gosu` in entrypoint (no `USER` directive) | Entrypoint starts as root for volume fixup, then `exec gosu app` drops privileges. Compose `user:` override remains available for host-UID mismatch. |
+| Where the user is defined | **`app` user created in image** via build `ARG` (default UID/GID `1000:1000`); privilege drop via `gosu` in entrypoint (no `USER` directive) | Entrypoint starts as root for volume fixup, then `exec gosu app` drops privileges. Compose must **not** set a runtime `user:` — it would bypass the gosu drop. |
 | User name | `app` (home `/home/app`) | Conventional, short, unambiguous. |
-| UID/GID configurability | Build args `APP_UID` / `APP_GID` (default `1000`); compose can override at runtime via `user:` | Build-time default matches common host user; runtime override handles hosts where the operator UID ≠ 1000. |
+| UID/GID configurability | Build args `APP_UID` / `APP_GID` (default `1000`); host-UID mismatch handled by **rebuilding** with these args (not a runtime `user:`) | Build-time default matches common host user. A runtime Compose `user:` override is incompatible with the root→`gosu` design: the pulled images bake `app`/`caddy` at UID 1000, so a different runtime UID cannot write the 1000-owned `/home/app`, `/app/.memory`, `/data`, or `/config`. |
 | Install paths | Repath all `/root/...` → `/home/app/...` (uv, opencode, config dirs) | Installers (`curl \| sh`) honor `$HOME`; `RUN` steps use `HOME=/home/app` prefix so installers write to `/home/app`. All steps run as root; `chown -R app:app /home/app` after installs. |
 | `/app` ownership | `chown -R app:app /app` after `COPY`/`uv sync` | Runtime user must read config and (for webhook) write `.venv`/caches. |
 | `/workspace` | No image change; works automatically when container UID == host UID | Bind mount is host-owned; matching UID gives seamless read/write with no `chown`. |
@@ -96,8 +96,10 @@ PATH — no custom entries needed (all binaries in /usr/local/bin)
 ### Compose
 
 ```yaml
-# Added to each service (or rely on baked USER; compose override for host mismatch):
-user: "${APP_UID:-1000}:${APP_GID:-1000}"
+# No runtime `user:` is set on any service. The images bake `app`/`caddy` at UID 1000,
+# and orchestratorservice/webhook-receiver start as root so the gosu entrypoint can drop
+# to `app`. A Compose `user:` override would bypass gosu and break ownership on non-1000
+# hosts — customize the UID by rebuilding with --build-arg APP_UID/APP_GID instead.
 
 # webhook-proxy only:
 cap_add:
@@ -209,10 +211,14 @@ cap_add:
 
 ### Phase 4 — Compose
 
-1. Add to **all three** services in `compose.yaml` and `compose.development.yaml`:
-   ```yaml
-   user: "${APP_UID:-1000}:${APP_GID:-1000}"
-   ```
+1. **Do not** set a runtime `user:` on any service. The `orchestratorservice` and
+   `webhook-receiver` images have no `USER` directive on purpose — they start as root so the
+   entrypoint can `chown` first-mount named volumes and then drop privileges via `gosu app`. A
+   Compose `user: "${APP_UID:-...}"` override starts the container as a bare numeric UID that
+   bypasses gosu and (because the `app`/`caddy` users and their files are baked at build time)
+   cannot write `/home/app`, `/app/.memory`, `/data`, or `/config` on any host whose UID ≠ 1000.
+   The correct way to run as a non-1000 UID is to **rebuild** with
+   `--build-arg APP_UID=$(id -u) --build-arg APP_GID=$(id -g)` (see `compose.build.yaml`).
 2. Add to `webhook-proxy` only:
    ```yaml
    cap_add:
@@ -220,7 +226,7 @@ cap_add:
    ```
 3. No change to volume declarations; ownership handled by image/entrypoint.
 4. `compose.build.yaml` — **no changes needed** (build overlay only adds `build:` context and
-   `pull_policy: never`; inherits `user:`/`cap_add:` from base service definitions).
+   `pull_policy: never`; rebuild with `--build-arg APP_UID`/`APP_GID` for host-UID mismatch).
 5. `compose.https.yaml` — **no changes needed** (port overlay only adds `443:443`; inherits
    `cap_add:` from base `webhook-proxy` service definition).
 
@@ -239,15 +245,18 @@ cap_add:
 4. **New** test: named volume first-mount fixup — simulate a fresh `opencode-memory` volume
    (root-owned empty dir), start the container, verify `/app/.memory` is `chown`-ed to `app:app`
    by the entrypoint.
-5. Update `test/test-compose-config.sh` if `user:`/`cap_add` affect the config assertion.
+5. Update `test/test-compose-config.sh` if `cap_add` affects the config assertion (no `user:`
+   is set on any service — see Phase 4).
 6. Update `scripts/validate.ps1` test list if a new script is added.
 
 ### Phase 6 — Documentation
 
-1. **README.md** — add "Non-root execution" note: default UID 1000, how to override
-   (`APP_UID`/`APP_GID`), the one-time host migration (`sudo chown -R $UID:$GID $WORKSPACE_DIR`
-   for pre-existing root-owned files), and the Caddy `CAP_NET_BIND_SERVICE` requirement.
-2. **docs/deployment-compose.md** — document `APP_UID`/`APP_GID` and the cap requirement.
+1. **README.md** — add "Non-root execution" note: default UID 1000, how to customize the UID
+   (**rebuild** with `APP_UID`/`APP_GID` build args — not a runtime `user:`), the one-time host
+   migration (`sudo chown -R $UID:$GID $WORKSPACE_DIR` for pre-existing root-owned files), and
+   the Caddy `CAP_NET_BIND_SERVICE` requirement.
+2. **docs/deployment-compose.md** — document the rebuild-based `APP_UID`/`APP_GID` override and
+   the cap requirement.
 3. **AGENTS.md** — update "Learned Workspace Facts": containers run as non-root `app` (UID 1000)
    via gosu entrypoint; workspace files are operator-owned; note the one-time migration. Also
    **remove** the stale claim that `docker-entrypoint.sh` exports `OPENCODE_CONFIG` and
@@ -259,7 +268,7 @@ cap_add:
 
 | Edge case | Handling |
 |---|---|
-| Host operator UID ≠ 1000 | Override at runtime: `APP_UID=$(id -u) APP_GID=$(id -g)` in shell/env, or rebuild with build args. Documented. |
+| Host operator UID ≠ 1000 | **Rebuild** the images with build args (`--build-arg APP_UID=$(id -u) --build-arg APP_GID=$(id -g)` via `compose.build.yaml`) so the `app` user is re-baked to match the host. A runtime Compose `user:` override does **not** work: the pulled images bake `app`/`caddy` at UID 1000, so a different runtime UID cannot write their files. Documented. |
 | Pre-existing root-owned workspace files | One-time host migration: `sudo chown -R $(id -u):$(id -g) $WORKSPACE_DIR`. Cannot be done from inside a non-root container. Documented in README. |
 | Named volume first-mount root ownership (`opencode-memory`, caddy data/config) | Entrypoint `chown` guarded by ownership check (idempotent). |
 | Caddy cannot bind `:80` as non-root | `cap_add: CAP_NET_BIND_SERVICE` in compose. Fallback documented: bind `:8080` internal + remap. |
@@ -278,8 +287,9 @@ cap_add:
 2. `docker run --rm ghcr.io/nam20485/orchestrator-service/webhook:dev id -u` prints `1000`.
 3. `docker run --rm ghcr.io/nam20485/orchestrator-service/caddy:dev id -u` prints the caddy user's
    UID (non-zero).
-4. With `APP_UID=$(id -u)`, a full beads cycle writes files to `$WORKSPACE_DIR` owned by the host
-   operator (verifiable via `ls -l` — no `root` owner, no `sudo` needed to delete).
+4. After rebuilding with `--build-arg APP_UID=$(id -u) --build-arg APP_GID=$(id -g)`, a full beads
+   cycle writes files to `$WORKSPACE_DIR` owned by the host operator (verifiable via `ls -l` — no
+   `root` owner, no `sudo` needed to delete).
 5. `opencode serve` starts and loads global config from `/home/app/.config/opencode` (no
    "config not found" errors in logs).
 6. Webhook receiver performs `git clone`/`worktree`/`push`/`gh pr create` as `app` without
@@ -294,9 +304,9 @@ cap_add:
 1. **Local validation:** `pwsh -NoProfile -File ./scripts/validate.ps1 -All` — must pass clean.
 2. **New bash tests:** `test/test-docker-user.sh` (UID assertions, PATH binaries, bind-mount
    ownership) — added to the test suite.
-3. **Manual — ownership:** bring up `compose.development.yaml` with
-   `APP_UID=$(id -u) APP_GID=$(id -g)`; trigger a beads cycle; confirm `$WORKSPACE_DIR` files are
-   operator-owned and deletable without `sudo`.
+3. **Manual — ownership:** rebuild and bring up `compose.development.yaml` with
+   `--build-arg APP_UID=$(id -u) --build-arg APP_GID=$(id -g)`; trigger a beads cycle; confirm
+   `$WORKSPACE_DIR` files are operator-owned and deletable without `sudo`.
 4. **Manual — function:** webhook dispatch → opencode run; `/perfect-idea` → `/plan-to-beads` →
    BeadsLoop processes a bead → `br close` → push → PR. All as non-root.
 5. **Manual — Caddy:** `curl http://localhost/health` (or webhook endpoint) through the proxy.
@@ -313,13 +323,13 @@ cap_add:
 | `deploy/caddy/Dockerfile` | `USER caddy` (upstream UID 1000, volumes writable — verified) |
 | `scripts/docker-entrypoint.sh` | Add gosu privilege drop + idempotent `opencode-memory` volume `chown` (ownership-guarded) |
 | `scripts/git-trust.sh` | No script change needed (already uses `$HOME`); invoked with `HOME=/home/app` in Dockerfiles |
-| `compose.yaml` | `user:` on all services; `cap_add: CAP_NET_BIND_SERVICE` on `webhook-proxy` |
+| `compose.yaml` | `cap_add: CAP_NET_BIND_SERVICE` on `webhook-proxy` (no `user:` — see Phase 4) |
 | `compose.development.yaml` | Same as `compose.yaml` |
 | `test/test-docker-user.sh` | **New** — UID/PATH/bind-mount ownership assertions |
-| `test/test-compose-config.sh` | Update if `user:`/`cap_add` affect assertions |
+| `test/test-compose-config.sh` | Update if `cap_add` affects assertions |
 | `scripts/validate.ps1` | Register new test script (if needed) |
 | `README.md` | Non-root execution section + one-time migration |
-| `docs/deployment-compose.md` | `APP_UID`/`APP_GID` + cap requirement |
+| `docs/deployment-compose.md` | Rebuild-based `APP_UID`/`APP_GID` override + cap requirement |
 | `AGENTS.md` | "Learned Workspace Facts" update |
 | `GEMINI.md` | Mirror AGENTS.md workspace-fact update |
 
@@ -333,8 +343,10 @@ All questions resolved before implementation:
 2. **Upstream caddy user → verified.** `caddy:2.10.0-alpine` ships a `caddy` user at UID 1000.
    `/data` and `/config` are owned by `caddy:caddy` in the upstream image. No additional chown
    or wrapper needed.
-3. **`APP_UID` default → 1000 confirmed.** Matches the primary operator's UID. Runtime override
-   via compose `user:` directive available for hosts with different UIDs.
+3. **`APP_UID` default → 1000 confirmed.** Matches the primary operator's UID. Host-UID mismatch
+   is handled by **rebuilding** with `--build-arg APP_UID`/`APP_GID`; a runtime Compose `user:`
+   override is **not** used (it bypasses the gosu drop and is incompatible with the baked UID 1000
+   file ownership — see Phase 4).
 4. **`br`/`bvr` as non-root → no issues.** Pure userspace Rust binaries with no root
    assumptions. Beads database (`beads.db`) and lockfiles in `/workspace/<slug>/.beads/` are
    created by the runtime user (UID match on bind mount).

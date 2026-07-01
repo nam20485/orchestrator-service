@@ -42,12 +42,14 @@ Provider credentials are injected at container start by `scripts/docker-entrypoi
 
 All three containers run as a non-root user (`app`, UID 1000 by default; Caddy uses its upstream `caddy` user). This means files created in `WORKSPACE_DIR` are owned by the host operator — no `sudo` needed to delete or modify them.
 
-**Override the UID/GID** if your host user is not UID 1000:
+The `app`/`caddy` users and their file ownership are baked into the images at **build** time (`ARG APP_UID`/`APP_GID`, default 1000), and `orchestratorservice`/`webhook-receiver` start as root so their entrypoint can `chown` named volumes and then drop privileges via `gosu`. For this reason the compose files intentionally set **no** runtime `user:` — a runtime UID override would bypass the gosu drop and start the container as an arbitrary numeric UID that cannot write the 1000-owned `/home/app`, `/app/.memory`, `/data`, or `/config`.
+
+**Override the UID/GID** if your host user is not UID 1000 by **rebuilding** the images so the `app` user is re-baked to match your host:
 
 ```bash
-export APP_UID=$(id -u)
-export APP_GID=$(id -g)
-docker compose up --build
+docker compose -f compose.yaml -f compose.build.yaml build \
+  --build-arg APP_UID=$(id -u) --build-arg APP_GID=$(id -g)
+docker compose up -d
 ```
 
 **One-time migration** for pre-existing root-owned workspace files (from before this change):
