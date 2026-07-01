@@ -16,6 +16,42 @@ Two env vars are always required: `WORKSPACE_DIR` (host dir → `/workspace`) an
 
 ---
 
+## Non-root execution
+
+All three containers run as a non-root user:
+- `orchestratorservice` and `webhook-receiver` run as `app` (UID 1000 by default) via a `gosu` entrypoint privilege drop.
+- `webhook-proxy` (Caddy) uses the upstream `caddy` user (UID 1000) via `USER caddy` in the image.
+
+This means files created in `WORKSPACE_DIR` are owned by the host operator — no `sudo` needed to delete or modify them.
+
+### Override UID/GID
+
+If your host user is not UID 1000, override at runtime:
+
+```bash
+export APP_UID=$(id -u)
+export APP_GID=$(id -g)
+docker compose up -d
+```
+
+Or rebuild with build args: `docker build --build-arg APP_UID=$(id -u) --build-arg APP_GID=$(id -g) -t ... .`
+
+### One-time migration
+
+If you have pre-existing root-owned workspace files (from before non-root execution), run this one-time cleanup on the host:
+
+```bash
+sudo chown -R $(id -u):$(id -g) "$WORKSPACE_DIR"
+```
+
+This cannot be done from inside a non-root container.
+
+### Caddy privileged ports
+
+Caddy binds `:80`/`:443` as non-root via `CAP_NET_BIND_SERVICE`, which is added in `compose.yaml` and `compose.development.yaml`. No additional configuration needed.
+
+---
+
 ## The services
 
 | Service | Image | Port | Role |

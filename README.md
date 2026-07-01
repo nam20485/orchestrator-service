@@ -16,6 +16,8 @@ The `BeadsLoop` runs as a background daemon thread in `webhook-receiver`. It sca
 
 > **"Ready at will."** The service starts before any work is planned. When no projects exist (no `.beads/` dirs found), `BeadsLoop` stays idle. When a user triggers `/plan-to-beads` in a project workspace, beads are created and the loop discovers the project on its next scan — no restart required. This is a **normal state**, not an error.
 
+**Normal states vs. real errors:** "beads not initialized" (`NOT_INITIALIZED`) and an empty `br ready --json` (no unblocked beads) are both **normal idle states**, not errors. Real errors are non-`NOT_INITIALIZED` failures from `br ready` (e.g. `db locked`), logged at `ERROR` level. An agent's failure to run `br close` is caught by retry logic (up to `BEADS_MAX_RETRIES`, default 3) — it does not crash the service.
+
 ## OpenCode server + webhook receiver (Docker)
 
 ```bash
@@ -26,6 +28,8 @@ export WORKSPACE_DIR='…'       # host directory mounted at /workspace (agent w
 docker compose up --build
 ```
 
+Provider credentials are injected at container start by `scripts/docker-entrypoint.sh` (which writes `/home/app/.local/share/opencode/auth.json` before `opencode serve`): `ZAI_CODING_API_KEY` (alias `ZAI_API_KEY`, for `zai-coding-plan/` models such as `glm-4.7`), `OPENROUTER_API_KEY`, and `MODEL_STUDIO_API_KEY` (Alibaba Model Studio Singapore, provider `bailian-payg`; defaults to `bailian-payg/qwen3.6-plus` large / `bailian-payg/qwen3.6-flash` small). Compose reads these from the host/CI environment — **no project `.env` file**.
+
 `WORKSPACE_DIR` is **required** — it is the host directory bind-mounted into both `orchestratorservice` and `webhook-receiver` at `/workspace`. This is where agent sessions run. Projects live in subdirectories (`/workspace/<project-slug>/`), each containing its own `.beads/` DAG and per-bead git worktrees. Create it before first start (e.g. `mkdir -p ~/orchestrator-workspace && export WORKSPACE_DIR=~/orchestrator-workspace`).
 
 > **Migration from the old named volume:** If you previously ran with the `opencode-workspace` named volume, copy its contents to your host directory before starting:
@@ -33,6 +37,26 @@ docker compose up --build
 > docker run --rm -v opencode-workspace:/src -v "$WORKSPACE_DIR":/dst alpine sh -c 'cp -a /src/. /dst/'
 > ```
 > The old named volume can then be removed (`docker volume rm opencode-workspace`).
+
+### Non-root execution
+
+All three containers run as a non-root user (`app`, UID 1000 by default; Caddy uses its upstream `caddy` user). This means files created in `WORKSPACE_DIR` are owned by the host operator — no `sudo` needed to delete or modify them.
+
+**Override the UID/GID** if your host user is not UID 1000:
+
+```bash
+export APP_UID=$(id -u)
+export APP_GID=$(id -g)
+docker compose up --build
+```
+
+**One-time migration** for pre-existing root-owned workspace files (from before this change):
+
+```bash
+sudo chown -R $(id -u):$(id -g) "$WORKSPACE_DIR"
+```
+
+**Caddy** binds privileged ports (`:80`/`:443`) as non-root via `CAP_NET_BIND_SERVICE` (added in compose). No additional configuration needed.
 
 - **orchestratorservice** — OpenCode server on port **4099**
 - **webhook-receiver** — internal FastAPI app (`POST /webhooks/github`)
@@ -59,7 +83,7 @@ Large prompts: `-PromptFile /path/to/prompt.md`.
 
 ## GitHub webhook receiver
 
-Python app (managed with **uv**) that validates GitHub App webhooks and dispatches orchestration runs in the background.
+Python app (managed with **uv** — always use `uv`, never global `pip install`) that validates GitHub App webhooks and dispatches orchestration runs in the background.
 
 ### Setup
 
@@ -154,3 +178,23 @@ pwsh -NoProfile -File ./scripts/validate.ps1 -All         # before commit
 ```
 
 CI runs [`.github/workflows/validate.yml`](.github/workflows/validate.yml) on PRs: **lint**, **scan**, **test**, **build** (Docker images; build is CI-only, not in local `-All`). See [AGENTS.md](AGENTS.md) for the full validation contract.
+
+## Secrets & fixtures
+
+Never write or commit real credentials or tokens (`ghp_…`, `sk-…`, `AKIA…`) in code or fixtures. In test fixtures use only `FAKE-KEY-FOR-TESTING-…` placeholders. The secret scan (`validate.ps1 -Scan` / `.cursor/skills/scan-uncommitted-secrets`) must pass cleanly before commit.
+
+## Diagnosing CI failures
+
+Never guess at GitHub Actions failures — read the actual logs and cite the exact failing lines:
+
+```bash
+gh run list --workflow=validate.yml --limit 5
+gh run view <run-id> --log-failed
+```
+
+## Legacy / outdated docs
+
+These historical documents do **not** reflect the current architecture — do not use them for implementation guidance:
+
+- `plan_docs/archive/plan.md`, `plan_docs/archive/orchestration_supervisor.md`, `plan_docs/archive/maestro_architecture_options.md`
+- `docs/agent-loop-dev-plans/` (corrected by [`plan_docs/agent-loop-refactor/architecture.md`](plan_docs/agent-loop-refactor/architecture.md), the authoritative reference)
