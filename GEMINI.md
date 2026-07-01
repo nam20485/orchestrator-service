@@ -23,7 +23,7 @@ Welcome! This is the definitive context, architecture reference, and instruction
 1.  **`orchestratorservice`** (OpenCode Server)
     *   Exposed on port **`4099`** (e.g. `http://localhost:4099`).
     *   Runs the `opencode serve` command inside a Docker container.
-    *   Hosts agent sessions. Config files (`opencode.json`, `AGENTS.md`, and `.opencode/` agents/commands directories) are copied to `/app` inside the image and loaded using environment variables (`OPENCODE_CONFIG` and `OPENCODE_CONFIG_DIR`).
+    *   Hosts agent sessions. Config files (`opencode.json`, `AGENTS.md`, and `.opencode/` agents/commands directories) are copied to `/app` inside the image and installed into the global config dir (`/home/app/.config/opencode`) so `opencode serve` auto-loads them. The entrypoint does NOT export `OPENCODE_CONFIG`/`OPENCODE_CONFIG_DIR`. Runs as non-root `app` user (UID 1000 by default via gosu entrypoint).
     *   Runs agent workspaces in `/workspace` (backed by a host bind mount `${WORKSPACE_DIR}:/workspace`), keeping them separate from server config files.
 2.  **`webhook-receiver`** (FastAPI App)
     *   Binds internally to port **`8080`**.
@@ -48,7 +48,7 @@ When interacting with the logs or supervising services, understand this distinct
 
 ## 3. Environment Variables & Authentication
 
-The project depends on host/CI environment variables injected at startup by `scripts/docker-entrypoint.sh` (which writes `/root/.local/share/opencode/auth.json` before `opencode serve` starts). **Do not use `.env` files for Compose.**
+The project depends on host/CI environment variables injected at startup by `scripts/docker-entrypoint.sh` (which writes `/home/app/.local/share/opencode/auth.json` before `opencode serve` starts). **Do not use `.env` files for Compose.**
 
 ### Core Configurations
 

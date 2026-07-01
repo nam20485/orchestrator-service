@@ -44,4 +44,19 @@ fi
 # where image/.opencode is installed in the Dockerfile (opencode.json, AGENTS.md,
 # agents/, commands/, skills/). No OPENCODE_CONFIG/OPENCODE_CONFIG_DIR needed.
 
-exec "$@"
+# First-mount fixup: named volumes (e.g. opencode-memory) are root-owned on
+# first attach. Chown to app:app if still root-owned (idempotent — no-op on
+# subsequent starts). Runs as root before the gosu privilege drop.
+MEM_DIR="/app/.memory"
+if [ -d "$MEM_DIR" ] && [ "$(stat -c %u "$MEM_DIR")" = "0" ]; then
+  chown -R app:app "$MEM_DIR" 2>/dev/null || true
+fi
+
+# Privilege drop: start as root (no USER directive in Dockerfile), then exec
+# the server as the non-root app user via gosu. Fall back to direct exec if
+# gosu is not available (e.g. when running the entrypoint test on the host).
+if command -v gosu >/dev/null 2>&1; then
+  exec gosu app "$@"
+else
+  exec "$@"
+fi
