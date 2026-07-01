@@ -44,6 +44,12 @@ fi
 # where image/.opencode is installed in the Dockerfile (opencode.json, AGENTS.md,
 # agents/, commands/, skills/). No OPENCODE_CONFIG/OPENCODE_CONFIG_DIR needed.
 
+# The auth write above created ${HOME_DIR}/.local/share/opencode (and parents)
+# as root; opencode runs as `app` after the gosu drop and must mkdir/write within
+# it (e.g. repos/), so chown the runtime data tree back to app. Idempotent and
+# tiny at startup (only auth.json until opencode populates it).
+chown -R app:app "${HOME_DIR}/.local/share/opencode" 2>/dev/null || true
+
 # First-mount fixup: named volumes (e.g. opencode-memory) are root-owned on
 # first attach. Chown to app:app if still root-owned (idempotent — no-op on
 # subsequent starts). Runs as root before the gosu privilege drop.
