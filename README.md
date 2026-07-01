@@ -49,7 +49,7 @@ The `app`/`caddy` users and their file ownership are baked into the images at **
 ```bash
 docker compose -f compose.yaml -f compose.build.yaml build \
   --build-arg APP_UID=$(id -u) --build-arg APP_GID=$(id -g)
-docker compose up -d
+docker compose -f compose.yaml -f compose.build.yaml up -d
 ```
 
 **One-time migration** for pre-existing root-owned workspace files (from before this change):

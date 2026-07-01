@@ -33,7 +33,7 @@ If your host user is not UID 1000, you must **rebuild** the images so the `app` 
 ```bash
 docker compose -f compose.yaml -f compose.build.yaml build \
   --build-arg APP_UID=$(id -u) --build-arg APP_GID=$(id -g)
-docker compose up -d
+docker compose -f compose.yaml -f compose.build.yaml up -d
 ```
 
 ### One-time migration
