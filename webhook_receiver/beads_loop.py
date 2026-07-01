@@ -9,6 +9,7 @@ import threading
 import time
 from dataclasses import replace
 from pathlib import Path
+from typing import Any
 
 from webhook_receiver import bead_context
 from webhook_receiver.config import Settings
@@ -76,6 +77,36 @@ class BeadsLoop:
         """Map of active bead IDs to their project slug."""
         with self._lock:
             return dict(self._bead_projects)
+
+    def state_for_project(self, project_slug: str) -> dict[str, Any]:
+        """Return loop state for one project, keyed by raw bead ID.
+
+        Internal state dicts use composite keys ``f"{project}:{bead_id}"``
+        to avoid cross-project ID collisions. This method strips the
+        project prefix so dashboard callers can match against the raw bead
+        IDs returned by ``br list``.
+        """
+        prefix = f"{project_slug}:"
+        plen = len(prefix)
+        with self._lock:
+            return {
+                "active": {
+                    k[plen:] for k in self._active_beads if k.startswith(prefix)
+                },
+                "halted": {
+                    k[plen:] for k in self._halted_beads if k.startswith(prefix)
+                },
+                "retry": {
+                    k[plen:]: dict(v)
+                    for k, v in self._retry_state.items()
+                    if k.startswith(prefix)
+                },
+                "start_times": {
+                    k[plen:]: v
+                    for k, v in self._bead_start_times.items()
+                    if k.startswith(prefix)
+                },
+            }
 
     def _emit(self, event_type: str, **data: object) -> None:
         if self._event_store:

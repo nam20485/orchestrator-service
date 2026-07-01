@@ -764,3 +764,36 @@ def test_check_bead_status_non_dict_data(mock_run: MagicMock) -> None:
     mock_run.return_value = _mock_result(json.dumps([1, 2, 3]))
     loop = BeadsLoop(_test_settings())
     assert loop._check_bead_status("br-r", "/workspace/proj") == "unknown"
+
+
+# ── state_for_project (composite-key → raw-ID translation) ────────────────
+
+
+def test_state_for_project_strips_prefix() -> None:
+    """state_for_project returns raw bead IDs, not composite keys."""
+    loop = BeadsLoop(_test_settings())
+    loop._active_beads.add("proj-a:br-1")
+    loop._active_beads.add("proj-b:br-2")  # different project — excluded
+    loop._halted_beads.add("proj-a:br-3")
+    loop._retry_state["proj-a:br-1"] = {"count": 1, "logs": "err"}
+    loop._bead_start_times["proj-a:br-1"] = 1000.0
+
+    state = loop.state_for_project("proj-a")
+
+    assert state["active"] == {"br-1"}
+    assert state["halted"] == {"br-3"}
+    assert "br-1" in state["retry"]
+    assert state["retry"]["br-1"]["count"] == 1
+    assert state["start_times"]["br-1"] == 1000.0
+
+
+def test_state_for_project_empty_for_unknown_project() -> None:
+    loop = BeadsLoop(_test_settings())
+    loop._active_beads.add("proj-a:br-1")
+
+    state = loop.state_for_project("proj-other")
+
+    assert state["active"] == set()
+    assert state["halted"] == set()
+    assert state["retry"] == {}
+    assert state["start_times"] == {}

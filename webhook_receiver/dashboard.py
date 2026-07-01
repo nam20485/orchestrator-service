@@ -94,6 +94,20 @@ def _cached(key: str, factory: Any, *args: Any) -> Any:
     return val
 
 
+def _resolve_project(project: str | None = None) -> str | None:
+    """Resolve the project slug for a request.
+
+    When *project* is explicitly passed, it is used directly. Otherwise the
+    first discovered project under the workspace base is used (or ``None``
+    when no projects exist).
+    """
+    if project:
+        return project
+    base = os.environ.get("BEADS_WORKSPACE_ROOT", "/workspace")
+    projects = discover_projects(base)
+    return projects[0] if projects else None
+
+
 def _workspace(project: str | None = None) -> str:
     """Resolve the workspace to query for beads data.
 
@@ -101,11 +115,9 @@ def _workspace(project: str | None = None) -> str:
     returns the first discovered project (or the base dir as a fallback).
     """
     base = os.environ.get("BEADS_WORKSPACE_ROOT", "/workspace")
-    if project:
-        return project_workspace_path(base, project)
-    projects = discover_projects(base)
-    if projects:
-        return project_workspace_path(base, projects[0])
+    slug = _resolve_project(project)
+    if slug:
+        return project_workspace_path(base, slug)
     return base
 
 
@@ -277,13 +289,33 @@ def _fetch_beads_view(ws: str) -> dict[str, Any]:
     return {"all": all_beads, "ready_ids": {b.get("id") for b in ready}}
 
 
+def _loop_state(
+    beads_loop: BeadsLoop | None, project_slug: str | None
+) -> dict[str, Any] | None:
+    """Fetch per-project loop state keyed by raw bead ID, or ``None``.
+
+    ``BeadsLoop`` stores state under composite ``"{project}:{bead_id}"``
+    keys. Callers (``_enrich_beads``, endpoints) work with raw bead IDs
+    from ``br list``, so the project prefix must be stripped. When either
+    the loop or the project slug is unavailable, ``None`` signals "no
+    runtime state" (empty active/halted/retry sets).
+    """
+    if not beads_loop or not project_slug:
+        return None
+    return beads_loop.state_for_project(project_slug)
+
+
 def _enrich_beads(
-    cached: dict[str, Any], beads_loop: BeadsLoop | None
+    cached: dict[str, Any],
+    state: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     """Enrich raw beads with runtime status from the loop.
 
     Shared by the ``/beads`` list and ``/beads/{bead_id}`` detail endpoints so
     both surface identical ``ui_status``/``elapsed_s``/``retry_count`` values.
+
+    *state* is the per-project loop state (keyed by raw bead ID) from
+    :func:`_loop_state`. ``None`` means no loop is running.
     """
     all_beads: list[dict[str, Any]] = cached["all"]
     ready_ids: set[Any] = cached["ready_ids"]
@@ -293,11 +325,11 @@ def _enrich_beads(
     start_times: dict[str, float] = {}
     halted_ids: set[str] = set()
     now = time.time()
-    if beads_loop:
-        active = set(beads_loop.active_beads)
-        retry = beads_loop.retry_state
-        start_times = beads_loop.bead_start_times
-        halted_ids = set(beads_loop.halted_beads)
+    if state:
+        active = set(state.get("active", set()))
+        retry = state.get("retry", {})
+        start_times = state.get("start_times", {})
+        halted_ids = set(state.get("halted", set()))
 
     enriched: list[dict[str, Any]] = []
     for b in all_beads:
@@ -351,6 +383,7 @@ def create_dashboard_router(
     @router.get("/overview")
     async def overview(project: str | None = None) -> dict[str, Any]:
         ws = _workspace(project)
+        slug = _resolve_project(project)
         cached = await asyncio.to_thread(_cached, f"beads_view:{ws}", _fetch_beads_view, ws)
         all_beads: list[dict[str, Any]] = cached["all"]
         ready_ids: set[Any] = cached["ready_ids"]
@@ -365,8 +398,10 @@ def create_dashboard_router(
         running = False
         poll_interval = 10
         if beads_loop:
-            active = set(beads_loop.active_beads)
-            halted = set(beads_loop.halted_beads)
+            state = _loop_state(beads_loop, slug)
+            if state:
+                active = set(state.get("active", set()))
+                halted = set(state.get("halted", set()))
             running = beads_loop._running
             max_retries = beads_loop._settings.beads_max_retries
             poll_interval = beads_loop._settings.beads_poll_interval
@@ -403,16 +438,18 @@ def create_dashboard_router(
     @router.get("/beads")
     async def beads(project: str | None = None) -> list[dict[str, Any]]:
         ws = _workspace(project)
+        slug = _resolve_project(project)
         cached = await asyncio.to_thread(_cached, f"beads_view:{ws}", _fetch_beads_view, ws)
-        return _enrich_beads(cached, beads_loop)
+        return _enrich_beads(cached, _loop_state(beads_loop, slug))
 
     @router.get("/beads/{bead_id}")
     async def bead_detail(bead_id: str, project: str | None = None) -> dict[str, Any]:
         if not _valid_bead_id(bead_id):
             raise HTTPException(status_code=400, detail="Invalid bead ID")
         ws = _workspace(project)
+        slug = _resolve_project(project)
         cached = await asyncio.to_thread(_cached, f"beads_view:{ws}", _fetch_beads_view, ws)
-        enriched = _enrich_beads(cached, beads_loop)
+        enriched = _enrich_beads(cached, _loop_state(beads_loop, slug))
         bead = next((b for b in enriched if b.get("id") == bead_id), None)
         if bead is None:
             raise HTTPException(status_code=404, detail="Bead not found")
@@ -423,15 +460,17 @@ def create_dashboard_router(
     @router.get("/graph")
     async def graph(project: str | None = None) -> dict[str, Any]:
         ws = _workspace(project)
+        slug = _resolve_project(project)
         g = await asyncio.to_thread(
             _cached, f"beads_graph:{ws}", _fetch_beads_graph, ws
         )
 
         active: set[Any] = set()
         halted: set[Any] = set()
-        if beads_loop:
-            active = set(beads_loop.active_beads)
-            halted = set(beads_loop.halted_beads)
+        state = _loop_state(beads_loop, slug)
+        if state:
+            active = set(state.get("active", set()))
+            halted = set(state.get("halted", set()))
 
         meta = g["meta"]
         ready_ids = g["ready_ids"]
@@ -511,12 +550,14 @@ def create_dashboard_router(
 
     @router.get("/active")
     async def active(project: str | None = None) -> list[dict[str, Any]]:
-        if not beads_loop:
+        slug = _resolve_project(project)
+        state = _loop_state(beads_loop, slug)
+        if not state:
             return []
 
-        active_ids = beads_loop.active_beads
-        retry = beads_loop.retry_state
-        start_times = beads_loop.bead_start_times
+        active_ids = state.get("active", set())
+        retry = state.get("retry", {})
+        start_times = state.get("start_times", {})
         now = time.time()
 
         ws = _workspace(project)
