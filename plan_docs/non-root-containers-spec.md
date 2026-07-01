@@ -57,7 +57,7 @@ there is no `gosu`/`su-exec`/`runuser` privilege drop. Two concrete consequences
 |---|---|---|
 | Where the user is defined | **`app` user created in image** via build `ARG` (default UID/GID `1000:1000`); privilege drop via `gosu` in entrypoint (no `USER` directive) | Entrypoint starts as root for volume fixup, then `exec gosu app` drops privileges. Compose must **not** set a runtime `user:` — it would bypass the gosu drop. |
 | User name | `app` (home `/home/app`) | Conventional, short, unambiguous. |
-| UID/GID configurability | Build args `APP_UID` / `APP_GID` (default `1000`); host-UID mismatch handled by **rebuilding** with these args (not a runtime `user:`) | Build-time default matches common host user. A runtime Compose `user:` override is incompatible with the root→`gosu` design: the pulled images bake `app`/`caddy` at UID 1000, so a different runtime UID cannot write the 1000-owned `/home/app`, `/app/.memory`, `/data`, or `/config`. |
+| UID/GID configurability | Build args `APP_UID` / `APP_GID` (default `1000`); host-UID mismatch handled by **rebuilding** with these args (not a runtime `user:`) | Build-time default matches common host user. A runtime Compose `user:` override is incompatible with the root→`gosu`/`su-exec` design: the pulled images bake `app` at UID 1000, so a different runtime UID cannot write the 1000-owned `/home/app`, `/app/.memory`. (`caddy` is a fixed system UID; its `/data`/`/config` are fixup-owned by its own entrypoint.) `APP_UID`/`APP_GID` configure the `app` user only. |
 | Install paths | Repath all `/root/...` → `/home/app/...` (uv, opencode, config dirs) | Installers (`curl \| sh`) honor `$HOME`; `RUN` steps use `HOME=/home/app` prefix so installers write to `/home/app`. All steps run as root; `chown -R app:app /home/app` after installs. |
 | `/app` ownership | `chown -R app:app /app` after `COPY`/`uv sync` | Runtime user must read config and (for webhook) write `.venv`/caches. |
 | `/workspace` | No image change; works automatically when container UID == host UID | Bind mount is host-owned; matching UID gives seamless read/write with no `chown`. |
@@ -66,7 +66,7 @@ there is no `gosu`/`su-exec`/`runuser` privilege drop. Two concrete consequences
 | Git author identity | Set `user.name`/`user.email` defaults for `app` (e.g. `orchestrator-bot`) unless overridden by env | Commits/`br` need an identity; provide a sane default, allow env override. |
 | Caddy privileged port (`:80`) | **`cap_add: [CAP_NET_BIND_SERVICE]`** in compose (keep `:80`) | Minimal change; preserves the documented `:80`/`:443` model and ACME behavior. Alternative (remap to `:8080` internal) is a larger behavioral change and rejected. |
 | Caddy data/config volumes | Entrypoint or image `chown` of `/data` and `/config` to `app` | Caddy must persist ACME state; volumes are root-owned on first mount. |
-| Caddy user | Bake `USER caddy` into `deploy/caddy/Dockerfile` (extend upstream) | The upstream `caddy:2.10.0-alpine` image already ships a non-root `caddy` user and the binary is built to use it; reusing it avoids recreating ownership for `/data`/`/config`. The other two images still use `USER app`. |
+| Caddy user | Create a `caddy` user in `deploy/caddy/Dockerfile`; root entrypoint + `su-exec` drop (no `USER` directive) | The pinned `caddy:2.10.0-alpine` runs as root and ships **no** non-root user (`/etc/passwd` has only standard Alpine users; `/data`/`/config` are root-owned). The image creates a `caddy` system user, chowns the writable dirs, and grants `:80`/`:443` binding via a file capability (`setcap cap_net_bind_service=+ep /usr/bin/caddy`) plus compose `cap_add: CAP_NET_BIND_SERVICE`. A root entrypoint chowns first-mount named volumes, then drops to `caddy`. The other two images use `app`/`gosu`. |
 | Backward compatibility | Existing root-owned workspace files remain deletable only via `sudo` (one-time cleanup); new files are operator-owned | Cannot retroactively reown host files from inside a non-root container. Document the one-time `sudo chown -R $UID:$GID $WORKSPACE_DIR` migration. |
 
 ## Target State
@@ -96,10 +96,11 @@ PATH — no custom entries needed (all binaries in /usr/local/bin)
 ### Compose
 
 ```yaml
-# No runtime `user:` is set on any service. The images bake `app`/`caddy` at UID 1000,
-# and orchestratorservice/webhook-receiver start as root so the gosu entrypoint can drop
-# to `app`. A Compose `user:` override would bypass gosu and break ownership on non-1000
-# hosts — customize the UID by rebuilding with --build-arg APP_UID/APP_GID instead.
+# No runtime `user:` is set on any service. orchestratorservice/webhook-receiver bake
+# `app` at UID 1000 and start as root so the gosu entrypoint can drop to `app`;
+# webhook-proxy bakes a `caddy` system user (root entrypoint + su-exec drop). A Compose
+# `user:` override would bypass the drop and break ownership on non-1000 hosts —
+# customize the `app` UID by rebuilding with --build-arg APP_UID/APP_GID instead.
 
 # webhook-proxy only:
 cap_add:
@@ -153,11 +154,14 @@ cap_add:
    root, performs the first-mount memory-volume `chown`, then drops to `app` via `gosu`
    before `exec`-ing the server:
    ```sh
-   MEM_DIR="/app/.memory"
-   if [ -d "$MEM_DIR" ] && [ "$(stat -c %u "$MEM_DIR")" = "0" ]; then
-     chown -R app:app "$MEM_DIR" 2>/dev/null || true
-   fi
-   exec gosu app "$@"
+    MEM_DIR="/app/.memory"
+    if [ -d "$MEM_DIR" ] && [ "$(stat -c %u "$MEM_DIR")" = "0" ]; then
+      chown -R app:app "$MEM_DIR" 2>/dev/null || true
+    fi
+    # The auth write above created ~/.local/share/opencode as root; opencode (running
+    # as app after the drop) must mkdir/write within it (e.g. repos/), so chown it back.
+    chown -R app:app "${HOME}/.local/share/opencode" 2>/dev/null || true
+    exec gosu app "$@"
    ```
    The Dockerfile has **no** `USER` directive — `gosu` is the sole privilege-drop mechanism.
    The ownership check makes the `chown` a no-op on subsequent starts (idempotent).
@@ -197,17 +201,28 @@ cap_add:
 
 ### Phase 3 — `webhook-proxy` image (`deploy/caddy/Dockerfile`)
 
-1. Extend upstream caddy:
+1. The pinned `caddy:2.10.0-alpine` image runs as root and ships **no** non-root user
+   (verified: `/etc/passwd` contains only standard Alpine users and `Config.User` is empty),
+   and `/data`/`/config` are root-owned. Create the user, own the writable dirs, grant the
+   privileged-port capability as a **file capability** (so it survives the `su-exec` drop,
+   which would otherwise strip `CAP_NET_BIND_SERVICE`), and use a root entrypoint that fixes
+   up first-mount named volumes before dropping to `caddy`:
    ```dockerfile
    FROM caddy:2.10.0-alpine@sha256:ae4458638da8e1a91aafffb231c5f8778e964bca650c8a8cb23a7e8ac557aa3c
    COPY Caddyfile /etc/caddy/Caddyfile
-   # caddy image already provides a non-root-capable entrypoint; declare USER and
-   # rely on CAP_NET_BIND_SERVICE (compose) for :80/:443.
-   USER caddy
+   COPY caddy-entrypoint.sh /caddy-entrypoint.sh
+   RUN apk add --no-cache su-exec libcap \
+    && addgroup -S caddy && adduser -S -D -H -G caddy caddy \
+    && chmod +x /caddy-entrypoint.sh \
+    && chown -R caddy:caddy /data /config /srv /etc/caddy \
+    && setcap cap_net_bind_service=+ep /usr/bin/caddy
+   ENTRYPOINT ["/caddy-entrypoint.sh"]
+   CMD ["caddy", "run", "--config", "/etc/caddy/Caddyfile", "--adapter", "caddyfile"]
    ```
-   Upstream `caddy:2.10.0-alpine` ships a `caddy` user at UID 1000 with `/data` and `/config`
-   owned by `caddy:caddy` — no additional chown or wrapper needed.
-2. *(Removed — verified: upstream caddy user can write `/data`/`/config` out of the box.)*
+   No `USER` directive — the root entrypoint chowns `caddy_data`/`caddy_config` (idempotent,
+   and handles volumes that pre-date the non-root switch) then `exec su-exec caddy "$@"`.
+   Compose `cap_add: CAP_NET_BIND_SERVICE` sets the bounding set; the file capability makes
+   it effective for the non-root `caddy` process.
 
 ### Phase 4 — Compose
 
@@ -268,10 +283,10 @@ cap_add:
 
 | Edge case | Handling |
 |---|---|
-| Host operator UID ≠ 1000 | **Rebuild** the images with build args (`--build-arg APP_UID=$(id -u) --build-arg APP_GID=$(id -g)` via `compose.build.yaml`) so the `app` user is re-baked to match the host. A runtime Compose `user:` override does **not** work: the pulled images bake `app`/`caddy` at UID 1000, so a different runtime UID cannot write their files. Documented. |
+| Host operator UID ≠ 1000 | **Rebuild** the images with build args (`--build-arg APP_UID=$(id -u) --build-arg APP_GID=$(id -g)` via `compose.build.yaml`) so the `app` user is re-baked to match the host. A runtime Compose `user:` override does **not** work: the pulled images bake `app` at UID 1000, so a different runtime UID cannot write its files. (`caddy` is a fixed system UID and does not touch the workspace bind mount.) Documented. |
 | Pre-existing root-owned workspace files | One-time host migration: `sudo chown -R $(id -u):$(id -g) $WORKSPACE_DIR`. Cannot be done from inside a non-root container. Documented in README. |
 | Named volume first-mount root ownership (`opencode-memory`, caddy data/config) | Entrypoint `chown` guarded by ownership check (idempotent). |
-| Caddy cannot bind `:80` as non-root | `cap_add: CAP_NET_BIND_SERVICE` in compose. Fallback documented: bind `:8080` internal + remap. |
+| Caddy cannot bind `:80` as non-root | `cap_add: CAP_NET_BIND_SERVICE` (compose, bounding set) **plus** a file capability `setcap cap_net_bind_service=+ep /usr/bin/caddy` (build) so the non-root `caddy` process actually holds the cap after the `su-exec` drop (a privilege drop otherwise strips it). Fallback documented: bind `:8080` internal + remap. |
 | opencode config not found under new HOME | Config-copy step retargeted to `/home/app/.config/opencode`; `opencode serve` auto-loads global config from `~/.config/opencode`. Verify in Phase 5 tests. |
 | uv/opencode installers fail as non-root | Install as `app` to `/home/app`, copy binaries to `/usr/local/bin` as root. Binaries are world-executable. |
 | Git "dubious ownership" on `/workspace` | `git config --global --add safe.directory '*'` for `app` (webhook image). |
@@ -320,8 +335,9 @@ cap_add:
 |---|---|
 | `Dockerfile` | Add `APP_UID`/`APP_GID` args, create `app` user, repath `/root`→`/home/app`, gosu entrypoint, config-copy retarget, remove dead `PATH` env |
 | `Dockerfile.webhook` | Same user/repath; `uv sync` cache mount repathed; git identity defaults; gosu entrypoint; remove dead `PATH` env |
-| `deploy/caddy/Dockerfile` | `USER caddy` (upstream UID 1000, volumes writable — verified) |
-| `scripts/docker-entrypoint.sh` | Add gosu privilege drop + idempotent `opencode-memory` volume `chown` (ownership-guarded) |
+| `deploy/caddy/Dockerfile` | Create `caddy` user + `setcap` file cap + root `caddy-entrypoint.sh` (`su-exec` drop); the upstream image has no caddy user |
+| `deploy/caddy/caddy-entrypoint.sh` | **New** — root first-mount `chown` of `/data`/`/config` (idempotent), then `exec su-exec caddy "$@"` |
+| `scripts/docker-entrypoint.sh` | Add gosu privilege drop + idempotent `opencode-memory` volume `chown` (ownership-guarded) + `chown` of the runtime-created `~/.local/share/opencode` tree back to `app` (auth write runs as root; opencode needs to `mkdir`/write within it after the drop) |
 | `scripts/git-trust.sh` | No script change needed (already uses `$HOME`); invoked with `HOME=/home/app` in Dockerfiles |
 | `compose.yaml` | `cap_add: CAP_NET_BIND_SERVICE` on `webhook-proxy` (no `user:` — see Phase 4) |
 | `compose.development.yaml` | Same as `compose.yaml` |
@@ -340,9 +356,13 @@ All questions resolved before implementation:
 1. **Entrypoint privilege model → gosu root entrypoint.** Container starts as root; entrypoint
    chowns first-mount volumes then `exec gosu app "$@"`. Adds `gosu` as a dependency (small,
    standard, available in Debian repos). No `USER` directive in either Dockerfile.
-2. **Upstream caddy user → verified.** `caddy:2.10.0-alpine` ships a `caddy` user at UID 1000.
-   `/data` and `/config` are owned by `caddy:caddy` in the upstream image. No additional chown
-   or wrapper needed.
+2. **Upstream caddy user → re-verified, the original claim was FALSE.**
+   `caddy:2.10.0-alpine@sha256:ae4458638da8e1a91aafffb231c5f8778e964bca650c8a8cb23a7e8ac557aa3c`
+   runs as root and ships **no** non-root user (`/etc/passwd` has only standard Alpine users;
+   `Config.User` is empty); `/data`/`/config` are root-owned. The image therefore creates the
+   `caddy` user itself, chowns the writable dirs, uses a root entrypoint (`su-exec` drop) for
+   first-mount volume fixup, and grants `:80`/`:443` via a file capability on `/usr/bin/caddy`
+   (compose `cap_add` sets the bounding set; the file cap makes it effective for non-root).
 3. **`APP_UID` default → 1000 confirmed.** Matches the primary operator's UID. Host-UID mismatch
    is handled by **rebuilding** with `--build-arg APP_UID`/`APP_GID`; a runtime Compose `user:`
    override is **not** used (it bypasses the gosu drop and is incompatible with the baked UID 1000
