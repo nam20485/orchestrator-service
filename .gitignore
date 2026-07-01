@@ -88,3 +88,7 @@ auth/auth.json
 .qwen/
 gha-creds-*.json
 .pair/
+plan_docs/automated_iterative_root_cause_analysis/iterative_root_cause_analysis_via_automation_93175dfc.plan.md
+plan_docs/automated_iterative_root_cause_analysis/commands/automated-iterative-root-cause-analysis.md
+plan_docs/automated_iterative_root_cause_analysis/commands/iterative-root-cause-analysis.md
+plan_docs/automated_iterative_root_cause_analysis/commands/review-plan.md

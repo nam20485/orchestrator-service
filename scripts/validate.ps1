@@ -126,9 +126,10 @@ try {
         if (Get-Command docker -ErrorAction SilentlyContinue) {
             Invoke-BashStep -Name 'compose config (test)' -ScriptPath './test/test-compose-config.sh'
             Invoke-BashStep -Name 'caddyfile (test)' -ScriptPath './test/test-caddyfile.sh'
+            Invoke-BashStep -Name 'docker-user (test)' -ScriptPath './test/test-docker-user.sh'
         }
         else {
-            Write-Warning 'Skipping compose config and caddyfile (test): docker not available.'
+            Write-Warning 'Skipping compose config, caddyfile, and docker-user (test): docker not available.'
         }
         Invoke-BashStep -Name 'opencode.json (test)' -ScriptPath './test/test-opencode-json.sh'
         Invoke-BashStep -Name 'beads versions (test)' -ScriptPath './test/test-beads-versions-consistency.sh'
