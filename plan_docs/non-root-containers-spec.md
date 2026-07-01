@@ -1,7 +1,7 @@
 # Non-Root Container Execution
 
 ## Status
-**Proposed — not yet implemented.** This is a planning/specification document only.
+**Implemented.** All phases complete; validation passing.
 
 ## Problem
 
