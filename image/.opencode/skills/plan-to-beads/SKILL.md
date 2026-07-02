@@ -8,7 +8,11 @@ Translate an application plan into a graph of atomic execution tasks inside the 
 </objective>
 
 <inputs>
-- `$plan_doc`: Path to the high-level application plan (e.g., `plan_docs/application_plan.md`). If not provided explicitly, look for `plan_docs/application_plan.md`.
+- `$plan_doc`: Path to the high-level application plan. The execution loop, per-bead
+  worktrees, and the `_plan_tracked()` guard all resolve the plan at the canonical
+  `plan_docs/application_plan.md`. If `$plan_doc` is omitted or already canonical, use
+  it directly; if it points elsewhere, Step 1 copies its contents to
+  `plan_docs/application_plan.md` so the committed plan is visible to every bead agent.
 </inputs>
 
 <prerequisites>
@@ -32,9 +36,16 @@ You will read the plan, then write a single bash script containing `br` CLI comm
 
 ### Step 1: Read and Parse the Plan
 
-1. Read `$plan_doc` (default: `plan_docs/application_plan.md`).
-2. Extract the Implementation Plan section with all phases, epics, and tasks.
-3. For each task, extract:
+1. **Normalize to the canonical path.** Resolve `$plan_doc` (default:
+   `plan_docs/application_plan.md`). If it is NOT already
+   `plan_docs/application_plan.md`, read it and write its contents to
+   `plan_docs/application_plan.md` (create `plan_docs/` if needed). The committed plan
+   MUST live at the canonical path — per-bead worktrees and `_plan_tracked()` resolve it
+   only there, so a non-canonical source would leave the plan uncommitted and the
+   project permanently skipped.
+2. Read `plan_docs/application_plan.md`.
+3. Extract the Implementation Plan section with all phases, epics, and tasks.
+4. For each task, extract:
    - **Title**: A concise name for the task.
    - **Context**: Why this task exists and what it does.
    - **Acceptance Criteria**: Bullet points defining "done".

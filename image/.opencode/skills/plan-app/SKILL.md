@@ -122,8 +122,12 @@ the relevant earlier step and iterate. Only proceed on explicit approval.
    - **slug** (kebab-case project slug)
    - **name** (human-readable display name)
    - **repo** (target repository, e.g., `owner/project-slug`)
-   - Optionally confirm the **target branch** and **plan path** (defaults: `copilot/<slug>`
-     and `plan_docs/application_plan.md`).
+   - Optionally confirm the **target branch** (default: `copilot/<slug>`).
+
+   The application plan always lives at the canonical path
+   `plan_docs/application_plan.md`. This is a hard contract: the execution loop's
+   `_plan_tracked()` guard and every per-bead worktree resolve the plan at exactly
+   this path, so it is NOT user-overridable — always write the plan there.
 
 2. **Generate the final plan doc.** Fill in every section of the template with concrete,
    project-specific content. Replace ALL placeholders/brackets — never leave template
@@ -133,10 +137,12 @@ the relevant earlier step and iterate. Only proceed on explicit approval.
 
 3. **Commit the plan.** Per-bead worktrees check out the project's default branch, so only
    COMMITTED files reach bead agents. Stage and commit the plan now so it is visible in
-   every bead worktree (otherwise bead agents cannot read `plan_docs/application_plan.md`):
+   every bead worktree — otherwise bead agents run in an empty worktree and
+   `_plan_tracked()` blocks the project. The plan lives at the canonical path, so stage
+   the `plan_docs/` directory:
 
    ```bash
-   git add plan_docs/application_plan.md
+   git add plan_docs/
    git commit -m "Add application plan"
    ```
 
