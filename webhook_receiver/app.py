@@ -314,7 +314,9 @@ def create_app(
             status_code=202,
         )
 
-    app.include_router(create_simulator_router(enabled=cfg.enable_simulator))
+    app.include_router(
+        create_simulator_router(enabled=cfg.enable_simulator, port=cfg.port)
+    )
     app.include_router(
         create_dashboard_router(store, beads_loop, dashboard_token=cfg.dashboard_token)
     )

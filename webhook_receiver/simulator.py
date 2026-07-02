@@ -14,7 +14,7 @@ from webhook_receiver.simulator_templates import ALL_EVENTS, get_template, list_
 _STATIC_DIR = Path(__file__).resolve().parent / "static"
 
 
-def create_simulator_router(*, enabled: bool) -> APIRouter:
+def create_simulator_router(*, enabled: bool, port: int) -> APIRouter:
     router = APIRouter(prefix="/simulator", tags=["simulator"])
 
     if not enabled:
@@ -90,12 +90,18 @@ def create_simulator_router(*, enabled: bool) -> APIRouter:
 
         body = json.dumps(payload).encode("utf-8")
         signature = compute_signature(body, secret)
-        base_url = str(request.base_url).rstrip("/")
+
+        # Forward over loopback to this same process. ``request.base_url``
+        # reflects the external Host the browser used to reach the page; when
+        # the simulator is accessed through a tunnel/reverse proxy (Funnel,
+        # ngrok, etc.) the container cannot route back to its own public
+        # hostname and the round-trip fails ("All connection attempts failed").
+        forward_url = f"http://127.0.0.1:{port}/webhooks/github"
 
         try:
             async with httpx.AsyncClient(timeout=30.0) as client:
                 resp = await client.post(
-                    f"{base_url}/webhooks/github",
+                    forward_url,
                     content=body,
                     headers={
                         "Content-Type": "application/json",

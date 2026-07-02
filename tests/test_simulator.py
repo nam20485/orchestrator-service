@@ -178,8 +178,9 @@ def test_simulator_send_signs_server_side(monkeypatch: pytest.MonkeyPatch) -> No
     assert response.status_code == 200
     assert response.json() == {"status": 200, "body": '{"status": "pong"}'}
 
-    # Forwarded to the receiver route on this host.
-    assert str(captured["url"]).endswith("/webhooks/github")
+    # Forwarded over loopback to the receiver route on this same process
+    # (never the external Host the request came in on).
+    assert captured["url"] == "http://127.0.0.1:8080/webhooks/github"
     headers = captured["headers"]
     assert headers["X-GitHub-Event"] == "ping"
     assert headers["X-GitHub-Delivery"] == "abc-123"
