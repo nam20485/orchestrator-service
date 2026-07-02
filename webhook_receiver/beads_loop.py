@@ -9,6 +9,7 @@ import threading
 import time
 from dataclasses import replace
 from pathlib import Path
+from typing import Any
 
 from webhook_receiver import bead_context
 from webhook_receiver.config import Settings
@@ -24,6 +25,38 @@ from webhook_receiver.workspace import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Relative path (within a project workspace) to the canonical application plan.
+# Per-bead worktrees check out the default branch (HEAD), so this file MUST be
+# committed (not merely staged or present on disk) for bead agents to read it.
+_PLAN_REL = "plan_docs/application_plan.md"
+
+# Re-log a missing-plan halt for the same project at most this often, so a
+# permanently stuck project stays visible to operators instead of going silent
+# after a single log line.
+_PLAN_REWARN_SECONDS = 60
+
+
+def _plan_tracked(project_root: str) -> bool:
+    """Return True iff the application plan is committed in the repo's HEAD tree.
+
+    Per-bead worktrees check out the default branch (HEAD), so only files present
+    in the committed tree reach bead agents. A plan that is staged (in the index)
+    but not yet committed would be absent from a freshly checked-out worktree, so
+    this checks HEAD via ``git cat-file -e HEAD:<path>`` (exit 0 iff the path
+    exists in the committed tree) rather than the index — guarding against both
+    "staged but never committed" and "untracked".
+    """
+    try:
+        res = subprocess.run(
+            ["git", "cat-file", "-e", f"HEAD:{_PLAN_REL}"],
+            cwd=project_root,
+            capture_output=True,
+            text=True,
+        )
+    except (FileNotFoundError, OSError):
+        return False
+    return res.returncode == 0
 
 
 class BeadsLoop:
@@ -48,6 +81,7 @@ class BeadsLoop:
         self._halted_beads: set[str] = set()
         self._bead_projects: dict[str, str] = {}
         self._logged_init_warning = False
+        self._plan_warned: dict[str, float] = {}
 
     # ── public read-only properties for dashboard ──────────────────────────
 
@@ -76,6 +110,36 @@ class BeadsLoop:
         """Map of active bead IDs to their project slug."""
         with self._lock:
             return dict(self._bead_projects)
+
+    def state_for_project(self, project_slug: str) -> dict[str, Any]:
+        """Return loop state for one project, keyed by raw bead ID.
+
+        Internal state dicts use composite keys ``f"{project}:{bead_id}"``
+        to avoid cross-project ID collisions. This method strips the
+        project prefix so dashboard callers can match against the raw bead
+        IDs returned by ``br list``.
+        """
+        prefix = f"{project_slug}:"
+        plen = len(prefix)
+        with self._lock:
+            return {
+                "active": {
+                    k[plen:] for k in self._active_beads if k.startswith(prefix)
+                },
+                "halted": {
+                    k[plen:] for k in self._halted_beads if k.startswith(prefix)
+                },
+                "retry": {
+                    k[plen:]: dict(v)
+                    for k, v in self._retry_state.items()
+                    if k.startswith(prefix)
+                },
+                "start_times": {
+                    k[plen:]: v
+                    for k, v in self._bead_start_times.items()
+                    if k.startswith(prefix)
+                },
+            }
 
     def _emit(self, event_type: str, **data: object) -> None:
         if self._event_store:
@@ -116,6 +180,13 @@ class BeadsLoop:
         self, project_slug: str, project_root: str
     ) -> None:
         """Poll one project for the next bead and process it."""
+        if not _plan_tracked(project_root):
+            self._warn_missing_plan(project_slug)
+            return
+        # Plan is committed (or was since last warn) — reset so a future lapse
+        # warns again.
+        self._plan_warned.pop(project_slug, None)
+
         bead = self._get_next_bead(project_root)
 
         if bead is None:
@@ -150,6 +221,27 @@ class BeadsLoop:
                 self._active_beads.discard(key)
                 self._bead_start_times.pop(key, None)
                 self._bead_projects.pop(key, None)
+
+    def _warn_missing_plan(self, project_slug: str) -> None:
+        """Emit a throttled ERROR that a project's plan is not committed.
+
+        A missing plan is a halt condition (the loop skips dispatch), so unlike a
+        transient startup state it re-surfaces periodically (every
+        ``_PLAN_REWARN_SECONDS``) instead of logging once then going silent. Reset
+        via ``_plan_warned.pop`` when the plan is later committed.
+        """
+        now = time.time()
+        last = self._plan_warned.get(project_slug)
+        if last is not None and (now - last) < _PLAN_REWARN_SECONDS:
+            return
+        self._plan_warned[project_slug] = now
+        logger.error(
+            "Skipping project=%s: %s is not committed to git. Per-bead "
+            "worktrees would be empty. Run the ideation/planning skill's "
+            "commit step, then this project will be picked up automatically.",
+            project_slug,
+            _PLAN_REL,
+        )
 
     # ── bead selection: bvr graph-aware first, br priority fallback ────────
 

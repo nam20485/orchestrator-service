@@ -166,7 +166,7 @@ def test_beads_list_enriched() -> None:
 def test_beads_list_with_active_loop() -> None:
     store = EventStore()
     loop = BeadsLoop(_test_settings())
-    loop._active_beads.add("br-active")
+    loop._active_beads.add("test-proj:br-active")
 
     all_json = _br_list_json(
         {"id": "br-active", "status": "open", "title": "Active Task", "priority": 1},
@@ -181,7 +181,10 @@ def test_beads_list_with_active_loop() -> None:
             return all_json
         return ready_json
 
-    with patch("webhook_receiver.dashboard._run_beads_cmd", side_effect=fake_run):
+    with (
+        patch("webhook_receiver.dashboard._run_beads_cmd", side_effect=fake_run),
+        patch("webhook_receiver.dashboard._resolve_project", return_value="test-proj"),
+    ):
         resp = client.get("/api/dashboard/beads")
 
     beads = resp.json()
@@ -189,11 +192,64 @@ def test_beads_list_with_active_loop() -> None:
     assert beads[0]["is_active"] is True
 
 
+def test_active_bead_shown_in_list_and_agents_panel() -> None:
+    """Regression: composite-keyed loop state must surface in both the bead
+    list (ui_status='active') and the Active Agents panel.
+
+    Before the fix, BeadsLoop stored state under ``"{project}:{bead_id}"``
+    composite keys but the dashboard compared against raw bead IDs — so the
+    Active card showed 1 but the bead never appeared in the list or agents
+    panel.
+    """
+    store = EventStore()
+    loop = BeadsLoop(_test_settings())
+    loop._active_beads.add("my-proj:br-running")
+    loop._bead_start_times["my-proj:br-running"] = 1000.0
+    loop._retry_state["my-proj:br-running"] = {"count": 0, "logs": ""}
+
+    all_json = _br_list_json(
+        {"id": "br-running", "status": "open", "title": "Running Task", "priority": 1},
+        {"id": "br-idle", "status": "open", "title": "Idle Task", "priority": 2},
+    )
+    ready_json = _br_ready_json({"id": "br-idle"})
+
+    app = create_app(_test_settings(), event_store=store, beads_loop=loop)
+    client = _client(app)
+
+    def fake_run(args, ws=None):
+        if "list" in args:
+            return all_json
+        return ready_json
+
+    with (
+        patch("webhook_receiver.dashboard._run_beads_cmd", side_effect=fake_run),
+        patch("webhook_receiver.dashboard._resolve_project", return_value="my-proj"),
+    ):
+        beads_resp = client.get("/api/dashboard/beads")
+        active_resp = client.get("/api/dashboard/active")
+        overview_resp = client.get("/api/dashboard/overview")
+
+    # The bead list must include the active bead with ui_status='active'.
+    beads = {b["id"]: b for b in beads_resp.json()}
+    assert "br-running" in beads, "Active bead missing from list entirely"
+    assert beads["br-running"]["ui_status"] == "active"
+    assert beads["br-running"]["is_active"] is True
+
+    # The Active Agents panel must show the bead with its real title.
+    agents = active_resp.json()
+    assert len(agents) == 1
+    assert agents[0]["bead_id"] == "br-running"
+    assert agents[0]["title"] == "Running Task"
+
+    # The overview Active card must show 1.
+    assert overview_resp.json()["counts"]["active"] == 1
+
+
 def test_beads_list_with_halted_bead() -> None:
     store = EventStore()
     loop = BeadsLoop(_test_settings(beads_max_retries=2))
-    loop._retry_state["br-halted"] = {"count": 2, "logs": "error"}
-    loop._halted_beads.add("br-halted")
+    loop._retry_state["test-proj:br-halted"] = {"count": 2, "logs": "error"}
+    loop._halted_beads.add("test-proj:br-halted")
 
     all_json = _br_list_json(
         {"id": "br-halted", "status": "open", "title": "Halted", "priority": 1},
@@ -208,7 +264,10 @@ def test_beads_list_with_halted_bead() -> None:
             return all_json
         return ready_json
 
-    with patch("webhook_receiver.dashboard._run_beads_cmd", side_effect=fake_run):
+    with (
+        patch("webhook_receiver.dashboard._run_beads_cmd", side_effect=fake_run),
+        patch("webhook_receiver.dashboard._resolve_project", return_value="test-proj"),
+    ):
         resp = client.get("/api/dashboard/beads")
 
     beads = resp.json()
@@ -231,15 +290,18 @@ def test_active_no_loop() -> None:
 def test_active_with_loop() -> None:
     store = EventStore()
     loop = BeadsLoop(_test_settings())
-    loop._active_beads.add("br-x")
-    loop._bead_start_times["br-x"] = 1000.0
+    loop._active_beads.add("test-proj:br-x")
+    loop._bead_start_times["test-proj:br-x"] = 1000.0
 
     all_json = _br_list_json({"id": "br-x", "title": "Task X"})
 
     app = create_app(_test_settings(), event_store=store, beads_loop=loop)
     client = _client(app)
 
-    with patch("webhook_receiver.dashboard._run_beads_cmd", return_value=all_json):
+    with (
+        patch("webhook_receiver.dashboard._run_beads_cmd", return_value=all_json),
+        patch("webhook_receiver.dashboard._resolve_project", return_value="test-proj"),
+    ):
         resp = client.get("/api/dashboard/active")
 
     data = resp.json()
@@ -677,7 +739,7 @@ def test_graph_endpoint_enriches_active_via_shared_helper() -> None:
     """The graph uses the same _ui_status helper as the list endpoint."""
     store = EventStore()
     loop = BeadsLoop(_test_settings())
-    loop._active_beads.add("br-active")
+    loop._active_beads.add("test-proj:br-active")
 
     graph_json = _br_graph_json(
         {"id": "br-active", "title": "Running", "status": "open", "priority": 1, "depth": 0},
@@ -706,7 +768,10 @@ def test_graph_endpoint_enriches_active_via_shared_helper() -> None:
             return list_json
         return ""
 
-    with patch("webhook_receiver.dashboard._run_beads_cmd", side_effect=fake_run):
+    with (
+        patch("webhook_receiver.dashboard._run_beads_cmd", side_effect=fake_run),
+        patch("webhook_receiver.dashboard._resolve_project", return_value="test-proj"),
+    ):
         resp = client.get("/api/dashboard/graph")
 
     nodes = {n["id"]: n for n in resp.json()["nodes"]}
