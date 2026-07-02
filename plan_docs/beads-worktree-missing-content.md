@@ -347,7 +347,7 @@ import subprocess
 from unittest.mock import patch
 
 
-def test_poll_skips_project_with_untracked_plan(tmp_path, mock_empty_beads):
+def test_poll_skips_project_with_untracked_plan(tmp_path):
     """Guard skips a project whose application_plan.md is untracked.
 
     Per-bead worktrees check out main; an untracked plan means worktrees would be
