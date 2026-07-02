@@ -237,14 +237,13 @@ spawn agents into empty worktrees. This turns a silent, confusing per-agent fail
 single operator-actionable message at the loop level.
 
 **Plug-in point:** `webhook_receiver/beads_loop.py`, at the top of
-`_poll_and_process_project` (line 115), right before `_get_next_bead` (line 119). Guarding
-there covers both the scan path (`_scan_and_process`, line 109) and any direct caller.
+`_poll_and_process_project` (line 146), right before `_get_next_bead` (line 150). Guarding
+there covers both the scan path (`_scan_and_process`, line 133) and any direct caller.
 
 **Implementation sketch** (new module-level helper + one guard call):
 
 ```python
-# webhook_receiver/beads_loop.py
-import subprocess
+# webhook_receiver/beads_loop.py  (subprocess is already imported at line 6)
 
 _PLAN_REL = "plan_docs/application_plan.md"
 
@@ -268,30 +267,37 @@ def _plan_tracked(project_root: str) -> bool:
 ```
 
 ```python
-# inside _poll_and_process_project (beads_loop.py:115), before _get_next_bead:
+# inside _poll_and_process_project (beads_loop.py:146), before _get_next_bead:
 def _poll_and_process_project(self, project_slug: str, project_root: str) -> None:
     """Poll one project for the next bead and process it."""
     if not _plan_tracked(project_root):
-        # Log once per scan; the project is skipped until the plan is committed.
-        logger.error(
-            "Skipping project=%s: %s is not committed to git. Per-bead worktrees "
-            "would be empty. Run the ideation/planning skill's commit step, then "
-            "this project will be picked up automatically.",
-            project_slug,
-            _PLAN_REL,
-        )
+        if project_slug not in self._plan_warned:
+            logger.error(
+                "Skipping project=%s: %s is not committed to git. Per-bead worktrees "
+                "would be empty. Run the ideation/planning skill's commit step, then "
+                "this project will be picked up automatically.",
+                project_slug,
+                _PLAN_REL,
+            )
+            self._plan_warned.add(project_slug)
         return
+    self._plan_warned.discard(project_slug)  # reset on recovery
 
     bead = self._get_next_bead(project_root)
     ...
+```
+
+Also add to `__init__`:
+```python
+self._plan_warned: set[str] = set()
 ```
 
 Notes:
 - Use `git ls-files --error-unmatch` (checks the **index**, i.e. staged/tracked) rather
   than testing file existence on disk — the whole point is that the file exists on disk
   but is *untracked*, which is exactly the failure mode here.
-- To avoid log spam on every 10 s poll, gate the ERROR behind a per-project "already
-  warned" set (e.g. `self._plan_warned: set[str]`), resetting when the plan later appears.
+- `_plan_warned` prevents log spam on every 10 s poll; `discard` resets when the plan
+  is committed and the project recovers.
 - This guard does **not** auto-commit — it surfaces the problem. Auto-committing from the
   loop would mask skill bugs and could commit partial/hallucinated content.
 
@@ -303,8 +309,8 @@ corrected `main`:
 
 ```bash
 cd <project_root>   # e.g. /home/nam20485/orchestrator-workspace/session-...
-git add plan_docs/ create-beads-dag.sh
-git commit -m "Add application plan and beads DAG script"
+git add plan_docs/  # commit the plan (and any other untracked project content)
+git commit -m "Add application plan"
 # remove the stale empty worktree so BeadsLoop recreates it from updated main
 git worktree remove --force .worktrees/<bead-id>
 git branch -D task/<bead-id>
@@ -331,32 +337,39 @@ After commit `14f0e16` (non-root execution), also ensure the workspace isn't roo
 
 **Automated tests to add (`tests/test_beads_loop.py`):**
 
+*Note: `mock_empty_beads` patches `webhook_receiver.beads_loop.subprocess.run` — the exact
+symbol `_plan_tracked()` also calls. Using it here would make `_plan_tracked()` always
+return `True` (mock returns `returncode=0`). Patch `_plan_tracked` directly instead.*
+
 ```python
+import subprocess
+
+from unittest.mock import patch
+
+
 def test_poll_skips_project_with_untracked_plan(tmp_path, mock_empty_beads):
     """Guard skips a project whose application_plan.md is untracked.
 
     Per-bead worktrees check out main; an untracked plan means worktrees would be
     empty. The loop must refuse to dispatch and log an error instead.
     """
-    project = tmp_path / "proj"
-    (project / "plan_docs").mkdir(parents=True)
-    (project / "plan_docs" / "application_plan.md").write_text("# plan", encoding="utf-8")
-    (project / ".beads").mkdir()
-    subprocess.run(["git", "init", "--initial-branch=main"], cwd=project, check=True,
-                   capture_output=True)
-    # NOTE: plan deliberately NOT added/committed -> untracked
+    # Patch _plan_tracked directly — mock_empty_beads would mask the git call
+    with patch("webhook_receiver.beads_loop._plan_tracked", return_value=False):
+        settings = _test_settings(beads_workspace_root=str(tmp_path))
+        loop = BeadsLoop(settings)
+        loop._poll_and_process_project("proj", str(tmp_path / "proj"))
 
-    settings = _test_settings(beads_workspace_root=str(tmp_path))
-    loop = BeadsLoop(settings)
-    loop._poll_and_process_project("proj", str(project))
-
-    # No bead dispatched, no worktree created
-    assert not (project / ".worktrees").exists()
-    assert loop._active_beads == set()
+        # No bead dispatched, no worktree created
+        assert loop._active_beads == set()
 
 
-def test_poll_processes_project_with_committed_plan(tmp_path, mock_beads_with_ready):
-    """A project whose plan IS committed is dispatched normally."""
+def test_poll_processes_project_with_committed_plan(tmp_path):
+    """A project whose plan IS committed is dispatched normally.
+
+    Uses real git (no mock_empty_beads) so _plan_tracked() sees the committed file.
+    """
+    import os
+
     project = tmp_path / "proj"
     (project / "plan_docs").mkdir(parents=True)
     (project / "plan_docs" / "application_plan.md").write_text("# plan", encoding="utf-8")
@@ -365,10 +378,21 @@ def test_poll_processes_project_with_committed_plan(tmp_path, mock_beads_with_re
                    capture_output=True)
     subprocess.run(["git", "add", "plan_docs/application_plan.md"], cwd=project,
                    check=True, capture_output=True)
+    git_env = {
+        **os.environ,
+        "GIT_AUTHOR_NAME": "t",
+        "GIT_AUTHOR_EMAIL": "t@e",
+        "GIT_COMMITTER_NAME": "t",
+        "GIT_COMMITTER_EMAIL": "t@e",
+    }
     subprocess.run(["git", "commit", "-m", "plan"], cwd=project,
-                   check=True, capture_output=True,
-                   env={**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@e"})
-    # ... rest asserts a bead is picked up (existing test helpers cover this)
+                   check=True, capture_output=True, env=git_env)
+
+    settings = _test_settings(beads_workspace_root=str(tmp_path))
+    loop = BeadsLoop(settings)
+    # _plan_tracked should return True for a committed plan (real git call)
+    from webhook_receiver.beads_loop import _plan_tracked
+    assert _plan_tracked(str(project)) is True
 ```
 
 These mirror the existing `test_build_prompt_overview_from_canonical_root`
@@ -381,9 +405,12 @@ the worktree" contract.
 |-------|---------|--------|
 | A.1 | `image/.opencode/skills/plan-to-beads/SKILL.md` | Step 5: `git add plan_docs/ .beads/`; align `<example_script>` and `<prerequisites>` |
 | A.2 | `image/.opencode/skills/plan-app/SKILL.md` | Insert `git add` + `git commit` between plan generation and handoff |
-| B | `webhook_receiver/beads_loop.py` | `_plan_tracked()` helper + guard at top of `_poll_and_process_project` (line 115) |
+| B | `webhook_receiver/beads_loop.py` | `_plan_tracked()` helper + `_plan_warned` set + guard at top of `_poll_and_process_project` (line 146) |
 | B | `tests/test_beads_loop.py` | Add the two guard tests above |
-| — | `image/AGENTS.md` (container) / root `AGENTS.md` | Document the "plan must be committed to main before beads run" contract as a rule |
+
+*Follow-up (not in scope for this fix):* Document the "plan must be committed to `main`
+before beads run" contract as a rule in `image/AGENTS.md`. Defer until the skill fixes
+(Layer A) land, since the rule is self-evident once the skills commit correctly.
 
 No runtime-config, Dockerfile, or compose changes are required — this is purely a
 skill-discipline + loop-guard fix.
@@ -394,9 +421,9 @@ skill-discipline + loop-guard fix.
   `main`; only tracked files reach bead agents).
 - `webhook_receiver/bead_context.py:74-92` — `read_project_overview` (reads the plan from
   the **worktree** path `ws_path`, not the project root).
-- `webhook_receiver/beads_loop.py:115-123` — `_poll_and_process_project`, the guard's
+- `webhook_receiver/beads_loop.py:146-162` — `_poll_and_process_project`, the guard's
   plug-in point.
-- `webhook_receiver/beads_loop.py:378-399` — the bead prompt that tells the agent to
+- `webhook_receiver/beads_loop.py:374-409` — `_build_bead_prompt` which tells the agent to
   "READ `plan_docs/application_plan.md` FIRST".
 - `image/.opencode/skills/plan-to-beads/SKILL.md:63-72` — Step 5 commit (`git add .beads/`
   only).
