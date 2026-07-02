@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-from webhook_receiver.beads_loop import BeadsLoop, _extract_bead
+from webhook_receiver.beads_loop import BeadsLoop, _extract_bead, _plan_tracked
 from webhook_receiver.config import Settings
 
 
@@ -666,6 +667,7 @@ def test_stop_sets_running_false() -> None:
 def test_poll_and_process_project_no_beads() -> None:
     loop = BeadsLoop(_test_settings())
     with (
+        patch("webhook_receiver.beads_loop._plan_tracked", return_value=True),
         patch.object(loop, "_get_next_bead", return_value=None),
         patch.object(loop, "_log_overview_if_idle") as mock_overview,
     ):
@@ -677,6 +679,7 @@ def test_poll_and_process_project_processes_bead() -> None:
     loop = BeadsLoop(_test_settings())
     bead = {"id": "br-poll", "title": "T", "priority": 1}
     with (
+        patch("webhook_receiver.beads_loop._plan_tracked", return_value=True),
         patch.object(loop, "_get_next_bead", return_value=bead),
         patch.object(loop, "_process_bead") as mock_process,
     ):
@@ -690,6 +693,7 @@ def test_poll_and_process_project_skips_already_active() -> None:
     bead = {"id": "br-active", "title": "T", "priority": 1}
     loop._active_beads.add("proj:br-active")
     with (
+        patch("webhook_receiver.beads_loop._plan_tracked", return_value=True),
         patch.object(loop, "_get_next_bead", return_value=bead),
         patch.object(loop, "_process_bead") as mock_process,
     ):
@@ -701,6 +705,7 @@ def test_poll_and_process_project_skips_bead_without_id() -> None:
     loop = BeadsLoop(_test_settings())
     bead = {"title": "No ID bead"}
     with (
+        patch("webhook_receiver.beads_loop._plan_tracked", return_value=True),
         patch.object(loop, "_get_next_bead", return_value=bead),
         patch.object(loop, "_process_bead") as mock_process,
     ):
@@ -712,6 +717,7 @@ def test_poll_and_process_project_releases_lock_on_exception() -> None:
     loop = BeadsLoop(_test_settings())
     bead = {"id": "br-exc", "title": "T", "priority": 1}
     with (
+        patch("webhook_receiver.beads_loop._plan_tracked", return_value=True),
         patch.object(loop, "_get_next_bead", return_value=bead),
         patch.object(loop, "_process_bead", side_effect=RuntimeError("boom")),
     ):
@@ -720,6 +726,134 @@ def test_poll_and_process_project_releases_lock_on_exception() -> None:
         except RuntimeError:
             pass
         assert "br-exc" not in loop._active_beads
+
+
+# ── _poll_and_process_project plan-commit guard ───────────────────────────
+
+
+def test_poll_skips_project_with_untracked_plan(tmp_path) -> None:
+    """Guard skips a project whose application_plan.md is untracked.
+
+    Per-bead worktrees check out the default branch; an untracked plan means
+    worktrees would be empty. The loop must refuse to dispatch and log an error
+    instead of spawning agents into empty worktrees.
+    """
+    # Patch _plan_tracked directly — mock_empty_beads would mask the git call.
+    with patch("webhook_receiver.beads_loop._plan_tracked", return_value=False):
+        settings = _test_settings(beads_workspace_root=str(tmp_path))
+        loop = BeadsLoop(settings)
+        with patch.object(loop, "_get_next_bead") as mock_next:
+            loop._poll_and_process_project("proj", str(tmp_path / "proj"))
+
+            # No bead dispatched, no worktree created, no bead selection.
+            assert loop._active_beads == set()
+            mock_next.assert_not_called()
+            assert "proj" in loop._plan_warned
+
+
+def test_poll_processes_project_with_committed_plan(tmp_path) -> None:
+    """A project whose plan IS committed is dispatched normally.
+
+    Uses real git (no mock_empty_beads) so _plan_tracked() sees the committed
+    file and the guard does not short-circuit. Mirrors the documented contract
+    in test_build_prompt_overview_from_canonical_root that a committed plan is
+    visible in the worktree.
+    """
+    project = tmp_path / "proj"
+    (project / "plan_docs").mkdir(parents=True)
+    (project / "plan_docs" / "application_plan.md").write_text(
+        "# plan", encoding="utf-8"
+    )
+    (project / ".beads").mkdir()
+    subprocess.run(
+        ["git", "init", "--initial-branch=main"],
+        cwd=project,
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        ["git", "add", "plan_docs/application_plan.md"],
+        cwd=project,
+        check=True,
+        capture_output=True,
+    )
+    git_env = {
+        **os.environ,
+        "GIT_AUTHOR_NAME": "t",
+        "GIT_AUTHOR_EMAIL": "t@e",
+        "GIT_COMMITTER_NAME": "t",
+        "GIT_COMMITTER_EMAIL": "t@e",
+    }
+    subprocess.run(
+        ["git", "commit", "-m", "plan"],
+        cwd=project,
+        check=True,
+        capture_output=True,
+        env=git_env,
+    )
+
+    settings = _test_settings(beads_workspace_root=str(tmp_path))
+    loop = BeadsLoop(settings)
+    # _plan_tracked should return True for a committed plan (real git call).
+    assert _plan_tracked(str(project)) is True
+    assert "proj" not in loop._plan_warned
+
+
+def test_poll_missing_plan_warns_throttled(tmp_path, monkeypatch, caplog) -> None:
+    """A missing-plan halt re-logs every _PLAN_REWARN_SECONDS, not just once.
+
+    The project stays skipped, but the ERROR re-surfaces periodically so a
+    permanently stuck project is visible to operators rather than going silent
+    after a single log line.
+    """
+    from webhook_receiver.beads_loop import _PLAN_REWARN_SECONDS
+
+    settings = _test_settings(beads_workspace_root=str(tmp_path))
+    loop = BeadsLoop(settings)
+
+    # Fake clock so we can cross the re-warn window deterministically.
+    fake_now = [0.0]
+    monkeypatch.setattr(
+        "webhook_receiver.beads_loop.time.time", lambda: fake_now[0]
+    )
+
+    with (
+        patch("webhook_receiver.beads_loop._plan_tracked", return_value=False),
+        patch.object(loop, "_get_next_bead") as mock_next,
+    ):
+        caplog.set_level("ERROR", logger="webhook_receiver.beads_loop")
+        loop._poll_and_process_project("proj", str(tmp_path / "proj"))  # log #1
+        loop._poll_and_process_project("proj", str(tmp_path / "proj"))  # throttled
+        fake_now[0] = _PLAN_REWARN_SECONDS + 1
+        loop._poll_and_process_project("proj", str(tmp_path / "proj"))  # log #2
+        fake_now[0] = _PLAN_REWARN_SECONDS + 2
+        loop._poll_and_process_project("proj", str(tmp_path / "proj"))  # throttled
+
+    errors = [r for r in caplog.records if r.levelname == "ERROR"]
+    assert len(errors) == 2, (
+        f"expected exactly 2 throttled errors, got {len(errors)}"
+    )
+    mock_next.assert_not_called()
+    assert "proj" in loop._plan_warned
+
+
+def test_poll_resets_warning_after_plan_committed(tmp_path) -> None:
+    """Once the plan is committed, the warn-once latch resets so a future lapse
+    re-warns."""
+    settings = _test_settings(beads_workspace_root=str(tmp_path))
+    loop = BeadsLoop(settings)
+    with patch("webhook_receiver.beads_loop._plan_tracked", return_value=False):
+        loop._poll_and_process_project("proj", str(tmp_path / "proj"))
+    assert "proj" in loop._plan_warned
+
+    with (
+        patch("webhook_receiver.beads_loop._plan_tracked", return_value=True),
+        patch.object(loop, "_get_next_bead", return_value=None),
+        patch.object(loop, "_log_overview_if_idle"),
+    ):
+        loop._poll_and_process_project("proj", str(tmp_path / "proj"))
+
+    assert "proj" not in loop._plan_warned
 
 
 # ── _scan_and_process (multi-project discovery) ───────────────────────────

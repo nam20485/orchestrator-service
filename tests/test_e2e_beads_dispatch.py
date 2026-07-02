@@ -76,6 +76,12 @@ def _make_project(tmp_base: Path, slug: str) -> tuple[Path, dict[str, str]]:
 
     _run(["git", "init", "-q", "--initial-branch=main"], cwd=project)
     (project / "README.md").write_text("e2e\n")
+    # The application plan MUST be committed (not just present on disk) so per-bead
+    # worktrees — checked out from the default branch — inherit it. This is the
+    # contract BeadsLoop._poll_and_process_project now enforces via _plan_tracked().
+    plan_dir = project / "plan_docs"
+    plan_dir.mkdir()
+    (plan_dir / "application_plan.md").write_text("# e2e plan\n")
     _run(["git", "add", "."], cwd=project)
     _run(
         [
