@@ -67,8 +67,13 @@ Run the generated bash script. Once complete, run a final export, verify it is c
 ```bash
 br sync --flush-only || { echo "ERROR: br sync failed"; exit 1; }
 br sync --status | grep -q "In sync" || { echo "ERROR: beads not in sync"; exit 1; }
-git add .beads/
-git commit -m "Add beads DAG from application plan"
+
+# Per-bead worktrees check out the default branch; only COMMITTED files are
+# visible to bead agents. Stage the plan (and any other seeded project docs)
+# alongside the DAG so worktrees inherit them. Without this, bead agents run in
+# an empty worktree and cannot read plan_docs/application_plan.md.
+git add plan_docs/ .beads/
+git commit -m "Add application plan and beads DAG"
 ```
 
 Once the script completes, the orchestrator's BeadsLoop background thread will automatically detect the unblocked tasks and begin executing them.
@@ -125,6 +130,11 @@ br dep add $TASK_API $TASK_DB
 # Sync graph to disk safely and verify
 br sync --flush-only || { echo "ERROR: br sync failed"; exit 1; }
 br sync --status | grep -q "In sync" || { echo "ERROR: beads not in sync"; exit 1; }
+
+# Commit the plan + DAG so per-bead worktrees (checked out from the default
+# branch) inherit plan_docs/application_plan.md and .beads/.
+git add plan_docs/ .beads/
+git commit -m "Add application plan and beads DAG"
 ```
 </example_script>
 

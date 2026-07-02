@@ -131,7 +131,16 @@ the relevant earlier step and iterate. Only proceed on explicit approval.
    Logistics` section. Write the completed document to the agreed plan path (default
    `plan_docs/application_plan.md`).
 
-3. **Handoff.** After writing the file, tell the user:
+3. **Commit the plan.** Per-bead worktrees check out the project's default branch, so only
+   COMMITTED files reach bead agents. Stage and commit the plan now so it is visible in
+   every bead worktree (otherwise bead agents cannot read `plan_docs/application_plan.md`):
+
+   ```bash
+   git add plan_docs/application_plan.md
+   git commit -m "Add application plan"
+   ```
+
+4. **Handoff.** After writing and committing the file, tell the user:
 
    "I have generated the formal application plan at `plan_docs/application_plan.md`. Please
    review it. If it looks correct, reply with `/plan-to-beads` to convert this plan into an
