@@ -59,7 +59,7 @@ scope: repository
     <item>Google Gemini models (`gemini-3.1-pro-preview`, `gemini-3.1-flash-lite-preview`, etc.) via `GEMINI_API_KEY`</item>
     <item>GitHub Actions — workflow trigger and runner; prebuilt devcontainer from `<org>/orchestrator-service-prebuild`</item>
     <item>.NET SDK 10 + Aspire + Avalonia templates, Bun, uv (all in devcontainer, sourced from external prebuild image)</item>
-    <item>MCP servers (enabled): `@modelcontextprotocol/server-sequential-thinking`, `mcp-memory-service` (SQLite-vec persistent memory via uvx)</item>
+    <item>MCP servers (enabled): `@modelcontextprotocol/server-sequential-thinking`, `@modelcontextprotocol/server-memory` (knowledge-graph persistent memory; single-writer protocol — see `mandatory_tool_protocols.persistent_memory`).</item>
     <item>MCP servers (disabled): `@modelcontextprotocol/server-github`, `https://mcp.grep.app`</item>
   </tech_stack>
 
@@ -195,23 +195,38 @@ scope: repository
     </protocol>
 
     <protocol id="persistent_memory" enforcement="MANDATORY">
-      <title>Persistent Memory — ALWAYS USE</title>
-      <tools>
+      <title>Persistent Memory — ALWAYS USE (single-writer: orchestrator only)</title>
+      <summary>
+        The memory-graph store (`@modelcontextprotocol/server-memory`) writes the entire
+        `memory.jsonl` via an unprotected `writeFile` on every mutation. Concurrent writers
+        (the orchestrator session AND each subagent session each spawn their own server-memory
+        process against the one `MEMORY_FILE_PATH`) interleave their writes and corrupt the file.
+        To eliminate the corruption at its source, this system is **single-writer**: the
+        Orchestrator is the ONLY agent that calls memory WRITE tools. All other agents are
+        READ-ONLY and return facts to persist via the Memory Save Requests hand-off (below).
+        Reads never corrupt the file, so read-many is safe; write-one is enforced.
+      </summary>
+      <read_tools available_to="ALL AGENTS">
+        <tool>search_nodes</tool>
+        <tool>open_nodes</tool>
+        <tool>read_graph</tool>
+      </read_tools>
+      <write_tools available_to="ORCHESTRATOR ONLY">
+        <rule>Subagents and specialists MUST NOT call these tools. They are write operations
+        that can corrupt memory.jsonl when run concurrently. Subagents return facts via the
+        Memory Save Requests hand-off; the Orchestrator persists them.</rule>
         <tool>create_entities</tool>
         <tool>create_relations</tool>
         <tool>add_observations</tool>
         <tool>delete_entities</tool>
         <tool>delete_observations</tool>
         <tool>delete_relations</tool>
-        <tool>read_graph</tool>
-        <tool>search_nodes</tool>
-        <tool>open_nodes</tool>
-      </tools>
+      </write_tools>
       <required_usage_points>
-        <point>At task START: Call `search_nodes` and/or `open_nodes` to retrieve existing context about the project, user preferences, prior decisions, and known patterns BEFORE planning or acting. Use `read_graph` only when a full-graph view is required.</point>
-        <point>After SIGNIFICANT WORK: Use `add_observations` on existing entities, or `create_entities` plus `create_relations` for new recurring subjects.</point>
-        <point>After COMPLETING a task: Record outcomes, lessons learned, and follow-up items as atomic observations in the knowledge graph.</point>
-        <point>When STARTING a new workflow or assignment: Search for prior related work, decisions, and context with `search_nodes` using repo, issue, workflow, or run keywords.</point>
+        <point>At task START (ALL agents): Call `search_nodes` and/or `open_nodes` to retrieve existing context about the project, user preferences, prior decisions, and known patterns BEFORE planning or acting. Use `read_graph` only when a full-graph view is required.</point>
+        <point>After SIGNIFICANT WORK (ORCHESTRATOR ONLY): Use `add_observations` on existing entities, or `create_entities` plus `create_relations` for new recurring subjects — including any facts collected from subagents' `## Memory Save Requests` lists.</point>
+        <point>After COMPLETING a task (ORCHESTRATOR ONLY): Record outcomes, lessons learned, and follow-up items as atomic observations in the knowledge graph.</point>
+        <point>When STARTING a new workflow or assignment (ALL agents): Search for prior related work, decisions, and context with `search_nodes` using repo, issue, workflow, or run keywords.</point>
       </required_usage_points>
       <what_to_store>
         <item>Entities for recurring organizations, repos, issues, workflow runs, or significant events</item>
@@ -222,7 +237,18 @@ scope: repository
         <item>Error patterns and their resolutions</item>
         <item>Cross-task context that would otherwise be lost between sessions</item>
       </what_to_store>
-      <violation>Failing to read existing memory at task start or failing to persist important findings after task completion is a protocol violation.</violation>
+      <memory_save_requests_handoff>
+        Subagents (every agent except the Orchestrator) cannot write memory. Instead, at the END
+        of their result they MUST include a `## Memory Save Requests` section listing any durable
+        facts worth persisting. The Orchestrator reads each subagent's hand-off and persists those
+        facts itself using the write tools.
+        Format example for a subagent result:
+          ## Memory Save Requests
+          - Entity: project-foo | Type: microservice | Observation: "uses PostgreSQL 16"
+          - Add observation to issue-42: "root cause was missing index on users.email"
+        If the subagent has nothing to persist, it omits the section or writes "## Memory Save Requests\n(none)".
+      </memory_save_requests_handoff>
+      <violation>A subagent calling a memory WRITE tool is a CRITICAL protocol violation (corrupts the store). Failing to read existing memory at task start is a violation. The Orchestrator failing to persist subagent hand-off facts after significant work is a violation.</violation>
     </protocol>
 
     <protocol id="change_validation" enforcement="MANDATORY">
@@ -259,15 +285,17 @@ scope: repository
       <item>☐ Used sequential_thinking at key decision points during work</item>
       <item>☐ Ran validation (./scripts/validate.ps1 -All) before commit/push</item>
       <item>☐ Fixed all validation failures and re-verified clean</item>
-      <item>☐ Persisted important findings to persistent memory</item>
+      <item>☐ Memory: Orchestrator persisted findings (incl. subagent save requests); Subagents returned `## Memory Save Requests` instead of writing</item>
+      <item>☐ Subagents: did NOT call any memory WRITE tool (single-writer rule)</item>
       <item>☐ Monitored CI after push and confirmed green</item>
     </agent_checklist>
   </mandatory_tool_protocols>
 
   <agent_specific_guardrails>
     <rule>The Orchestrator agent delegates to specialists via the `task` tool — never writes code directly.</rule>
-    <rule>The Orchestrator MUST invoke `sequential_thinking` before planning any delegation and `search_nodes` (or `open_nodes`) before every new task to load prior project context from the memory-graph MCP server.</rule>
-    <rule>ALL agents MUST follow the mandatory_tool_protocols defined above — sequential thinking, memory, and change validation are not optional.</rule>
+    <rule>The Orchestrator is the SOLE memory-graph writer. It MUST invoke `sequential_thinking` before planning any delegation and `search_nodes` (or `open_nodes`) before every new task to load prior project context. After each subagent completes, the Orchestrator reads the subagent's `## Memory Save Requests` list and persists those facts itself using `add_observations` / `create_entities` / `create_relations`. The Orchestrator never asks a subagent to write memory.</rule>
+    <rule>Subagents and specialists are memory READ-ONLY: they may call `search_nodes`, `open_nodes`, and `read_graph`, but MUST NOT call `create_entities`, `create_relations`, `add_observations`, or any `delete_*` tool. Concurrent writers corrupt the memory store. Instead, each subagent ends its result with a `## Memory Save Requests` list of facts for the Orchestrator to persist.</rule>
+    <rule>ALL agents MUST follow the mandatory_tool_protocols defined above — sequential thinking, memory (single-writer), and change validation are not optional.</rule>
     <rule>Prompt assembly pipeline:
       1. Read template from `.github/workflows/prompts/orchestrator-agent-prompt.md`.
       2. Prepend structured event context (event name, action, actor, repo, ref, SHA).
@@ -343,25 +371,43 @@ scope: repository
       </guidance>
     </instruction>
     <instruction id="memory_default_usage" enforcement="MANDATORY">
-      <applyTo>*</applyTo>
-      <title>Persistent Memory — MANDATORY for all non-trivial tasks</title>
-      <tools>
+      <applyTo>orchestrator</applyTo>
+      <title>Persistent Memory — MANDATORY, single-writer (Orchestrator)</title>
+      <read_tools>
+        <tool>read_graph</tool>
+        <tool>search_nodes</tool>
+        <tool>open_nodes</tool>
+      </read_tools>
+      <write_tools available_to="ORCHESTRATOR ONLY">
         <tool>create_entities</tool>
         <tool>create_relations</tool>
         <tool>add_observations</tool>
         <tool>delete_entities</tool>
         <tool>delete_observations</tool>
         <tool>delete_relations</tool>
+      </write_tools>
+      <guidance>
+        **MUST USE** for all non-trivial requests. See `mandatory_tool_protocols.persistent_memory` for full requirements.
+        Invoke at: task start (`search_nodes` / `open_nodes`), after significant work (`add_observations` / `create_entities` / `create_relations`),
+        and after task completion (persist outcomes and lessons learned — including facts collected from subagent `## Memory Save Requests` lists).
+        Skipping memory operations is a protocol violation.
+      </guidance>
+    </instruction>
+    <instruction id="memory_readonly_subagents" enforcement="MANDATORY">
+      <applyTo>subagents-and-specialists</applyTo>
+      <title>Persistent Memory — READ-ONLY for all non-orchestrator agents</title>
+      <read_tools>
         <tool>read_graph</tool>
         <tool>search_nodes</tool>
         <tool>open_nodes</tool>
-      </tools>
+      </read_tools>
       <guidance>
-        **MUST USE** for all non-trivial requests. This is a mandatory protocol, not a suggestion.
-        See `mandatory_tool_protocols.persistent_memory` for full requirements.
-        Invoke at: task start (`search_nodes` / `open_nodes`), after significant work (`add_observations` / `create_entities` / `create_relations`),
-        and after task completion (persist outcomes and lessons learned).
-        Skipping memory operations is a protocol violation.
+        You are NOT the Orchestrator, so you are a memory **READER ONLY**. You MAY call
+        `search_nodes`, `open_nodes`, and `read_graph` to load context. You MUST NOT call
+        `create_entities`, `create_relations`, `add_observations`, or any `delete_*` tool —
+        concurrent writes corrupt the memory store. Instead, end your result with a
+        `## Memory Save Requests` section listing any durable facts for the Orchestrator to persist.
+        Calling a memory write tool is a CRITICAL protocol violation.
       </guidance>
     </instruction>
   </tool_use_instructions>
@@ -411,7 +457,7 @@ scope: repository
     <mcp_servers>
       <summary>Configured in `/app/opencode.json` (not separate installs).</summary>
       <tool name="sequential-thinking">Local MCP via `npx @modelcontextprotocol/server-sequential-thinking`.</tool>
-      <tool name="memory-graph">Local MCP via `npx @modelcontextprotocol/server-memory`; persists to `/app/.memory/memory.jsonl`.</tool>
+      <tool name="memory-graph">Local MCP via `npx @modelcontextprotocol/server-memory`; persists to `/app/.memory/memory.jsonl`. SINGLE-WRITER: only the Orchestrator writes; subagents are read-only (see `persistent_memory` protocol).</tool>
       <tool name="web-reader">Remote MCP at `https://api.z.ai/api/mcp/web_reader/mcp`.</tool>
       <tool name="zread">Remote MCP at `https://api.z.ai/api/mcp/zread/mcp`.</tool>
       <tool name="web-search-prime">Remote MCP at `https://api.z.ai/api/mcp/web_search_prime/mcp`.</tool>

@@ -60,6 +60,21 @@ if [ -d "$MEM_DIR" ] && [ "$(stat -c %u "$MEM_DIR")" != "$APP_UID" ]; then
   chown -R app:app "$MEM_DIR" 2>/dev/null || true
 fi
 
+# Memory store self-heal: @modelcontextprotocol/server-memory writes the entire
+# memory.jsonl via an unprotected writeFile on every mutation. Concurrent writers
+# (the orchestrator plus each subagent session each spawn their own process) can
+# interleave writes and corrupt the file so reads fail with a JSON parse error.
+# If the store is unparseable on startup, back it up and start fresh so reads stop
+# failing. (With the single-writer invariant in place, corruption should not recur,
+# but this guards against any pre-existing corrupt store from prior runs.)
+MEM_FILE="$MEM_DIR/memory.jsonl"
+if [ -f "$MEM_FILE" ] && ! python3 -c "import json,sys;[json.loads(l) for l in open(sys.argv[1]) if l.strip()]" "$MEM_FILE" >/dev/null 2>&1; then
+  echo "docker-entrypoint: memory.jsonl is unparseable — backing up and resetting" >&2
+  mv "$MEM_FILE" "$MEM_FILE.corrupt-$(date +%s)" 2>/dev/null || true
+  : > "$MEM_FILE"
+  chown app:app "$MEM_FILE" 2>/dev/null || true
+fi
+
 # Privilege drop: start as root (no USER directive in Dockerfile), then exec
 # the server as the non-root app user via gosu. Fall back to direct exec if
 # gosu is not available (e.g. when running the entrypoint test on the host).

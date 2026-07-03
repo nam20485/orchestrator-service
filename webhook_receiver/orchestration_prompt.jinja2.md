@@ -3,14 +3,14 @@
 ## MANDATORY STARTUP — DO THESE FIRST, IN ORDER
 
 **Step 1 — Load Memory (REQUIRED):**
-Call `search_nodes` (and `open_nodes` if needed) RIGHT NOW before reading anything else. The memory-graph MCP server persists a local knowledge graph across workflow runs. Search using the repository name, issue number, delivery id, workflow name, or other run-specific keywords from EVENT_DATA. Use `read_graph` only when you need the full graph. Use what you find to orient yourself — if memory contains state about this project or issue, apply it. Do not skip this step.
+Call `search_nodes` (and `open_nodes` if needed) RIGHT NOW before reading anything else. The memory-graph MCP server persists a local knowledge graph across workflow runs. Search using the repository name, issue number, delivery id, workflow name, or other run-specific keywords from EVENT_DATA. Use `read_graph` only when you need the full graph. Use what you find to orient yourself — if memory contains state about this project or issue, apply it. Do not skip this step. (Reads are safe and always allowed.)
 
 **Step 2 — Read AGENTS.md (if not already in context):**
 If AGENTS.md has not already been loaded into your context, read it now using the `read` tool (`AGENTS.md` in the repo root). It defines the agent roster, coding conventions, mandatory protocols, and tool usage rules that govern this run.
 
 **Step 3 — Proceed to Instructions below.**
 
-Use `sequential_thinking` when you face a genuinely complex decision or need to decompose a multi-step delegation plan. It is not required for every action — use your judgment. After completing significant work, update the knowledge graph with `add_observations`, `create_entities`, and `create_relations` as appropriate so future runs retain what you learned.
+Use `sequential_thinking` when you face a genuinely complex decision or need to decompose a multi-step delegation plan. It is not required for every action — use your judgment. **You are the SOLE memory-graph writer:** you alone may call `add_observations`, `create_entities`, and `create_relations`. When you delegate to subagents, tell them memory is READ-ONLY for them and that they must return any facts to persist under a `## Memory Save Requests` section in their results — then persist those facts yourself. Concurrent writers (multiple sessions) corrupt the memory store, so never let a subagent write.
 
 ## Instructions
 
@@ -271,6 +271,18 @@ case (type = issues &&
               $workflow_name = $dispatch.workflow_name { ...$dispatch.args }
           - if the workflow succeeds:
             - postStatusUpdate("✅ `{$dispatch.workflow_name}` completed successfully.")
+            ## PUBLISH & VERIFY — do NOT post "finished" or close until work is reachable on the remote.
+            ## Local commits that are never pushed trap the work inside the container (root cause of the
+            ## gap-miner-v2-juliet79 5.4 defect). Verify publication explicitly.
+            - Determine the working branch: `git rev-parse --abbrev-ref HEAD` in the project workspace.
+            - If the branch is the default branch (`main` or `master`): SKIP publish (never push to the default branch). Log a warning and proceed straight to the close step.
+            - Else if there is no `origin` remote (`git remote get-url origin` fails): SKIP publish. Log a warning that no remote is configured and proceed to the close step.
+            - Else:
+              - If `origin/<branch>` is absent OR `git log origin/<branch>..HEAD` is non-empty (there are unpushed commits): run `git push -u origin <branch>`.
+              - If push fails: postStatusUpdate("❌ `{$dispatch.workflow_name}` succeeded locally but `git push` failed. The work is not on the remote. Leaving the issue open for retry."), then leave the issue open and skip to ##Final.
+              - Verify a PR exists: `gh pr list --head <branch> --json number`.
+                - If no PR exists: `gh pr create --head <branch> --title "<workflow name>: <summary>" --body "<derived from the workflow/dispatch>"`.
+                - If PR creation fails: postStatusUpdate("❌ Branch pushed but `gh pr create` failed. Leaving the issue open for retry."), then leave the issue open and skip to ##Final.
             - close the issue with a final postStatusUpdate("🏁 Dispatch complete — `{$dispatch.workflow_name}` finished with no errors.") then close it.
           - if the workflow fails:
             - postStatusUpdate("❌ `{$dispatch.workflow_name}` failed. See details below:\n{summary of failure reason and any potential next steps}")
@@ -286,7 +298,8 @@ case (default)
 
 ## Final
 
-  - **MANDATORY COMPLETION — UPDATE MEMORY NOW**: You MUST update the knowledge graph before finishing. Do not skip.
+  - **MANDATORY COMPLETION — UPDATE MEMORY NOW**: You MUST update the knowledge graph before finishing. Do not skip. You are the SOLE memory writer — never delegate memory writes.
+    - **Collect subagent save requests first**: scan every subagent result for a `## Memory Save Requests` section and persist those facts yourself using the write tools below. Subagents cannot write memory.
     - What to record: which clause matched, what workflow ran, what succeeded or failed, what the dispatch/issue was, any errors or retries, lessons or patterns discovered.
     - Prefer `add_observations` on an existing entity when one matches this repo, issue, or run; otherwise `create_entities` for a recurring subject (for example `orchestrator-run-{repo}` or `issue-{number}`) with atomic observations, and `create_relations` to link related entities.
     - Example: `create_entities` with `name: "orchestrator-run-org-repo"`, `entityType: "workflow_run"`, `observations: ["create-epic-v2 succeeded", "backend-developer timed out on step Y"]`, then `create_relations` if needed.

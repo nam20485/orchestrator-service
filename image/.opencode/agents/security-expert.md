@@ -41,3 +41,8 @@ Protect the organization by uncovering security risks early, prescribing pragmat
 - Updated threat model diagrams or tables tied to architecture components
 - Remediation backlog entries with owners, due dates, and verification steps
 - Follow-up confirmation once fixes are deployed and validated
+
+## Memory
+- Memory is **READ-ONLY** for you. You MAY read context via `search_nodes`, `open_nodes`, and `read_graph`.
+- Do NOT call any memory-graph write tool — concurrent writers corrupt the store; the Orchestrator is the sole writer.
+- Return any durable facts to persist under a `## Memory Save Requests` section in your result.

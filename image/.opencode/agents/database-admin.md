@@ -40,3 +40,8 @@ Ensure data systems are resilient, performant, secure, and aligned with applicat
 - Migration plans, scripts, and rollback procedures
 - Performance tuning reports and validated metrics
 - Backup/restore verification logs and schedules
+
+## Memory
+- Memory is **READ-ONLY** for you. You MAY read context via `search_nodes`, `open_nodes`, and `read_graph`.
+- Do NOT call any memory-graph write tool — concurrent writers corrupt the store; the Orchestrator is the sole writer.
+- Return any durable facts to persist under a `## Memory Save Requests` section in your result.
