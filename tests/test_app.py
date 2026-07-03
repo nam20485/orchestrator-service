@@ -24,7 +24,6 @@ def _test_settings() -> Settings:
         workspace="/workspace",
         model="zai-coding-plan/glm-4.7-flash",
         agent="orchestrator",
-        allowed_events=None,
         max_payload_chars=120000,
         max_body_bytes=25 * 1024 * 1024,
         log_level="warning",
@@ -94,7 +93,6 @@ def test_rejects_oversized_body(monkeypatch: pytest.MonkeyPatch) -> None:
         workspace=base.workspace,
         model=base.model,
         agent=base.agent,
-        allowed_events=base.allowed_events,
         max_payload_chars=base.max_payload_chars,
         max_body_bytes=8,
         log_level=base.log_level,
@@ -127,9 +125,10 @@ def test_accepts_issue_event(
     dispatch = MagicMock()
     monkeypatch.setattr("webhook_receiver.app.dispatch_to_opencode", dispatch)
     payload = {
-        "action": "opened",
+        "action": "labeled",
+        "label": {"name": "orchestration:dispatch"},
         "repository": {"full_name": "org/repo"},
-        "sender": {"login": "bot"},
+        "sender": {"login": "test-user"},
     }
     body = json.dumps(payload).encode()
     response = client.post(
@@ -147,38 +146,111 @@ def test_accepts_issue_event(
     dispatch.assert_called_once()
 
 
-def test_ignores_disallowed_event(monkeypatch: pytest.MonkeyPatch) -> None:
-    base = _test_settings()
-    cfg = Settings(
-        host=base.host,
-        port=base.port,
-        github_webhook_secret=base.github_webhook_secret,
-        opencode_server_url=base.opencode_server_url,
-        prompt_script=base.prompt_script,
-        workspace=base.workspace,
-        model=base.model,
-        agent=base.agent,
-        allowed_events=frozenset({"pull_request"}),
-        max_payload_chars=base.max_payload_chars,
-        max_body_bytes=base.max_body_bytes,
-        log_level=base.log_level,
-        enable_simulator=base.enable_simulator,
-        beads_enabled=base.beads_enabled,
-        beads_poll_interval=base.beads_poll_interval,
-        beads_max_retries=base.beads_max_retries,
-        beads_workspace_root=base.beads_workspace_root,
+def test_filters_issue_comment_to_prevent_echo_loop(
+    client: TestClient,
+) -> None:
+    """Regression for the gap-miner-v2 cascade.
+
+    ``issue_comment.created`` must never dispatch the agent (the prompt has no
+    clause for it, so ``(default)`` would post a comment and re-trigger).
+    """
+    payload = {
+        "action": "created",
+        "comment": {"body": "ping"},
+        "repository": {"full_name": "org/repo"},
+        "sender": {"login": "someone"},
+    }
+    body = json.dumps(payload).encode()
+    response = client.post(
+        "/webhooks/github",
+        content=body,
+        headers={
+            "X-GitHub-Event": "issue_comment",
+            "X-GitHub-Delivery": "d-echo",
+            "X-Hub-Signature-256": _sign(body, "test-webhook-secret"),
+            "Content-Type": "application/json",
+        },
     )
+    assert response.status_code == 202
+    assert response.json()["status"] == "ignored"
+
+
+def test_filters_issues_opened_event(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``issues.opened`` is not a dispatch trigger (only ``labeled`` is)."""
     dispatch = MagicMock()
     monkeypatch.setattr("webhook_receiver.app.dispatch_to_opencode", dispatch)
-    client = TestClient(create_app(cfg))
-    body = b'{"action":"opened"}'
+    payload = {
+        "action": "opened",
+        "repository": {"full_name": "org/repo"},
+        "sender": {"login": "someone"},
+    }
+    body = json.dumps(payload).encode()
     response = client.post(
         "/webhooks/github",
         content=body,
         headers={
             "X-GitHub-Event": "issues",
-            "X-GitHub-Delivery": "d2",
+            "X-GitHub-Delivery": "d-opened",
             "X-Hub-Signature-256": _sign(body, "test-webhook-secret"),
+            "Content-Type": "application/json",
+        },
+    )
+    assert response.status_code == 202
+    assert response.json()["status"] == "ignored"
+    dispatch.assert_not_called()
+
+
+def test_filters_bot_actors(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A ``labeled`` event applied by an App/bot must not dispatch."""
+    dispatch = MagicMock()
+    monkeypatch.setattr("webhook_receiver.app.dispatch_to_opencode", dispatch)
+    payload = {
+        "action": "labeled",
+        "label": {"name": "orchestration:dispatch"},
+        "repository": {"full_name": "org/repo"},
+        "sender": {"login": "github-actions[bot]"},
+    }
+    body = json.dumps(payload).encode()
+    response = client.post(
+        "/webhooks/github",
+        content=body,
+        headers={
+            "X-GitHub-Event": "issues",
+            "X-GitHub-Delivery": "d-bot",
+            "X-Hub-Signature-256": _sign(body, "test-webhook-secret"),
+            "Content-Type": "application/json",
+        },
+    )
+    assert response.status_code == 202
+    assert response.json()["status"] == "ignored"
+    dispatch.assert_not_called()
+
+
+def test_filters_non_workflow_label(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A ``labeled`` event with a non-workflow label must not dispatch."""
+    dispatch = MagicMock()
+    monkeypatch.setattr("webhook_receiver.app.dispatch_to_opencode", dispatch)
+    payload = {
+        "action": "labeled",
+        "label": {"name": "bug"},
+        "repository": {"full_name": "org/repo"},
+        "sender": {"login": "someone"},
+    }
+    body = json.dumps(payload).encode()
+    response = client.post(
+        "/webhooks/github",
+        content=body,
+        headers={
+            "X-GitHub-Event": "issues",
+            "X-GitHub-Delivery": "d-label",
+            "X-Hub-Signature-256": _sign(body, "test-webhook-secret"),
+            "Content-Type": "application/json",
         },
     )
     assert response.status_code == 202
@@ -219,9 +291,10 @@ def test_safe_dispatch_inits_project_when_no_clone_url(
     client = TestClient(create_app(_test_settings()))
     # No clone_url (and none is a valid HTTPS URL) → bootstrap path.
     payload = {
-        "action": "opened",
+        "action": "labeled",
+        "label": {"name": "orchestration:dispatch"},
         "repository": {"full_name": "org/repo"},
-        "sender": {"login": "bot"},
+        "sender": {"login": "test-user"},
     }
 
     response = _post_issues(client, payload, delivery="d-init")
@@ -250,12 +323,13 @@ def test_safe_dispatch_clones_when_valid_clone_url(
 
     client = TestClient(create_app(_test_settings()))
     payload = {
-        "action": "opened",
+        "action": "labeled",
+        "label": {"name": "orchestration:dispatch"},
         "repository": {
             "full_name": "org/repo",
             "clone_url": "https://github.com/org/repo.git",
         },
-        "sender": {"login": "bot"},
+        "sender": {"login": "test-user"},
     }
 
     response = _post_issues(client, payload, delivery="d-clone")
@@ -284,13 +358,14 @@ def test_safe_dispatch_threads_payload_default_branch(
 
     client = TestClient(create_app(_test_settings()))
     payload = {
-        "action": "opened",
+        "action": "labeled",
+        "label": {"name": "orchestration:dispatch"},
         "repository": {
             "full_name": "org/repo",
             "clone_url": "https://github.com/org/repo.git",
             "default_branch": "master",
         },
-        "sender": {"login": "bot"},
+        "sender": {"login": "test-user"},
     }
 
     response = _post_issues(client, payload, delivery="d-branch")
@@ -324,9 +399,10 @@ def test_safe_dispatch_root_guard_refuses_dispatch(
 
     client = TestClient(create_app(_test_settings()))
     payload = {
-        "action": "opened",
+        "action": "labeled",
+        "label": {"name": "orchestration:dispatch"},
         "repository": {"full_name": "org/repo"},
-        "sender": {"login": "bot"},
+        "sender": {"login": "test-user"},
     }
 
     response = _post_issues(client, payload, delivery="d-guard")
@@ -348,9 +424,10 @@ def test_safe_dispatch_normal_path_does_not_hit_root_guard(
 
     client = TestClient(create_app(_test_settings()))
     payload = {
-        "action": "opened",
+        "action": "labeled",
+        "label": {"name": "orchestration:dispatch"},
         "repository": {"full_name": "org/repo"},
-        "sender": {"login": "bot"},
+        "sender": {"login": "test-user"},
     }
 
     response = _post_issues(client, payload, delivery="d-normal")

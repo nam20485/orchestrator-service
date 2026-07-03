@@ -21,7 +21,6 @@ def _test_settings(*, enable_simulator: bool = True) -> Settings:
         workspace="/workspace",
         model="zai-coding-plan/glm-4.7-flash",
         agent="orchestrator",
-        allowed_events=None,
         max_payload_chars=120000,
         max_body_bytes=25 * 1024 * 1024,
         log_level="warning",

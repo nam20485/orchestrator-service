@@ -123,7 +123,6 @@ def _settings(tmp_base: Path, project_root: Path) -> Settings:
         workspace=str(project_root),
         model="stub-model",
         agent="orchestrator",
-        allowed_events=None,
         max_payload_chars=120000,
         max_body_bytes=25 * 1024 * 1024,
         log_level="warning",

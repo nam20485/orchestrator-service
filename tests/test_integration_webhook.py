@@ -30,7 +30,6 @@ def _test_settings(**overrides: object) -> Settings:
         workspace="/workspace",
         model="zai-coding-plan/glm-4.7-flash",
         agent="orchestrator",
-        allowed_events=None,
         max_payload_chars=120000,
         max_body_bytes=25 * 1024 * 1024,
         log_level="warning",
@@ -81,9 +80,10 @@ def test_webhook_to_prompt_assembly_issues_event(
     monkeypatch.setattr("webhook_receiver.app.dispatch_to_opencode", dispatch)
 
     payload = {
-        "action": "opened",
+        "action": "labeled",
+        "label": {"name": "orchestration:dispatch"},
         "repository": {"full_name": "org/repo"},
-        "sender": {"login": "bot"},
+        "sender": {"login": "test-user"},
         "issue": {"number": 42, "title": "Bug fix"},
     }
     resp = _post(client, "issues", payload)
@@ -92,7 +92,7 @@ def test_webhook_to_prompt_assembly_issues_event(
     dispatch.assert_called_once()
     prompt = dispatch.call_args[0][1]
     assert "org/repo" in prompt
-    assert "opened" in prompt
+    assert "labeled" in prompt
     assert "Bug fix" in prompt
 
 
@@ -107,7 +107,8 @@ def test_webhook_to_prompt_truncates_large_payload(
     client = TestClient(create_app(cfg))
 
     big_payload = {
-        "action": "opened",
+        "action": "labeled",
+        "label": {"name": "orchestration:dispatch"},
         "repository": {"full_name": "o/r"},
         "sender": {"login": "b"},
         "data": "X" * 5000,
@@ -139,18 +140,3 @@ def test_webhook_to_prompt_bad_signature_rejects(client: TestClient) -> None:
         },
     )
     assert resp.status_code == 401
-
-
-def test_webhook_to_prompt_allowed_events_filter(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """issues event not in allowed_events={pull_request} → 202 ignored."""
-    dispatch = MagicMock()
-    monkeypatch.setattr("webhook_receiver.app.dispatch_to_opencode", dispatch)
-
-    cfg = _test_settings(allowed_events=frozenset({"pull_request"}))
-    client = TestClient(create_app(cfg))
-
-    _post(client, "issues", {"action": "opened"})
-
-    dispatch.assert_not_called()

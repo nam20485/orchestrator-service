@@ -27,7 +27,6 @@ class Settings:
     workspace: str
     model: str
     agent: str
-    allowed_events: frozenset[str] | None
     max_payload_chars: int
     max_body_bytes: int
     log_level: str
@@ -49,13 +48,6 @@ class Settings:
                 "OS_WEBHOOK_SECRET is required (GitHub App webhook secret)."
             )
 
-        allowed_raw = os.environ.get("WEBHOOK_ALLOWED_EVENTS", "").strip()
-        allowed: frozenset[str] | None = None
-        if allowed_raw:
-            allowed = frozenset(
-                e.strip().lower() for e in allowed_raw.split(",") if e.strip()
-            )
-
         return cls(
             host=os.environ.get("WEBHOOK_HOST", "0.0.0.0"),
             port=int(os.environ.get("WEBHOOK_PORT", "8080")),
@@ -69,7 +61,6 @@ class Settings:
             workspace=os.environ.get("ORCHESTRATOR_WORKSPACE", "/workspace"),
             model=os.environ.get("OPENCODE_MODEL", "zai-coding-plan/glm-4.7"),
             agent=os.environ.get("OPENCODE_AGENT", "orchestrator"),
-            allowed_events=allowed,
             max_payload_chars=int(
                 os.environ.get("WEBHOOK_MAX_PAYLOAD_CHARS", "120000")
             ),
