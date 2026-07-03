@@ -770,6 +770,14 @@ def test_poll_processes_project_with_committed_plan(tmp_path) -> None:
         check=True,
         capture_output=True,
     )
+    # Disable GPG signing — global commit.gpgsign=true makes GPG prompt
+    # interactively, timing out the test subprocess (matches test_workspace.py).
+    subprocess.run(
+        ["git", "config", "commit.gpgsign", "false"],
+        cwd=project,
+        check=True,
+        capture_output=True,
+    )
     subprocess.run(
         ["git", "add", "plan_docs/application_plan.md"],
         cwd=project,
