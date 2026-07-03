@@ -2,7 +2,7 @@ name: Docker
 
 on:
   push:
-    branches: [ "main", "development" ]
+    branches: [ "main", "development", "nam20485" ]
     tags: [ 'v*.*.*' ]
     # Path filters only affect branch pushes (tag pushes always run per GitHub
     # Actions semantics). Skip the whole pipeline when no image-relevant file
