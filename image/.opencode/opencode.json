@@ -4,86 +4,9 @@
   "instructions": [
     "AGENTS.md"
   ],
-  "provider": {
-    "openrouter": {
-      "models": {
-        "nvidia/nemotron-3-ultra-550b-a55b:free": {}
-      }
-    },
-    "bailian-payg": {
-      "npm": "@ai-sdk/anthropic",
-      "name": "Alibaba Cloud Model Studio",
-      "options": {
-        "baseURL": "https://dashscope-intl.aliyuncs.com/apps/anthropic/v1",
-        "apiKey": "{env:MS_DS_API_KEY}"
-      },
-      "models": {
-        "qwen3.6-plus": {
-          "name": "Qwen3.6 Plus",
-          "options": {
-            "thinking": {
-              "type": "enabled",
-              "budgetTokens": 8192
-            }
-          }
-        },
-        "qwen3.6-flash": {
-          "name": "Qwen3.6 Flash",
-          "options": {
-            "thinking": {
-              "type": "enabled",
-              "budgetTokens": 8192
-            }
-          }
-        }
-      }
-    },
-    "zai-coding-plan": {
-      "models": {
-        "glm-5": {
-          "name": "GLM-5",
-          "limit": {
-            "context": 200000,
-            "output": 131072
-          }
-        },
-        "glm-4.7": {
-          "name": "GLM-4.7",
-          "limit": {
-            "context": 200000,
-            "output": 131072
-          }
-        },
-        "glm-4.7-flash": {
-          "name": "GLM-4.7-Flash",
-          "limit": {
-            "context": 200000,
-            "output": 131072
-          }
-        }
-      }
-    }
-  },
   "default_agent": "orchestrator",
-  "model": "bailian-payg/qwen3.6-plus",
-  "small_model": "bailian-payg/qwen3.6-flash",
-  "permission": {
-    "external_directory": {
-      "/tmp/*": "allow"
-    },
-    "mcp_tool": {
-      "sequential-thinking:sequentialthinking": "allow",
-      "memory-graph:create_entities": "allow",
-      "memory-graph:create_relations": "allow",
-      "memory-graph:add_observations": "allow",
-      "memory-graph:delete_entities": "allow",
-      "memory-graph:delete_observations": "allow",
-      "memory-graph:delete_relations": "allow",
-      "memory-graph:read_graph": "allow",
-      "memory-graph:search_nodes": "allow",
-      "memory-graph:open_nodes": "allow"
-    }
-  },
+  "model": "zai-coding-plan/glm-5.2",
+  "small_model": "google/gemini-3.5-flash",
   "mcp": {
     "sequential-thinking": {
       "type": "local",
@@ -101,29 +24,212 @@
         "@modelcontextprotocol/server-memory"
       ],
       "environment": {
-        "MEMORY_FILE_PATH": "/app/.memory/memory.jsonl"
+        "MEMORY_FILE_PATH": "/app/.memory/memory.jsonl",
       }
     },
     "web-reader": {
       "type": "remote",
       "url": "https://api.z.ai/api/mcp/web_reader/mcp",
       "headers": {
-        "Authorization": "{env:ZAI_CODING_API_KEY}"
-      }
+        "Authorization": "{env:ZAI_CODING_API_KEY}",
+      },
     },
     "zread": {
       "type": "remote",
       "url": "https://api.z.ai/api/mcp/zread/mcp",
       "headers": {
-        "Authorization": "{env:ZAI_CODING_API_KEY}"
-      }
+        "Authorization": "{env:ZAI_CODING_API_KEY}",
+      },
     },
     "web-search-prime": {
       "type": "remote",
       "url": "https://api.z.ai/api/mcp/web_search_prime/mcp",
       "headers": {
-        "Authorization": "{env:ZAI_CODING_API_KEY}"
-      }
+        "Authorization": "{env:ZAI_CODING_API_KEY}",
+      },
+    },
+    "exa": {
+      "type": "remote",
+      "url": "https://mcp.exa.ai/mcp?tools=web_search_exa,web_fetch_exa,web_search_advanced_exa,get_code_context_exa,crawling_exa&exaApiKey={env:EXA_API_KEY}",
+      "enabled": true,
+    },
+  },
+  "permission": {
+    "external_directory": {
+      "/tmp/*": "allow"
+    },
+    "mcp_tool": {
+      "sequential-thinking:sequentialthinking": "allow",
+      "memory-graph:create_entities": "allow",
+      "memory-graph:create_relations": "allow",
+      "memory-graph:add_observations": "allow",
+      "memory-graph:delete_entities": "allow",
+      "memory-graph:delete_observations": "allow",
+      "memory-graph:delete_relations": "allow",
+      "memory-graph:read_graph": "allow",
+      "memory-graph:search_nodes": "allow",
+      "memory-graph:open_nodes": "allow"
     }
-  }
+  },
+  "provider": {
+    // Z.AI Coding Plan — built-in provider (creds resolved from auth.json;
+    // env fallback ZAI_CODING_PLAN_OPEN_AI_API_KEY / Z_AI_API_KEY).
+    "zai-coding-plan": {
+      "models": {
+        "glm-5.2": {
+          "name": "GLM 5.2",
+        },
+        "glm-4.7": {
+          "name": "GLM 4.7",
+        },
+        "glm-4.5-air": {
+          "name": "GLM 4.5 Air",
+        },
+      },
+    },
+    // OpenCode Go subscription — built-in provider (creds resolved from
+    // auth.json; env fallback OPENCODE_GO_API_KEY).
+    "opencode-go": {
+      "models": {
+        "qwen3.7-max": {
+          "name": "Qwen 3.7 Max",
+        },
+      },
+    },
+    // Google AI Studio — built-in provider, reads GEMINI_API_KEY from env.
+    "google": {
+      "models": {
+        "gemini-3.5-flash": {
+          "name": "Gemini 3.5 Flash",
+        },
+      },
+    },
+    // NVIDIA NIM — built-in provider (build.nvidia.com). Credentials and the
+    // NIM base URL are resolved from env: NVIDIA_NIM_API_KEY and
+    // NVIDIA_NIM_BASE_URL (defaults to https://integrate.api.nvidia.com/v1).
+    // The built-in "nvidia" provider normally reads NVIDIA_API_KEY, so the
+    // apiKey option below overrides it to use the NIM key.
+    "nvidia": {
+      "options": {
+        "apiKey": "{env:NVIDIA_NIM_API_KEY}",
+        "baseURL": "{env:NVIDIA_NIM_BASE_URL}",
+      },
+      "models": {
+        "minimaxai/minimax-m3": {
+          "name": "MiniMax M3",
+          "tool_call": true,
+        },
+      },
+    },
+    // ClinePass — OpenAI-compatible endpoint for ClinePass subscription models.
+    // API key resolved from env: CLINE_API_KEY (create one at
+    // https://app.cline.bot → Settings > API Keys).
+    // Full model list: https://docs.cline.bot/getting-started/clinepass#models
+    "cline-pass": {
+      "npm": "@ai-sdk/openai",
+      "name": "ClinePass",
+      "options": {
+        "apiKey": "{env:CLINE_API_KEY}",
+        "baseURL": "https://api.cline.bot/api/v1",
+        "compatibility": "compatible",
+      },
+      "models": {
+        "cline-pass/qwen3.7-max": {
+          "name": "Qwen 3.7 Max",
+          "tool_call": true,
+        },
+      },
+    },
+    // Alibaba Cloud Model Studio (Bailian / DashScope) — uses the
+    // Anthropic-compatible endpoint via @ai-sdk/anthropic (recommended for
+    // OpenCode: tool-calling + thinking support). API key resolved from env:
+    // DASHSCOPE_API_KEY. The baseURL below is the China (Beijing)
+    // pay-as-you-go endpoint; swap in another plan/region as needed:
+    //   Singapore PAYG:    https://{WorkspaceId}.ap-southeast-1.maas.aliyuncs.com/apps/anthropic/v1
+    //   Coding Plan:       https://coding.dashscope.aliyuncs.com/apps/anthropic/v1
+    //   Token Plan (Team): https://token-plan.cn-beijing.maas.aliyuncs.com/apps/anthropic/v1
+    "alibaba-model-studio": {
+      "npm": "@ai-sdk/anthropic",
+      "name": "Alibaba Cloud Model Studio",
+      "options": {
+        "apiKey": "{env:MS_DS_API_KEY}",
+        //"baseURL": "https://dashscope.aliyuncs.com/apps/anthropic/v1",
+        "baseURL": "https://llm-l6u31janamixgz5d.ap-southeast-1.maas.aliyuncs.com/apps/anthropic/v1",
+      },
+      "models": {
+        "qwen3.6-plus": {
+          "name": "Qwen3.6 Plus",
+          "modalities": {
+            "input": [
+              "text",
+              "image"
+            ],
+            "output": [
+              "text"
+            ],
+          },
+          "options": {
+            "thinking": {
+              "type": "enabled",
+              "budgetTokens": 8192,
+            },
+          },
+        },
+        "qwen3.7-plus": {
+          "name": "Qwen3.7 Plus",
+          "modalities": {
+            "input": [
+              "text",
+              "image"
+            ],
+            "output": [
+              "text"
+            ],
+          },
+          "options": {
+            "thinking": {
+              "type": "enabled",
+              "budgetTokens": 8192,
+            },
+          },
+        },
+        "qwen3.7-max-2026-05-20": {
+          "name": "Qwen3.7 Max 2026-05-20",
+          "modalities": {
+            "input": [
+              "text",
+              "image"
+            ],
+            "output": [
+              "text"
+            ],
+          },
+          "options": {
+            "thinking": {
+              "type": "enabled",
+              "budgetTokens": 8192,
+            },
+          },
+        },
+        "qwen3.7-max-2026-05-17": {
+          "name": "Qwen3.7 Max 2026-05-17",
+          "modalities": {
+            "input": [
+              "text",
+              "image"
+            ],
+            "output": [
+              "text"
+            ],
+          },
+          "options": {
+            "thinking": {
+              "type": "enabled",
+              "budgetTokens": 8192,
+            },
+          },
+        },
+      },
+    },
+  },
 }

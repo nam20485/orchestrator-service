@@ -116,7 +116,7 @@ Point the app webhook to:
 https://<your-host>/webhooks/github
 ```
 
-Content type: `application/json`. Subscribe to the events you need; restrict with `WEBHOOK_ALLOWED_EVENTS` (comma-separated, e.g. `issues,pull_request,workflow_run`).
+Content type: `application/json`. Subscribe to **Issues** on the GitHub App. The receiver only dispatches the orchestrator for `issues.labeled` events carrying a workflow label (`orchestration:*`, `implementation:ready`, `implementation:complete`) from a non-bot actor; all other deliveries are acknowledged but ignored.
 
 ### Environment variables
 
@@ -128,7 +128,6 @@ Content type: `application/json`. Subscribe to the events you need; restrict wit
 | `PROMPT_SCRIPT` | `scripts/prompt.ps1` | PowerShell prompt launcher (requires `pwsh`) |
 | `OPENCODE_MODEL` | `bailian-payg/qwen3.6-plus` | Model |
 | `OPENCODE_AGENT` | `orchestrator` | Agent |
-| `WEBHOOK_ALLOWED_EVENTS` | *(all)* | Optional comma-separated event filter |
 | `WEBHOOK_MAX_PAYLOAD_CHARS` | `120000` | Max JSON chars embedded in prompt |
 | `WEBHOOK_MAX_BODY_BYTES` | `26214400` (25 MiB) | Reject webhook POST bodies larger than this |
 | `WEBHOOK_HOST` / `WEBHOOK_PORT` | `0.0.0.0` / `8080` | HTTP bind |

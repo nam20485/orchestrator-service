@@ -17,7 +17,6 @@ def test_settings_from_env_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
     for name in (
         "WEBHOOK_HOST",
         "WEBHOOK_PORT",
-        "WEBHOOK_ALLOWED_EVENTS",
         "OPENCODE_SERVER_URL",
         "PROMPT_SCRIPT",
         "ORCHESTRATOR_WORKSPACE",
@@ -39,17 +38,9 @@ def test_settings_from_env_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
     assert cfg.github_webhook_secret == "test-secret"
     assert cfg.opencode_server_url == "http://localhost:4099"
     assert cfg.agent == "orchestrator"
-    assert cfg.allowed_events is None
     assert cfg.max_body_bytes == 25 * 1024 * 1024
     assert cfg.beads_enabled is True
     assert cfg.beads_poll_interval == 10
     assert cfg.beads_max_retries == 3
     assert cfg.beads_workspace_root == "/workspace"
     assert cfg.dashboard_token is None
-
-
-def test_settings_parses_allowed_events(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("OS_WEBHOOK_SECRET", "s")
-    monkeypatch.setenv("WEBHOOK_ALLOWED_EVENTS", "issues, pull_request")
-    cfg = Settings.from_env()
-    assert cfg.allowed_events == frozenset({"issues", "pull_request"})

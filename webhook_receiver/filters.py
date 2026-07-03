@@ -24,3 +24,54 @@ _PATTERNS: list[re.Pattern[str]] = _load_patterns()
 def should_filter(line: str) -> bool:
     """Return True if *line* matches any blacklisted trace pattern."""
     return any(p.search(line) for p in _PATTERNS)
+
+
+# ── Transport-level webhook dispatch gate ─────────────────────────────────
+# Hardcoded replica of the GitHub Actions ``orchestrator-agent.yml``
+# orchestrate-job ``if:`` guard. The webhook-receiver must only spawn the
+# orchestrator agent for events the prompt's match-clause state machine can
+# actually handle; otherwise the ``(default)`` clause posts a comment, which
+# generates a fresh webhook and cascades into an echo-loop (see
+# traces/gap-miner-v2-juliet79-analysis.md). This is the single source of
+# truth for which webhook deliveries may dispatch the agent.
+
+_EVENT_ALLOW: set[str] = {"issues"}
+_ACTION_ALLOW: set[str] = {"labeled"}
+_LABEL_PREFIXES: tuple[str, ...] = ("orchestration:",)
+_LABEL_EXACT: set[str] = {"implementation:ready", "implementation:complete"}
+
+
+def _is_workflow_label(name: str) -> bool:
+    n = (name or "").strip().lower()
+    return any(n.startswith(p) for p in _LABEL_PREFIXES) or n in _LABEL_EXACT
+
+
+def _is_bot_actor(login: str) -> bool:
+    """Return True for GitHub App / automation actors (``*[bot]``, ``*-bot``)."""
+    n = (login or "").strip().lower()
+    return n.endswith("[bot]") or n.endswith("-bot")
+
+
+def should_dispatch(event: str, payload: dict) -> tuple[bool, str]:
+    """Decide whether a webhook delivery may dispatch the orchestrator agent.
+
+    Returns ``(True, "allowed")`` for the exact set the prompt match clauses
+    expect: ``issues.labeled`` by a non-bot actor with a workflow-relevant
+    label. Anything else returns ``(False, "<reason>")`` so the caller can log
+    and return ``202 ignored`` without spawning the agent.
+    """
+    event = (event or "").lower()
+    action = str((payload or {}).get("action") or "").lower()
+    if event not in _EVENT_ALLOW:
+        return False, f"event {event!r} not dispatched (only issues)"
+    if action not in _ACTION_ALLOW:
+        return False, f"{event}.{action!r} not dispatched (only labeled)"
+
+    sender = str((payload.get("sender") or {}).get("login") or "")
+    if _is_bot_actor(sender):
+        return False, f"bot actor {sender!r} skipped (anti-loop)"
+
+    label_name = str((payload.get("label") or {}).get("name") or "")
+    if not _is_workflow_label(label_name):
+        return False, f"label {label_name!r} not workflow-relevant"
+    return True, "allowed"

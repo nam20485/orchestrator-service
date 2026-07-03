@@ -58,3 +58,33 @@ def test_merge_template_pull_request_number() -> None:
     merged = merge_template(base, number=99)
     assert merged["pull_request"]["number"] == 99
     assert base["pull_request"]["number"] == 1
+
+
+# ── issues.labeled dispatchability (Comment 2 functionality fix) ──────────
+
+
+def test_get_template_issues_labeled_is_dispatchable() -> None:
+    """An issues.labeled template must carry a workflow label so it dispatches.
+
+    Mirrors GitHub's real payload shape: the added label appears at the top
+    level (``label``) and on the issue (``labels``). ``should_dispatch`` reads
+    the top-level ``label.name``, so without it the Work-events simulator flow
+    is silently rejected.
+    """
+    from webhook_receiver.filters import should_dispatch
+
+    payload = get_template("issues", action="labeled")
+    assert payload["action"] == "labeled"
+    assert payload["label"]["name"] == "orchestration:dispatch"
+    assert payload["issue"]["labels"][0]["name"] == "orchestration:dispatch"
+    # End-to-end: the template must clear the transport dispatch gate.
+    allow, _ = should_dispatch("issues", payload)
+    assert allow is True
+
+
+def test_get_template_issues_opened_has_no_top_level_label() -> None:
+    """Non-labeled issue actions keep the legacy shape (no top-level label)."""
+    payload = get_template("issues", action="opened")
+    assert payload["action"] == "opened"
+    assert "label" not in payload
+    assert payload["issue"]["labels"][0]["name"] == "orchestrate"

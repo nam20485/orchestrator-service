@@ -19,6 +19,7 @@ from webhook_receiver.dashboard import (
     create_dashboard_router,
 )
 from webhook_receiver.event_store import EventStore
+from webhook_receiver.filters import should_dispatch
 from webhook_receiver.github import verify_signature
 from webhook_receiver.prompts import build_orchestrator_prompt
 from webhook_receiver.runner import dispatch_to_opencode
@@ -218,22 +219,6 @@ def create_app(
                 status_code=200,
             )
 
-        if cfg.allowed_events is not None and event not in cfg.allowed_events:
-            logger.info(
-                "Ignored delivery_id=%s event=%s (not in allow list)",
-                delivery_id,
-                event,
-            )
-            return JSONResponse(
-                {
-                    "status": "ignored",
-                    "delivery_id": delivery_id,
-                    "event": event,
-                    "reason": "event not in WEBHOOK_ALLOWED_EVENTS",
-                },
-                status_code=202,
-            )
-
         try:
             payload: dict[str, Any] = json.loads(body)
         except json.JSONDecodeError as exc:
@@ -261,6 +246,37 @@ def create_app(
             request.headers.get("content-length"),
             request.headers.get("content-type"),
         )
+
+        # Transport-level dispatch gate (mirrors orchestrator-agent.yml
+        # orchestrate-job `if:`). Only ``issues.labeled`` by a non-bot actor
+        # with a workflow-relevant label may spawn the agent; anything else is
+        # acknowledged but not dispatched, preventing the echo-loop where the
+        # prompt ``(default)`` clause posts a comment and re-triggers itself.
+        allow, reason = should_dispatch(event, payload)
+        if not allow:
+            logger.info(
+                "Filtered delivery_id=%s event=%s action=%s reason=%s",
+                delivery_id,
+                event,
+                payload.get("action"),
+                reason,
+            )
+            store.emit(
+                "webhook_filtered",
+                delivery_id=delivery_id,
+                event=event,
+                action=payload.get("action", ""),
+                reason=reason,
+            )
+            return JSONResponse(
+                {
+                    "status": "ignored",
+                    "delivery_id": delivery_id,
+                    "event": event,
+                    "reason": reason,
+                },
+                status_code=202,
+            )
 
         prompt = build_orchestrator_prompt(
             delivery_id=delivery_id,
@@ -314,7 +330,13 @@ def create_app(
             status_code=202,
         )
 
-    app.include_router(create_simulator_router(enabled=cfg.enable_simulator))
+    app.include_router(
+        create_simulator_router(
+            enabled=cfg.enable_simulator,
+            port=cfg.port,
+            dashboard_token=cfg.dashboard_token,
+        )
+    )
     app.include_router(
         create_dashboard_router(store, beads_loop, dashboard_token=cfg.dashboard_token)
     )
