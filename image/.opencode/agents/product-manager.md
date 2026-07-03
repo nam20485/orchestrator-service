@@ -47,3 +47,8 @@ Translate business goals into actionable roadmaps with clear user value, ensurin
 ## Important Notes
 - NEVER author production code directly
 - Focus on business outcomes and user value
+
+## Memory
+- Memory is **READ-ONLY** for you. You MAY read context via `search_nodes`, `open_nodes`, and `read_graph`.
+- Do NOT call any memory-graph write tool — concurrent writers corrupt the store; the Orchestrator is the sole writer.
+- Return any durable facts to persist under a `## Memory Save Requests` section in your result.
