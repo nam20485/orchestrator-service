@@ -675,6 +675,26 @@ def create_dashboard_page_router(dashboard_token: str | None = None) -> APIRoute
 # ── bvr static-pages bundle serving (token-gated) ───────────────────────────
 
 
+def _safe_bundle_relative_path(file_path: str) -> str:
+    """Validate a request path and return a safe relative reference.
+
+    Rejects any value that could escape the bundle directory — absolute
+    paths, Windows drive letters, parent (``..``) references, and NUL bytes
+    — so untrusted URL input never reaches a filesystem path expression.
+    This is the first line of defense; it is always combined with a
+    ``resolve()``/``relative_to()`` containment check on the filesystem.
+    """
+    if not file_path or "\x00" in file_path:
+        raise HTTPException(status_code=404, detail="Not found")
+    normalized = file_path.replace("\\", "/")
+    if normalized.startswith("/"):
+        raise HTTPException(status_code=404, detail="Not found")
+    parts = [p for p in normalized.split("/") if p not in ("", ".")]
+    if any(part == ".." for part in parts):
+        raise HTTPException(status_code=404, detail="Not found")
+    return "/".join(parts)
+
+
 def create_dashboard_pages_router(dashboard_token: str | None = None) -> APIRouter:
     """Serve the bvr static-pages bundle behind the dashboard token.
 
@@ -706,9 +726,12 @@ def create_dashboard_pages_router(dashboard_token: str | None = None) -> APIRout
                 return HTMLResponse(_NOT_INITIALIZED_HTML, status_code=200)
             return FileResponse(str(bundle / "index.html"), media_type="text/html")
 
-        # Path-traversal guard: resolve within the bundle root.
+        # Path-traversal guard: validate the request path up front, then
+        # confirm containment under the bundle root on the filesystem.
+        safe_path = _safe_bundle_relative_path(file_path)
+
         bundle_root = bundle.resolve()
-        target = (bundle_root / file_path).resolve()
+        target = (bundle_root / safe_path).resolve()
         try:
             target.relative_to(bundle_root)
         except ValueError:

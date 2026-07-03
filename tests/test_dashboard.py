@@ -5,12 +5,13 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 from webhook_receiver.app import create_app
 from webhook_receiver.beads_loop import BeadsLoop
 from webhook_receiver.config import Settings
-from webhook_receiver.dashboard import _parse_beads
+from webhook_receiver.dashboard import _parse_beads, _safe_bundle_relative_path
 from webhook_receiver.event_store import EventStore
 
 
@@ -875,6 +876,64 @@ def test_pages_endpoint_rejects_traversal(tmp_path: Path) -> None:
     ):
         # Resolve is guarded: escaping the bundle root yields 404.
         resp = client.get("/dashboard/pages/../../secret.txt")
+    assert resp.status_code == 404
+
+
+@pytest.mark.parametrize(
+    "file_path",
+    [
+        "..",
+        "../secret.txt",
+        "../../etc/passwd",
+        "vendor/../..",          # traversal buried after a legit segment
+        "/etc/passwd",           # absolute unix path
+        "\\windows\\system32",   # backslash traversal / drive-style
+        "foo/../../bar",         # net-escape attempt
+        "good\x00bad",           # NUL byte injection
+    ],
+)
+def test_safe_bundle_relative_path_rejects_traversal(file_path: str) -> None:
+    with pytest.raises(HTTPException) as exc:
+        _safe_bundle_relative_path(file_path)
+    assert exc.value.status_code == 404
+
+
+@pytest.mark.parametrize(
+    "file_path, expected",
+    [
+        ("styles.css", "styles.css"),
+        ("vendor/app.js", "vendor/app.js"),     # nested, no traversal
+        ("./styles.css", "styles.css"),          # lone "." collapsed
+        ("a//b", "a/b"),                         # empty segments dropped
+        ("vendor/../styles.css", None),          # still-traversal -> rejected
+    ],
+)
+def test_safe_bundle_relative_path_accepts_safe(file_path: str, expected) -> None:
+    if expected is None:
+        with pytest.raises(HTTPException):
+            _safe_bundle_relative_path(file_path)
+    else:
+        assert _safe_bundle_relative_path(file_path) == expected
+
+
+def test_pages_endpoint_rejects_absolute_path(tmp_path: Path) -> None:
+    ws = tmp_path / "ws"
+    (ws / ".beads").mkdir(parents=True)
+    bundle = tmp_path / "bundle"
+
+    store = EventStore()
+    app = create_app(_test_settings(), event_store=store)
+    client = _client(app)
+
+    with (
+        patch("webhook_receiver.dashboard._workspace", return_value=str(ws)),
+        patch("webhook_receiver.dashboard._bvr_bundle_dir", return_value=bundle),
+        patch(
+            "webhook_receiver.dashboard._run_bvr_export",
+            side_effect=_fake_bvr_export_writing("<p>x</p>"),
+        ),
+    ):
+        resp = client.get("/dashboard/pages//etc/passwd")
     assert resp.status_code == 404
 
 
