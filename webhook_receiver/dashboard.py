@@ -675,25 +675,6 @@ def create_dashboard_page_router(dashboard_token: str | None = None) -> APIRoute
 # ── bvr static-pages bundle serving (token-gated) ───────────────────────────
 
 
-def _safe_bundle_relative_path(file_path: str) -> str:
-    """Validate a request path and return a safe relative reference.
-
-    Rejects any value that could escape the bundle directory — absolute
-    paths, backslash separators, parent (``..``) references, and NUL bytes
-    — so untrusted URL input never reaches a filesystem path expression.
-    The membership guards are applied to the raw request value, which also
-    acts as a static-analysis sanitizer (e.g. CodeQL ``py/path-injection``):
-    on the continuation ``file_path`` is guaranteed free of traversal
-    sequences. This is the first line of defense; it is always combined with
-    a ``resolve()``/``relative_to()`` containment check on the filesystem.
-    """
-    if not file_path or "\x00" in file_path:
-        raise HTTPException(status_code=404, detail="Not found")
-    if ".." in file_path or "\\" in file_path or file_path.startswith("/"):
-        raise HTTPException(status_code=404, detail="Not found")
-    return file_path
-
-
 def create_dashboard_pages_router(dashboard_token: str | None = None) -> APIRouter:
     """Serve the bvr static-pages bundle behind the dashboard token.
 
@@ -725,18 +706,24 @@ def create_dashboard_pages_router(dashboard_token: str | None = None) -> APIRout
                 return HTMLResponse(_NOT_INITIALIZED_HTML, status_code=200)
             return FileResponse(str(bundle / "index.html"), media_type="text/html")
 
-        # Path-traversal guard: validate the request path up front, then
-        # confirm containment under the bundle root on the filesystem.
-        safe_path = _safe_bundle_relative_path(file_path)
-
-        bundle_root = bundle.resolve()
-        target = (bundle_root / safe_path).resolve()
-        try:
-            target.relative_to(bundle_root)
-        except ValueError:
+        # Resolve a user-controlled path inside the bundle root using the
+        # CodeQL ``py/path-injection`` pattern: normalize with
+        # ``os.path.realpath`` (a recognized path normalization), then a
+        # ``startswith`` prefix guard — the recognized SafeAccessCheck barrier
+        # that cuts the path-injection taint before any filesystem access.
+        # ``root + os.sep`` also blocks a prefix-collision bypass (a sibling
+        # directory whose name starts with the root name), and ``realpath``
+        # resolves symlinks for defense in depth. Do NOT replace this with a
+        # ``relative_to``/``is_relative_to`` check alone: CodeQL does not model
+        # those as SafeAccessCheck barriers, which reintroduces the alert.
+        if "\x00" in file_path:
             raise HTTPException(status_code=404, detail="Not found")
-        if not target.is_file():
+        root = os.path.realpath(bundle)
+        candidate = os.path.realpath(os.path.join(root, file_path))
+        if not candidate.startswith(root + os.sep):
             raise HTTPException(status_code=404, detail="Not found")
-        return FileResponse(str(target))
+        if not os.path.isfile(candidate):
+            raise HTTPException(status_code=404, detail="Not found")
+        return FileResponse(candidate)
 
     return router
