@@ -681,15 +681,24 @@ def create_dashboard_pages_router(dashboard_token: str | None = None) -> APIRout
                 return HTMLResponse(_NOT_INITIALIZED_HTML, status_code=200)
             return FileResponse(str(bundle / "index.html"), media_type="text/html")
 
-        # Path-traversal guard: resolve within the bundle root.
-        bundle_root = bundle.resolve()
-        target = (bundle_root / file_path).resolve()
-        try:
-            target.relative_to(bundle_root)
-        except ValueError:
+        # Resolve a user-controlled path inside the bundle root using the
+        # CodeQL ``py/path-injection`` pattern: normalize with
+        # ``os.path.realpath`` (a recognized path normalization), then a
+        # ``startswith`` prefix guard — the recognized SafeAccessCheck barrier
+        # that cuts the path-injection taint before any filesystem access.
+        # ``root + os.sep`` also blocks a prefix-collision bypass (a sibling
+        # directory whose name starts with the root name), and ``realpath``
+        # resolves symlinks for defense in depth. Do NOT replace this with a
+        # ``relative_to``/``is_relative_to`` check alone: CodeQL does not model
+        # those as SafeAccessCheck barriers, which reintroduces the alert.
+        if "\x00" in file_path:
             raise HTTPException(status_code=404, detail="Not found")
-        if not target.is_file():
+        root = os.path.realpath(bundle)
+        candidate = os.path.realpath(os.path.join(root, file_path))
+        if not candidate.startswith(root + os.sep):
             raise HTTPException(status_code=404, detail="Not found")
-        return FileResponse(str(target))
+        if not os.path.isfile(candidate):
+            raise HTTPException(status_code=404, detail="Not found")
+        return FileResponse(candidate)
 
     return router

@@ -878,6 +878,132 @@ def test_pages_endpoint_rejects_traversal(tmp_path: Path) -> None:
     assert resp.status_code == 404
 
 
+@pytest.mark.parametrize(
+    "file_path",
+    [
+        "..",
+        "../secret.txt",
+        "../../etc/passwd",
+        "vendor/../..",  # traversal buried after a legit segment
+        "foo/../../bar",  # net-escape attempt
+    ],
+)
+def test_pages_endpoint_rejects_traversal_variants(
+    file_path: str, tmp_path: Path
+) -> None:
+    ws = tmp_path / "ws"
+    (ws / ".beads").mkdir(parents=True)
+    bundle = tmp_path / "bundle"
+    secret = tmp_path / "secret.txt"
+    secret.write_text("topsecret")
+
+    store = EventStore()
+    app = create_app(_test_settings(), event_store=store)
+    client = _client(app)
+
+    with (
+        patch("webhook_receiver.dashboard._workspace", return_value=str(ws)),
+        patch("webhook_receiver.dashboard._bvr_bundle_dir", return_value=bundle),
+        patch(
+            "webhook_receiver.dashboard._run_bvr_export",
+            side_effect=_fake_bvr_export_writing("<p>x</p>"),
+        ),
+    ):
+        resp = client.get(f"/dashboard/pages/{file_path}")
+    # Some forms (e.g. ``..``) are collapsed by the URL layer to the parent
+    # ``/dashboard`` route and return 200; others fall through to 404. In every
+    # case the escaped secret must never leak through the bundle route.
+    assert resp.status_code in (200, 404)
+    assert "topsecret" not in resp.text
+
+
+def test_pages_endpoint_rejects_symlink_escape(tmp_path: Path) -> None:
+    """A symlink inside the bundle pointing outside must not be served.
+
+    Unlike ``..`` (collapsed by the URL router before the handler runs), a
+    plain relative asset name reaches ``pages_serve`` and is resolved by
+    ``os.path.realpath``. A symlink that escapes the bundle root is caught by
+    the ``startswith`` containment check — this directly exercises the guard.
+    """
+    ws = tmp_path / "ws"
+    (ws / ".beads").mkdir(parents=True)
+    bundle = tmp_path / "bundle"
+    bundle.mkdir()
+    secret = tmp_path / "secret.txt"
+    secret.write_text("topsecret")
+    (bundle / "evil.css").symlink_to(secret)
+
+    store = EventStore()
+    app = create_app(_test_settings(), event_store=store)
+    client = _client(app)
+
+    with (
+        patch("webhook_receiver.dashboard._workspace", return_value=str(ws)),
+        patch("webhook_receiver.dashboard._bvr_bundle_dir", return_value=bundle),
+        patch(
+            "webhook_receiver.dashboard._generate_pages_bundle",
+            return_value=(True, None),
+        ),
+    ):
+        resp = client.get("/dashboard/pages/evil.css")
+    assert resp.status_code == 404
+    assert "topsecret" not in resp.text
+
+
+def test_pages_endpoint_rejects_prefix_collision(tmp_path: Path) -> None:
+    """A sibling dir whose name starts with the bundle name must not be served.
+
+    Guards against the bare ``startswith(root)`` prefix-collision bypass: a
+    request like ``../bvr-pages-evil/secret`` resolves to a sibling directory
+    whose path begins with the root name. The ``root + os.sep`` check rejects
+    it.
+    """
+    ws = tmp_path / "ws"
+    (ws / ".beads").mkdir(parents=True)
+    parent = tmp_path / "orchestrator-webhook"
+    bundle = parent / "bvr-pages"
+    sibling = parent / "bvr-pages-evil"
+    sibling.mkdir(parents=True)
+    (sibling / "secret.txt").write_text("topsecret")
+
+    store = EventStore()
+    app = create_app(_test_settings(), event_store=store)
+    client = _client(app)
+
+    with (
+        patch("webhook_receiver.dashboard._workspace", return_value=str(ws)),
+        patch("webhook_receiver.dashboard._bvr_bundle_dir", return_value=bundle),
+        patch(
+            "webhook_receiver.dashboard._run_bvr_export",
+            side_effect=_fake_bvr_export_writing("<p>x</p>"),
+        ),
+    ):
+        resp = client.get("/dashboard/pages/../bvr-pages-evil/secret.txt")
+    assert resp.status_code == 404
+    assert "topsecret" not in resp.text
+
+
+def test_pages_endpoint_rejects_absolute_path(tmp_path: Path) -> None:
+    ws = tmp_path / "ws"
+    (ws / ".beads").mkdir(parents=True)
+    bundle = tmp_path / "bundle"
+
+    store = EventStore()
+    app = create_app(_test_settings(), event_store=store)
+    client = _client(app)
+
+    with (
+        patch("webhook_receiver.dashboard._workspace", return_value=str(ws)),
+        patch("webhook_receiver.dashboard._bvr_bundle_dir", return_value=bundle),
+        patch(
+            "webhook_receiver.dashboard._run_bvr_export",
+            side_effect=_fake_bvr_export_writing("<p>x</p>"),
+        ),
+    ):
+        resp = client.get("/dashboard/pages//etc/passwd")
+    assert resp.status_code == 404
+
+
 def test_pages_refresh_generates_bundle(tmp_path: Path) -> None:
     ws = tmp_path / "ws"
     (ws / ".beads").mkdir(parents=True)
