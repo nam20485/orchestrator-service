@@ -71,13 +71,28 @@ def get_template(
 
     if event == "issues":
         issue_number = number if number is not None else 1
-        payload = _base_payload(action=action or "opened", repo=repo)
-        payload["issue"] = {
-            "number": issue_number,
-            "title": f"Simulated issue #{issue_number}",
-            "state": "open",
-            "labels": [{"name": "orchestrate"}],
-        }
+        resolved_action = action or "opened"
+        payload = _base_payload(action=resolved_action, repo=repo)
+        if resolved_action == "labeled":
+            # GitHub's issues.labeled payload carries the added label both at the
+            # top level (``label``) and on the issue (``labels``). Use a
+            # workflow-relevant label so should_dispatch() accepts the delivery
+            # and the "Work events" simulator flow dispatches a real run.
+            label_name = "orchestration:dispatch"
+            payload["label"] = {"name": label_name}
+            payload["issue"] = {
+                "number": issue_number,
+                "title": f"Simulated issue #{issue_number}",
+                "state": "open",
+                "labels": [{"name": label_name}],
+            }
+        else:
+            payload["issue"] = {
+                "number": issue_number,
+                "title": f"Simulated issue #{issue_number}",
+                "state": "open",
+                "labels": [{"name": "orchestrate"}],
+            }
         return payload
 
     if event == "pull_request":
