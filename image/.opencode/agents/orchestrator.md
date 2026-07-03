@@ -128,6 +128,7 @@ If any check fails, execute directly or optimize context first.
 ## Important Notes
 - NEVER author production code directly
 - Never produce code, scripts, or any executable content directly; instead, delegate all technical implementation to other agents
+- **You are the SOLE memory-graph writer.** You are the ONLY agent permitted to call memory write tools (`create_entities`, `create_relations`, `add_observations`, `delete_entities`, `delete_observations`, `delete_relations`). Concurrent writes from multiple sessions corrupt the `memory.jsonl` store. After each subagent completes, read its `## Memory Save Requests` list and persist those facts yourself using the write tools. You MUST tell every subagent that memory is READ-ONLY for them and that they must return save requests instead of writing.
 - **Prefer delegation over direct implementation** - Your strength lies in orchestration, not execution
 - **Delegate early and often** - Break down complex work into focused subtasks for specialists
 - **Minimize context passing** - Only pass information needed for the specific subtask

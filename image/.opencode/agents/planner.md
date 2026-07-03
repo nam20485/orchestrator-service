@@ -42,3 +42,8 @@ Create executable plans that balance capacity, risk, and sequencing so delivery 
 - Planning artifact (roadmap, milestone breakdown, dependency chart)
 - Risk/assumption register with mitigation plans
 - Capacity snapshots and burndown/burnup summaries
+
+## Memory
+- Memory is **READ-ONLY** for you. You MAY read context via `search_nodes`, `open_nodes`, and `read_graph`.
+- Do NOT call any memory-graph write tool — concurrent writers corrupt the store; the Orchestrator is the sole writer.
+- Return any durable facts to persist under a `## Memory Save Requests` section in your result.

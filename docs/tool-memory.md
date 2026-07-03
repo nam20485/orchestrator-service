@@ -8,6 +8,51 @@ Memory is a persistent knowledge-graph store (`@modelcontextprotocol/server-memo
 
 Use Memory for **durable, reusable context**, not transient scratch state (which belongs in TODO lists/chat).
 
+## Single-writer invariant (critical)
+
+`@modelcontextprotocol/server-memory` writes the entire `memory.jsonl` via an unprotected
+`writeFile` on every mutation. Each OpenCode **session** (the orchestrator plus each delegated
+subagent) spawns its own server-memory process against the one `MEMORY_FILE_PATH`. When two or
+more sessions write concurrently, the `writeFile` streams interleave and the file becomes
+unparseable (`Unexpected non-whitespace character after JSON`).
+
+**Rule:** the Orchestrator is the **sole writer**. Only it may call the write tools:
+
+| Reads (ALL agents) | Writes (ORCHESTRATOR ONLY) |
+|--------------------|----------------------------|
+| `search_nodes`     | `create_entities`          |
+| `open_nodes`       | `create_relations`         |
+| `read_graph`       | `add_observations`         |
+|                    | `delete_entities`          |
+|                    | `delete_observations`      |
+|                    | `delete_relations`         |
+
+Subagents and specialists are **READ-ONLY**. Instead of writing, each subagent ends its result
+with a `## Memory Save Requests` list of durable facts; the Orchestrator reads that list and
+persists the facts itself. Reads never corrupt the file, so read-many is safe — eliminating
+concurrent *writers* removes the corruption at its source.
+
+A subagent calling a write tool is a **critical protocol violation**.
+
+### Hand-off format example
+
+A subagent's result includes:
+
+```markdown
+## Memory Save Requests
+- Entity: project-foo | Type: microservice | Observation: "uses PostgreSQL 16 on host db.internal:5432"
+- Add observation to issue-42: "root cause was missing index on users.email"
+- Create relation: ServiceA depends-on ServiceB
+```
+
+If the subagent has nothing to persist, the section reads `(none)` or is omitted.
+
+### Startup self-heal
+
+`scripts/docker-entrypoint.sh` checks `/app/.memory/memory.jsonl` on container start. If it is
+unparseable (e.g. from a prior concurrent-write corruption), the corrupt file is moved to
+`memory.jsonl.corrupt-<timestamp>` and a fresh empty one is created so reads stop failing.
+
 ## When to store
 
 - Store durable facts: entity attributes, project/repository structure, decisions **and their rationale**, cross-component relationships, ownership, locations/paths/URLs/IDs, stable conventions.

@@ -105,8 +105,38 @@ For each `$assignment_name` in `$assignments`, you will:
 4.  **MONITOR**: delegated work progress and provide guidance
 5.  **REVIEW**: delegated work and approve/request changes
 6.  **VERIFY**: all acceptance criteria are met
-7.  **RECORD**: output as `#workflow.$assignment_name`
-8.  **REPORT**: delegation compliance metrics
+7.  **COLLECT MEMORY**: read each subagent's `## Memory Save Requests` list and persist those facts yourself using the memory-graph write tools (`add_observations` / `create_entities` / `create_relations`). You are the sole memory writer.
+8.  **RECORD**: output as `#workflow.$assignment_name`
+9.  **REPORT**: delegation compliance metrics
+
+## Memory Save Requests Hand-off Contract (MANDATORY)
+
+The memory-graph store is **single-writer**: only the Orchestrator may call memory WRITE tools
+(`create_entities`, `create_relations`, `add_observations`, `delete_*`). Concurrent writers
+(the orchestrator session plus each subagent session each spawn their own server-memory process)
+corrupt the `memory.jsonl` file.
+
+To enforce single-writer without losing subagent contributions:
+
+- **Every delegated subagent** is memory **READ-ONLY**. It MAY call `search_nodes`, `open_nodes`,
+  and `read_graph` to load context, but MUST NOT call any memory write tool.
+- Instead, each subagent MUST end its result with a `## Memory Save Requests` section listing any
+  durable facts worth persisting. If there is nothing to persist, the section reads `(none)`.
+- **The Orchestrator** reads each subagent's `## Memory Save Requests` list and persists those
+  facts itself using the write tools.
+
+Hand-off format example (subagent result):
+
+```markdown
+## Memory Save Requests
+- Entity: project-foo | Type: microservice | Observation: "uses PostgreSQL 16 on host db.internal:5432"
+- Add observation to issue-42: "root cause was missing index on users.email"
+- Create relation: ServiceA depends-on ServiceB
+```
+
+The Orchestrator MUST include "Memory is READ-ONLY for you; do not call memory write tools.
+Return facts to persist under `## Memory Save Requests`" in the delegation context it passes to
+every subagent.
 
 ## Enforcement Mechanisms
 
@@ -197,6 +227,7 @@ When delegating tasks, compile and provide the following context to the delegate
 - **Workflow Context**: Information about the current state of the workflow, including any dependencies or prior steps that impact the task.
 - **Acceptance Criteria**: The specific criteria that must be met for the task to be considered complete.
 - **Tools and Resources**: Any specific tools, repositories, or resources that the agent will need to complete the task.
+- **Memory Constraint (MANDATORY)**: Tell every subagent: "Memory is READ-ONLY for you; do not call memory write tools (`create_entities`, `create_relations`, `add_observations`, `delete_*`). You MAY read via `search_nodes` / `open_nodes` / `read_graph`. Return any durable facts to persist under a `## Memory Save Requests` section in your result; the Orchestrator persists them."
 - **Communication Protocols**: Preferred methods for updates, questions, and reporting progress.
 
 ## Monitoring and Compliance
