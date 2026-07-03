@@ -1,6 +1,6 @@
 services:
   orchestratorservice:
-    image: ghcr.io/nam20485/orchestrator-service:main-latest
+    image: ghcr.io/nam20485/orchestrator-service:${IMAGE_REF:-main}-latest
     pull_policy: always
     platform: linux/amd64
     ports:
@@ -22,7 +22,7 @@ services:
       - OPENCODE_SERVER_PASSWORD=${OPENCODE_SERVER_PASSWORD:?OPENCODE_SERVER_PASSWORD is required}
 
   webhook-receiver:
-    image: ghcr.io/nam20485/orchestrator-service/webhook:main-latest
+    image: ghcr.io/nam20485/orchestrator-service/webhook:${IMAGE_REF:-main}-latest
     pull_policy: always
     platform: linux/amd64
     expose:
@@ -46,7 +46,7 @@ services:
     restart: unless-stopped
 
   webhook-proxy:
-    image: ghcr.io/nam20485/orchestrator-service/caddy:main-latest
+    image: ghcr.io/nam20485/orchestrator-service/caddy:${IMAGE_REF:-main}-latest
     pull_policy: always
     # CAP_NET_BIND_SERVICE allows non-root Caddy to bind privileged ports (:80/:443)
     cap_add:
