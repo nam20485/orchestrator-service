@@ -1,0 +1,15 @@
+{
+  "action": "labeled",
+  "issue": {
+    "number": 42,
+    "title": "Test issue for orchestration",
+    "labels": [{ "name": "orchestrate" }]
+  },
+  "repository": {
+    "full_name": "org/orchestrator-service",
+    "name": "orchestrator-service",
+    "owner": { "login": "org" }
+  },
+  "sender": { "login": "test-user" },
+  "label": { "name": "orchestrate" }
+}

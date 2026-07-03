@@ -1,0 +1,70 @@
+# Build / compose (not needed in OpenCode server image)
+**/.dockerignore
+**/Dockerfile*
+**/docker-compose*
+**/compose*
+
+# Git / IDE / editor
+**/.git
+**/.gitignore
+**/.gitattributes
+**/.idea
+**/.vscode
+**/.vs
+**/.cursor
+**/.project
+**/.settings
+**/.classpath
+**/*.*proj.user
+**/*.dbmdl
+**/*.jfm
+**/.toolstarget
+
+# Docs / planning / Cursor memory (OpenCode uses image/AGENTS.md instead)
+AGENTS.md
+README.md
+!README.md
+LICENSE
+plan_docs/
+
+# Python scaffold (webhook image uses these; opencode Dockerfile does not COPY them)
+**/.python-version
+**/.venv
+tests/
+
+# Host/client scripts (opencode image: entrypoint only; webhook image: prompt wrappers)
+scripts/*
+!scripts/docker-entrypoint.sh
+!scripts/prompt.ps1
+!scripts/init-project-workspace.ps1
+!scripts/git-trust.sh
+
+# Secrets (mounted at runtime via compose, not baked into image)
+auth/
+
+# Machine-local compose env (gitignored; never bake into image)
+.env
+
+*.code-workspace
+.memory/
+
+# Legacy duplicate agent defs (image/.opencode/agents/ is canonical)
+image/.opencode/agent/
+
+# Node / build artifacts
+**/node_modules
+**/npm-debug.log
+**/bin
+**/obj
+**/charts
+**/secrets.dev.yaml
+**/values.dev.yaml
+
+# gemini CLI workflows
+.gemini/
+gha-creds-*.json
+
+# Machine-local agent state
+.qwen/
+.kilo/
+plan_docs/todo.md

@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>GitHub Webhook Simulator</title>
+  <style>
+    :root {
+      --bg: #0f1419;
+      --surface: #1a2332;
+      --border: #2d3a4d;
+      --text: #e6edf3;
+      --muted: #8b949e;
+      --accent: #388bfd;
+      --warn-bg: #3d2a00;
+      --warn-border: #9e6a03;
+      --warn-text: #f0c14b;
+      --ok: #3fb950;
+      --err: #f85149;
+      --mono: ui-monospace, "Cascadia Code", "SF Mono", monospace;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.5;
+      min-height: 100vh;
+    }
+    .wrap { max-width: 920px; margin: 0 auto; padding: 1.5rem; }
+    h1 { font-size: 1.35rem; margin: 0 0 0.25rem; }
+    .sub { color: var(--muted); font-size: 0.9rem; margin-bottom: 1.25rem; }
+    .tabs { display: flex; gap: 0.5rem; margin-bottom: 1rem; }
+    .tab {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 0.5rem 1rem;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 0.95rem;
+    }
+    .tab.active { border-color: var(--accent); background: #1c2d44; }
+    .panel { display: none; }
+    .panel.active { display: block; }
+    .banner {
+      background: var(--warn-bg);
+      border: 1px solid var(--warn-border);
+      color: var(--warn-text);
+      padding: 0.75rem 1rem;
+      border-radius: 6px;
+      margin-bottom: 1rem;
+      font-size: 0.9rem;
+    }
+    label { display: block; font-size: 0.85rem; color: var(--muted); margin-bottom: 0.25rem; }
+    input, select, textarea {
+      width: 100%;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      color: var(--text);
+      border-radius: 6px;
+      padding: 0.5rem 0.65rem;
+      font-size: 0.95rem;
+    }
+    textarea {
+      font-family: var(--mono);
+      font-size: 0.82rem;
+      min-height: 220px;
+      resize: vertical;
+    }
+    .grid { display: grid; gap: 1rem; grid-template-columns: 1fr 1fr; }
+    @media (max-width: 640px) { .grid { grid-template-columns: 1fr; } }
+    .field { margin-bottom: 1rem; }
+    .row { display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center; }
+    button {
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      border-radius: 6px;
+      padding: 0.55rem 1rem;
+      font-size: 0.95rem;
+      cursor: pointer;
+    }
+    button.secondary { background: var(--surface); border: 1px solid var(--border); color: var(--text); }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    #response {
+      font-family: var(--mono);
+      font-size: 0.82rem;
+      white-space: pre-wrap;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 0.75rem;
+      min-height: 100px;
+    }
+    .status-ok { color: var(--ok); }
+    .status-err { color: var(--err); }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>GitHub Webhook Simulator</h1>
+    <p class="sub">Send signed webhook deliveries to <code>/webhooks/github</code> on this host.</p>
+    <p class="sub">The <code>OS_WEBHOOK_SECRET</code> is held server-side; this page never sees it and requests are signed by <code>/simulator/api/send</code>.</p>
+
+    <div class="tabs">
+      <button type="button" class="tab active" data-tab="safe">Safe (ping)</button>
+      <button type="button" class="tab" data-tab="work">Work events</button>
+    </div>
+
+    <div id="panel-safe" class="panel active">
+      <p class="sub">Ping returns <strong>200</strong> and does not start orchestration.</p>
+      <div class="field">
+        <label for="delivery-safe">X-GitHub-Delivery</label>
+        <div class="row">
+          <input id="delivery-safe" type="text" style="flex:1">
+          <button type="button" class="secondary" id="regen-safe">New UUID</button>
+        </div>
+      </div>
+      <div class="field">
+        <label for="payload-safe">Payload JSON</label>
+        <textarea id="payload-safe"></textarea>
+      </div>
+      <div class="row">
+        <button type="button" id="send-safe">Send ping</button>
+        <button type="button" class="secondary" id="reload-safe">Reload template</button>
+        <button type="button" class="secondary" id="health">Health check</button>
+      </div>
+    </div>
+
+    <div id="panel-work" class="panel">
+      <div class="banner">
+        Work events return <strong>202</strong> and trigger a real OpenCode run via <code>prompt.ps1</code>.
+      </div>
+      <div class="grid">
+        <div class="field">
+          <label for="event-work">X-GitHub-Event</label>
+          <select id="event-work"></select>
+        </div>
+        <div class="field">
+          <label for="action-work">action</label>
+          <select id="action-work"></select>
+        </div>
+        <div class="field">
+          <label for="repo-work">repository (org/repo)</label>
+          <input id="repo-work" type="text" value="org/repo">
+        </div>
+        <div class="field">
+          <label for="number-work">issue / PR number</label>
+          <input id="number-work" type="number" min="1" value="1">
+        </div>
+      </div>
+      <div class="field">
+        <label for="delivery-work">X-GitHub-Delivery</label>
+        <div class="row">
+          <input id="delivery-work" type="text" style="flex:1">
+          <button type="button" class="secondary" id="regen-work">New UUID</button>
+        </div>
+      </div>
+      <div class="field">
+        <label for="payload-work">Payload JSON</label>
+        <textarea id="payload-work"></textarea>
+      </div>
+      <div class="row">
+        <button type="button" id="send-work">Send webhook</button>
+        <button type="button" class="secondary" id="reload-work">Reload template</button>
+      </div>
+    </div>
+
+    <div class="field" style="margin-top:1.5rem">
+      <label>Response</label>
+      <div id="response">—</div>
+    </div>
+  </div>
+
+  <script>
+    const ACTIONS = {
+      issues: ["opened", "edited", "closed", "labeled", "unlabeled"],
+      pull_request: ["opened", "synchronize", "closed", "labeled", "reopened"],
+      issue_comment: ["created", "edited", "deleted"],
+      workflow_run: ["requested", "in_progress", "completed"],
+      custom: ["opened"],
+    };
+
+    function uuid() {
+      return crypto.randomUUID();
+    }
+
+    function $(id) { return document.getElementById(id); }
+
+    function setResponse(text, ok) {
+      const el = $("response");
+      el.textContent = text;
+      el.className = ok === true ? "status-ok" : ok === false ? "status-err" : "";
+    }
+
+    async function fetchTemplate(event, params) {
+      const qs = new URLSearchParams(params);
+      const res = await fetch(`/simulator/api/templates/${encodeURIComponent(event)}?${qs}`);
+      if (!res.ok) {
+        const err = await res.text();
+        throw new Error(`Template load failed (${res.status}): ${err}`);
+      }
+      const data = await res.json();
+      return data.payload;
+    }
+
+    async function loadSafeTemplate() {
+      const payload = await fetchTemplate("ping", {});
+      $("payload-safe").value = JSON.stringify(payload, null, 2);
+    }
+
+    async function loadWorkTemplate() {
+      const event = $("event-work").value;
+      const params = {
+        repo: $("repo-work").value.trim() || "org/repo",
+      };
+      const action = $("action-work").value;
+      if (action) params.action = action;
+      const num = $("number-work").value;
+      if (num && event !== "custom") params.number = num;
+      const payload = await fetchTemplate(event, params);
+      $("payload-work").value = JSON.stringify(payload, null, 2);
+    }
+
+    function fillActionOptions(event) {
+      const sel = $("action-work");
+      sel.innerHTML = "";
+      (ACTIONS[event] || ["opened"]).forEach((a) => {
+        const opt = document.createElement("option");
+        opt.value = a;
+        opt.textContent = a;
+        sel.appendChild(opt);
+      });
+    }
+
+    async function loadWorkEvents() {
+      const res = await fetch("/simulator/api/templates?safe_only=false");
+      const data = await res.json();
+      const sel = $("event-work");
+      sel.innerHTML = "";
+      data.events.forEach((ev) => {
+        const opt = document.createElement("option");
+        opt.value = ev;
+        opt.textContent = ev;
+        sel.appendChild(opt);
+      });
+      fillActionOptions(sel.value);
+      await loadWorkTemplate();
+    }
+
+    async function sendWebhook(event, deliveryId, payloadText) {
+      let payload;
+      try {
+        payload = JSON.parse(payloadText);
+      } catch (e) {
+        setResponse("Invalid JSON payload: " + e.message, false);
+        return;
+      }
+
+      const started = performance.now();
+      let res;
+      try {
+        res = await fetch("/simulator/api/send", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            event,
+            deliveryId: deliveryId || uuid(),
+            payload,
+          }),
+        });
+      } catch (e) {
+        setResponse("Request failed: " + e.message, false);
+        return;
+      }
+
+      const elapsed = Math.round(performance.now() - started);
+      const data = await res.json().catch(() => ({}));
+      const innerStatus = data.status ?? res.status;
+      const text = data.body ?? JSON.stringify(data);
+      let pretty = text;
+      try { pretty = JSON.stringify(JSON.parse(text), null, 2); } catch (_) {}
+
+      const ok = res.ok && innerStatus >= 200 && innerStatus < 300;
+      setResponse(
+        `HTTP ${innerStatus} (${elapsed} ms)\nX-GitHub-Event: ${event}\n\n${pretty}`,
+        ok
+      );
+    }
+
+    document.querySelectorAll(".tab").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        document.querySelectorAll(".tab").forEach((t) => t.classList.remove("active"));
+        document.querySelectorAll(".panel").forEach((p) => p.classList.remove("active"));
+        btn.classList.add("active");
+        $("panel-" + btn.dataset.tab).classList.add("active");
+      });
+    });
+
+    $("regen-safe").addEventListener("click", () => { $("delivery-safe").value = uuid(); });
+    $("regen-work").addEventListener("click", () => { $("delivery-work").value = uuid(); });
+    $("reload-safe").addEventListener("click", () => loadSafeTemplate().catch((e) => setResponse(e.message, false)));
+    $("reload-work").addEventListener("click", () => loadWorkTemplate().catch((e) => setResponse(e.message, false)));
+
+    $("event-work").addEventListener("change", () => {
+      fillActionOptions($("event-work").value);
+      loadWorkTemplate().catch((e) => setResponse(e.message, false));
+    });
+    ["action-work", "repo-work", "number-work"].forEach((id) => {
+      $(id).addEventListener("change", () => loadWorkTemplate().catch((e) => setResponse(e.message, false)));
+    });
+
+    $("send-safe").addEventListener("click", () =>
+      sendWebhook("ping", $("delivery-safe").value.trim(), $("payload-safe").value)
+    );
+    $("send-work").addEventListener("click", () =>
+      sendWebhook(
+        $("event-work").value,
+        $("delivery-work").value.trim(),
+        $("payload-work").value
+      )
+    );
+
+    $("health").addEventListener("click", async () => {
+      const started = performance.now();
+      try {
+        const res = await fetch("/health");
+        const text = await res.text();
+        setResponse(`HTTP ${res.status} (${Math.round(performance.now() - started)} ms)\n${text}`, res.ok);
+      } catch (e) {
+        setResponse("Health check failed: " + e.message, false);
+      }
+    });
+
+    $("delivery-safe").value = uuid();
+    $("delivery-work").value = uuid();
+    loadSafeTemplate().catch((e) => setResponse(e.message, false));
+    loadWorkEvents().catch((e) => setResponse(e.message, false));
+  </script>
+</body>
+</html>

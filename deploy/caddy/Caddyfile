@@ -1,0 +1,12 @@
+# Reverse proxy in front of webhook-receiver.
+#
+# WEBHOOK_SITE_ADDRESS (compose env):
+#   :80                          — HTTP only (local / behind external TLS)
+#   hooks.example.com            — automatic HTTPS (Let's Encrypt) on :443
+#
+# For Let's Encrypt, set a real hostname in WEBHOOK_SITE_ADDRESS and optionally
+# add a global { email you@example.com } block below (see Caddy docs).
+
+{$WEBHOOK_SITE_ADDRESS} {
+	reverse_proxy webhook-receiver:8080
+}

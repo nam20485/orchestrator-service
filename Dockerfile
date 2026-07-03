@@ -1,0 +1,136 @@
+# syntax=docker/dockerfile:1.7
+# --- Stage 1: Rust Builder (Beads ecosystem: br) ---
+# Self-contained fallback so `docker build` and validate.yml PR builds work
+# without a published beads image. In docker-publish.yml the `rust-builder`
+# stage is overridden via build-contexts with the published GHCR beads image,
+# skipping this recompile. Mirrors the br-only subset of Dockerfile.beads
+# (single source of truth); bvr intentionally omitted — this image only needs
+# br. Pinned to immutable commit SHAs for reproducibility. beads_rust 0.2.15
+# (via the `asupersync` dependency) uses `#![feature]`, requiring nightly.
+FROM rust:1.95-slim-bookworm AS rust-builder
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    rm -f /etc/apt/apt.conf.d/docker-clean \
+    && apt-get update && apt-get install -y --no-install-recommends git pkg-config libssl-dev
+RUN rustup toolchain install nightly && rustup default nightly
+# beads_rust v0.2.15 @ d9f8d7083dee46d04a8e4741c5f535eb7fcabc97
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/usr/local/cargo/git \
+    cargo install --git https://github.com/Dicklesworthstone/beads_rust.git --rev d9f8d7083dee46d04a8e4741c5f535eb7fcabc97 --locked beads_rust
+
+# --- Stage 2: Final Image ---
+FROM debian:trixie-20260518-slim
+LABEL Name=orchestratorservice Version=0.0.1
+
+ARG DEBIAN_FRONTEND=noninteractive
+ARG OPENCODE_VERSION=1.17.8
+#ARG DOTNET_SDK_VERSION=10.0.300
+ARG NODE_LTS_VERSION=24.14.0
+ARG POWERSHELL_VERSION=7.6.2
+ARG APP_UID=1000
+ARG APP_GID=1000
+
+# Non-root user for runtime (gosu drops privileges in the entrypoint).
+RUN groupadd -g "${APP_GID}" app \
+    && useradd -l -u "${APP_UID}" -g "${APP_GID}" -m -d /home/app app
+
+ENV HOME=/home/app
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        ca-certificates \
+        curl \
+        file \
+        git \
+        gnupg \
+        gosu \
+        jq \
+        make \
+        openssh-client \
+        patch \
+        procps \
+        python3 \
+        python3-pip \
+        ripgrep \
+        tar \
+        unzip \
+        xz-utils \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# Trust all bind-mounted repos for git (see scripts/git-trust.sh for rationale).
+COPY scripts/git-trust.sh /tmp/git-trust.sh
+RUN bash /tmp/git-trust.sh && rm -f /tmp/git-trust.sh
+
+# PowerShell (pwsh) — tarball install (Microsoft apt repo fails on trixie SHA1 key policy)
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends libicu76 libssl3t64 \
+    && curl -fsSL "https://github.com/PowerShell/PowerShell/releases/download/v${POWERSHELL_VERSION}/powershell-${POWERSHELL_VERSION}-linux-x64.tar.gz" -o /tmp/powershell.tar.gz \
+    && mkdir -p /opt/powershell \
+    && tar -xzf /tmp/powershell.tar.gz -C /opt/powershell \
+    && chmod +x /opt/powershell/pwsh \
+    && ln -sf /opt/powershell/pwsh /usr/local/bin/pwsh \
+    && rm /tmp/powershell.tar.gz \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# GitHub CLI
+RUN mkdir -p /etc/apt/keyrings \
+    && chmod 755 /etc/apt/keyrings \
+    && curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
+       -o /etc/apt/keyrings/githubcli-archive-keyring.gpg \
+    && chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg \
+    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
+       | tee /etc/apt/sources.list.d/github-cli.list > /dev/null \
+    && apt-get update && apt-get install -y --no-install-recommends gh \
+    && rm -rf /var/lib/apt/lists/*
+
+# Node.js 24.14.0 LTS (needed for MCP server packages)
+RUN curl -fsSL "https://nodejs.org/dist/v${NODE_LTS_VERSION}/node-v${NODE_LTS_VERSION}-linux-x64.tar.gz" -o /tmp/node.tar.gz \
+    && tar -xzf /tmp/node.tar.gz -C /usr/local --strip-components=1 \
+    && rm /tmp/node.tar.gz
+
+# uv (Astral Python package manager) — install to /home/app, copy binaries to /usr/local/bin
+RUN HOME=/home/app curl -LsSf https://astral.sh/uv/0.10.9/install.sh | sh \
+    && cp /home/app/.local/bin/uv /usr/local/bin/uv \
+    && cp /home/app/.local/bin/uvx /usr/local/bin/uvx \
+    && chmod +x /usr/local/bin/uv /usr/local/bin/uvx
+
+#RUN curl -fsSL https://opencode.ai/install | bash -s -- --no-modify-path
+# opencode CLI — install to /home/app, copy binary to /usr/local/bin
+RUN HOME=/home/app curl -fsSL https://opencode.ai/install | bash -s -- --version "${OPENCODE_VERSION}" --no-modify-path \
+    && cp /home/app/.opencode/bin/opencode /usr/local/bin/opencode \
+    && chmod +x /usr/local/bin/opencode
+
+# Ensure the app user owns its home directory (installers wrote as root)
+RUN chown -R app:app /home/app
+
+# Beads CLI (br) from the Rust builder stage. In docker-publish.yml this stage
+# is overridden with the published GHCR beads image so Rust is compiled once.
+COPY --from=rust-builder /usr/local/cargo/bin/br /usr/local/bin/br
+
+# Agent workspace (sessions via --dir); separate from OpenCode config in /app
+RUN mkdir -p /workspace && chmod 755 /workspace
+
+WORKDIR /app
+COPY image/ /app/
+
+# The OpenCode config tree ships in image/.opencode (opencode.json, AGENTS.md,
+# agents/, commands/, skills/). Install it into the GLOBAL config dir so every
+# session loads it regardless of working directory (sessions run in /workspace,
+# not /app). opencode.json + AGENTS.md sit side-by-side there, so the
+# `instructions: ["AGENTS.md"]` path still resolves. Removed from /app afterward
+# so the server cwd (/app) cannot rediscover it as a project .opencode dir.
+RUN rm -rf /home/app/.config/opencode \
+    && mkdir -p /home/app/.config/opencode \
+    && cp -r /app/.opencode/. /home/app/.config/opencode/ \
+    && rm -rf /app/.opencode \
+    && chown -R app:app /home/app/.config/opencode /app
+
+COPY scripts/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+
+EXPOSE 4099
+
+ENTRYPOINT ["docker-entrypoint.sh"]
+CMD ["opencode", "serve", "--hostname", "0.0.0.0", "--port", "4099", "--log-level", "INFO", "--print-logs"]

@@ -1,0 +1,119 @@
+name: trivy
+
+on:
+  push:
+    branches: [ "main", "development", "nam20485" ]
+    paths:
+      - 'Dockerfile'
+      - 'Dockerfile.webhook'
+      - 'Dockerfile.beads'
+      - 'deploy/caddy/**'
+      - 'image/**'
+      - 'scripts/docker-entrypoint.sh'
+      - 'scripts/prompt.ps1'
+      - 'scripts/init-project-workspace.ps1'
+      - 'scripts/git-trust.sh'
+      - 'webhook_receiver/**'
+      - 'pyproject.toml'
+      - 'uv.lock'
+      - '.github/workflows/trivy.yml'
+      - '.dockerignore'
+  pull_request:
+    branches: [ "main", "development", "nam20485" ]
+    paths:
+      - 'Dockerfile'
+      - 'Dockerfile.webhook'
+      - 'Dockerfile.beads'
+      - 'deploy/caddy/**'
+      - 'image/**'
+      - 'scripts/docker-entrypoint.sh'
+      - 'scripts/prompt.ps1'
+      - 'scripts/init-project-workspace.ps1'
+      - 'scripts/git-trust.sh'
+      - 'webhook_receiver/**'
+      - 'pyproject.toml'
+      - 'uv.lock'
+      - '.github/workflows/trivy.yml'
+      - '.dockerignore'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: trivy-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  scan:
+    name: Scan ${{ matrix.name }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      security-events: write
+      actions: read
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: orchestrator-service
+            dockerfile: ./Dockerfile
+            context: .
+            cache_scope: orchestratorservice
+          - name: orchestrator-webhook
+            dockerfile: ./Dockerfile.webhook
+            context: .
+            cache_scope: webhook
+          - name: orchestrator-caddy
+            dockerfile: ./deploy/caddy/Dockerfile
+            context: ./deploy/caddy
+            cache_scope: caddy
+          - name: beads
+            dockerfile: ./Dockerfile.beads
+            context: .
+            cache_scope: beads
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
+
+      - name: Build image
+        uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7.2.0
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          tags: ${{ matrix.name }}:${{ github.sha }}
+          push: false
+          load: true
+          cache-from: type=gha,scope=${{ matrix.cache_scope }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.cache_scope }}
+
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@7b7aa264d83dc58691451798b4d117d53d21edfe # v0.28.0
+        with:
+          image-ref: '${{ matrix.name }}:${{ github.sha }}'
+          format: 'template'
+          template: '@/contrib/sarif.tpl'
+          output: 'trivy-results-${{ matrix.name }}.sarif'
+          severity: 'CRITICAL,HIGH'
+
+      - name: Upload Trivy scan results to GitHub Security tab
+        # Non-fatal: uploading SARIF to the Security tab requires GitHub
+        # Advanced Security, which is not available on private repos without a
+        # GHAS license. The scan itself (the valuable part) still runs above.
+        continue-on-error: true
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: 'trivy-results-${{ matrix.name }}.sarif'
+          category: ${{ matrix.name }}
+
+      - name: Attach SARIF report as workflow artifact
+        if: always()
+        uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08 # v4.6.0
+        with:
+          name: trivy-results-${{ matrix.name }}-${{ github.sha }}
+          path: 'trivy-results-${{ matrix.name }}.sarif'
+          if-no-files-found: warn

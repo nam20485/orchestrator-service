@@ -1,0 +1,137 @@
+name: validate
+
+on:
+  push:
+    branches: [main, development, nam20485]
+  pull_request:
+    branches: [main, development, nam20485]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: validate-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: lint
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v8.1.0
+        with:
+          enable-cache: true
+
+      - name: Install actionlint
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash | bash
+          sudo mv actionlint /usr/local/bin/
+
+      # jq (1.7.1) and shellcheck (0.9.0) are preinstalled on ubuntu-24.04 runners,
+      # so no apt install step is needed here. If you ever need a tool that is NOT
+      # preinstalled, cache the debs to avoid a slow `apt-get update` every run:
+      #
+      # - name: Install <pkg> (cached)
+      #   uses: awalsh128/cache-apt-pkgs-action@681749ae568c81c2037cb9185e38b709b261bd2f # v1.6.1
+      #   with:
+      #     packages: <pkg>
+      #     version: 1.0
+      - name: Lint
+        run: pwsh -NoProfile -File ./scripts/validate.ps1 -Lint
+
+  scan:
+    name: scan
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Secret scan
+        run: pwsh -NoProfile -File ./scripts/validate.ps1 -Scan
+
+  test:
+    name: test
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v8.1.0
+        with:
+          enable-cache: true
+
+      # jq (1.7.1) and Pester (5.7.1) are preinstalled on ubuntu-24.04 runners,
+      # so no Install-Module / apt step is needed here.
+
+      - name: Test
+        run: pwsh -NoProfile -File ./scripts/validate.ps1 -Test
+
+      - name: Coverage summary
+        if: always()
+        run: uv run coverage report --format=markdown >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload coverage HTML report
+        if: always()
+        uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08 # v4.6.0
+        with:
+          name: coverage-html
+          path: htmlcov/
+          if-no-files-found: ignore
+          retention-days: 14
+
+  build:
+    name: build
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      # Cache Docker layers in the GitHub Actions cache (type=gha). On cache hits
+      # the heavy apt/tarball layers are reused instead of being rebuilt from
+      # scratch every run. Each image gets its own cache `scope` so they don't
+      # collide within the shared GHA cache.
+      - name: Build orchestratorservice image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: ./Dockerfile
+          tags: orchestratorservice:ci
+          push: false
+          load: true
+          cache-from: type=gha,scope=orchestratorservice
+          cache-to: type=gha,mode=max,scope=orchestratorservice
+
+      - name: Build webhook receiver image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: ./Dockerfile.webhook
+          tags: orchestrator-webhook:ci
+          push: false
+          load: true
+          cache-from: type=gha,scope=webhook
+          cache-to: type=gha,mode=max,scope=webhook
+
+      - name: Build caddy proxy image
+        uses: docker/build-push-action@v7
+        with:
+          context: ./deploy/caddy
+          file: ./deploy/caddy/Dockerfile
+          tags: orchestrator-caddy:ci
+          push: false
+          load: true
+          cache-from: type=gha,scope=caddy
+          cache-to: type=gha,mode=max,scope=caddy
+
+      - name: Build beads builder image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: ./Dockerfile.beads
+          tags: beads:ci
+          push: false
+          load: true
+          cache-from: type=gha,scope=beads
+          cache-to: type=gha,mode=max,scope=beads

@@ -1,0 +1,136 @@
+# syntax=docker/dockerfile:1.7
+# GitHub webhook receiver — forwards events to the OpenCode server via scripts/prompt.ps1
+
+# --- Stage 1: Rust Builder (Beads ecosystem: br + bvr) ---
+# Self-contained fallback so `docker build` and validate.yml PR builds work
+# without a published beads image. In docker-publish.yml the `rust-builder`
+# stage is overridden via build-contexts with the published GHCR beads image,
+# skipping this recompile. Mirrors Dockerfile.beads (single source of truth).
+# Pinned to immutable commit SHAs for reproducibility. beads_rust 0.2.15 (via
+# the `asupersync` dependency) uses `#![feature]`, requiring the nightly
+# toolchain; no prebuilt nightly slim image is published, so install nightly
+# via rustup from a stable base image.
+FROM rust:1.95-slim-bookworm AS rust-builder
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    rm -f /etc/apt/apt.conf.d/docker-clean \
+    && apt-get update && apt-get install -y --no-install-recommends git pkg-config libssl-dev
+RUN rustup toolchain install nightly && rustup default nightly
+# beads_rust v0.2.15 @ d9f8d7083dee46d04a8e4741c5f535eb7fcabc97
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/usr/local/cargo/git \
+    cargo install --git https://github.com/Dicklesworthstone/beads_rust.git --rev d9f8d7083dee46d04a8e4741c5f535eb7fcabc97 --locked beads_rust
+# beads_viewer_rust v0.2.1 @ e4506f63214d32c8bcac4f29479a9b80cb932a6a
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/usr/local/cargo/git \
+    cargo install --git https://github.com/Dicklesworthstone/beads_viewer_rust.git --rev e4506f63214d32c8bcac4f29479a9b80cb932a6a --locked beads_viewer_rust
+
+# --- Stage 2: Final Python/UV Image ---
+FROM debian:trixie-20260518-slim
+LABEL org.opencontainers.image.title=orchestrator-webhook
+
+ARG DEBIAN_FRONTEND=noninteractive
+ARG OPENCODE_VERSION=1.15.13
+ARG POWERSHELL_VERSION=7.6.2
+ARG APP_UID=1000
+ARG APP_GID=1000
+
+# Non-root user for runtime (gosu drops privileges in the entrypoint).
+RUN groupadd -g "${APP_GID}" app \
+    && useradd -l -u "${APP_UID}" -g "${APP_GID}" -m -d /home/app app
+
+ENV HOME=/home/app
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    curl \
+    gnupg \
+    git \
+    gosu \
+    python3 \
+    libicu76 \
+    libssl3t64 \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# Trust all bind-mounted repos for git (see scripts/git-trust.sh for rationale).
+COPY scripts/git-trust.sh /tmp/git-trust.sh
+RUN bash /tmp/git-trust.sh && rm -f /tmp/git-trust.sh
+
+# GitHub CLI (for PR creation in beads_loop workspace management)
+RUN mkdir -p /etc/apt/keyrings \
+    && chmod 755 /etc/apt/keyrings \
+    && curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
+    -o /etc/apt/keyrings/githubcli-archive-keyring.gpg \
+    && chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg \
+    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
+    | tee /etc/apt/sources.list.d/github-cli.list > /dev/null \
+    && apt-get update && apt-get install -y --no-install-recommends gh \
+    && rm -rf /var/lib/apt/lists/*
+
+# PowerShell (prompt.ps1)
+RUN curl -fsSL "https://github.com/PowerShell/PowerShell/releases/download/v${POWERSHELL_VERSION}/powershell-${POWERSHELL_VERSION}-linux-x64.tar.gz" -o /tmp/powershell.tar.gz \
+    && mkdir -p /opt/powershell \
+    && tar -xzf /tmp/powershell.tar.gz -C /opt/powershell \
+    && chmod +x /opt/powershell/pwsh \
+    && ln -sf /opt/powershell/pwsh /usr/local/bin/pwsh \
+    && rm /tmp/powershell.tar.gz
+
+# uv — install to /home/app, copy binary to /usr/local/bin
+RUN HOME=/home/app curl -LsSf https://astral.sh/uv/0.10.9/install.sh | sh \
+    && cp /home/app/.local/bin/uv /usr/local/bin/uv \
+    && chmod +x /usr/local/bin/uv
+
+# opencode CLI (client for --attach) — install to /home/app, copy binary to /usr/local/bin
+RUN HOME=/home/app curl -fsSL https://opencode.ai/install | bash -s -- --version "${OPENCODE_VERSION}" --no-modify-path \
+    && cp /home/app/.opencode/bin/opencode /usr/local/bin/opencode \
+    && chmod +x /usr/local/bin/opencode
+
+# Git identity defaults for the app user (commits/br need an identity).
+# Runtime override via GIT_AUTHOR_NAME/GIT_AUTHOR_EMAIL env vars.
+RUN HOME=/home/app git config --global user.name "orchestrator-bot" \
+    && HOME=/home/app git config --global user.email "bot@orchestrator.local" \
+    && chown app:app /home/app/.gitconfig
+
+# Ensure the app user owns its home directory (installers wrote as root)
+RUN chown -R app:app /home/app
+
+# Beads ecosystem binaries (br + bvr) from the Rust builder stage. In
+# docker-publish.yml this stage is overridden with the published GHCR beads
+# image so Rust is compiled once.
+COPY --from=rust-builder /usr/local/cargo/bin/br /usr/local/bin/br
+COPY --from=rust-builder /usr/local/cargo/bin/bvr /usr/local/bin/bvr
+
+ENV UV_COMPILE_BYTECODE=1 \
+    UV_LINK_MODE=copy \
+    UV_PYTHON=python3
+
+WORKDIR /app
+
+COPY pyproject.toml uv.lock README.md ./
+COPY webhook_receiver ./webhook_receiver
+
+RUN --mount=type=cache,target=/home/app/.cache/uv \
+    HOME=/home/app uv sync --frozen --no-dev
+
+# prompt.ps1 dot-sources init-project-workspace.ps1 (Resolve-ProjectWorkspace /
+# Initialize-ProjectWorkspace), so both must be present in-image for the
+# beads-loop dispatch to resolve a per-bead worktree path in-container.
+COPY scripts/prompt.ps1 scripts/init-project-workspace.ps1 ./scripts/
+
+# Ensure the app user owns /app (.venv, scripts, config — runtime user must read/write)
+RUN chown -R app:app /app
+
+ENV PROMPT_SCRIPT=/app/scripts/prompt.ps1 \
+    OPENCODE_SERVER_URL=http://orchestratorservice:4099 \
+    ORCHESTRATOR_WORKSPACE=/workspace \
+    WEBHOOK_HOST=0.0.0.0 \
+    WEBHOOK_PORT=8080
+
+EXPOSE 8080
+
+# Privilege drop via gosu (no USER directive — container starts as root,
+# gosu drops to app before running the server).
+ENTRYPOINT ["gosu", "app"]
+CMD ["uv", "run", "orchestrator-webhook"]

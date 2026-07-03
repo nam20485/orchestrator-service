@@ -1,0 +1,12 @@
+{
+	"folders": [
+		{
+			"path": "."
+		}
+	],
+	"settings": {
+		"python.languageServer": "None",
+		"markdown.validate.enabled": true,
+		"python.analysis.typeCheckingMode": "off"
+	}
+}
