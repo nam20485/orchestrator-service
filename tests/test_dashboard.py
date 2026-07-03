@@ -903,8 +903,8 @@ def test_safe_bundle_relative_path_rejects_traversal(file_path: str) -> None:
     [
         ("styles.css", "styles.css"),
         ("vendor/app.js", "vendor/app.js"),     # nested, no traversal
-        ("./styles.css", "styles.css"),          # lone "." collapsed
-        ("a//b", "a/b"),                         # empty segments dropped
+        ("./styles.css", "./styles.css"),         # harmless, stays under root
+        ("a//b", "a//b"),                         # empty segment, harmless
         ("vendor/../styles.css", None),          # still-traversal -> rejected
     ],
 )

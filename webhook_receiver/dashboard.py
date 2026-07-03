@@ -679,20 +679,19 @@ def _safe_bundle_relative_path(file_path: str) -> str:
     """Validate a request path and return a safe relative reference.
 
     Rejects any value that could escape the bundle directory — absolute
-    paths, Windows drive letters, parent (``..``) references, and NUL bytes
+    paths, backslash separators, parent (``..``) references, and NUL bytes
     — so untrusted URL input never reaches a filesystem path expression.
-    This is the first line of defense; it is always combined with a
-    ``resolve()``/``relative_to()`` containment check on the filesystem.
+    The membership guards are applied to the raw request value, which also
+    acts as a static-analysis sanitizer (e.g. CodeQL ``py/path-injection``):
+    on the continuation ``file_path`` is guaranteed free of traversal
+    sequences. This is the first line of defense; it is always combined with
+    a ``resolve()``/``relative_to()`` containment check on the filesystem.
     """
     if not file_path or "\x00" in file_path:
         raise HTTPException(status_code=404, detail="Not found")
-    normalized = file_path.replace("\\", "/")
-    if normalized.startswith("/"):
+    if ".." in file_path or "\\" in file_path or file_path.startswith("/"):
         raise HTTPException(status_code=404, detail="Not found")
-    parts = [p for p in normalized.split("/") if p not in ("", ".")]
-    if any(part == ".." for part in parts):
-        raise HTTPException(status_code=404, detail="Not found")
-    return "/".join(parts)
+    return file_path
 
 
 def create_dashboard_pages_router(dashboard_token: str | None = None) -> APIRouter:
