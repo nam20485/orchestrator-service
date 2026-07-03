@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import hmac
 import json
 import os
 from pathlib import Path
 
 import httpx
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 
 from webhook_receiver.github import compute_signature
@@ -14,29 +15,92 @@ from webhook_receiver.simulator_templates import ALL_EVENTS, get_template, list_
 _STATIC_DIR = Path(__file__).resolve().parent / "static"
 
 
-def create_simulator_router(*, enabled: bool, port: int) -> APIRouter:
-    router = APIRouter(prefix="/simulator", tags=["simulator"])
+def _make_simulator_auth(token: str | None):
+    """Build a dependency that gates every enabled simulator route.
 
+    The simulator can mint signatures over the ``OS_WEBHOOK_SECRET`` and forward
+    them to ``/webhooks/github``, so it is at least as privileged as the
+    dashboard. Because Caddy proxies the whole receiver surface (not just
+    ``/webhooks/github``), an enabled simulator reached through a tunnel
+    (Funnel/ngrok) must require a token before it will sign/forward anything.
+
+    Mirrors the dashboard gate: the token may be presented via an
+    ``Authorization: Bearer <token>`` header, a ``?token=`` query parameter, or
+    a ``dashboard_token`` cookie, compared in constant time.
+
+    Fail-closed: if the simulator is enabled but ``DASHBOARD_TOKEN`` is unset,
+    every route returns ``401`` with an actionable message rather than exposing
+    the unauthenticated signing endpoint.
+    """
+
+    async def _require_token(request: Request) -> None:
+        if not token:
+            raise HTTPException(
+                status_code=401,
+                detail="Simulator requires DASHBOARD_TOKEN to be set",
+            )
+        provided: str | None = None
+        auth_header = request.headers.get("authorization", "")
+        if auth_header.lower().startswith("bearer "):
+            provided = auth_header.split(None, 1)[1].strip()
+        if not provided:
+            provided = request.query_params.get("token")
+        if not provided:
+            provided = request.cookies.get("dashboard_token")
+        if not provided or not hmac.compare_digest(str(provided), token):
+            raise HTTPException(
+                status_code=401, detail="Invalid or missing dashboard token"
+            )
+
+    return _require_token
+
+
+def create_simulator_router(
+    *, enabled: bool, port: int, dashboard_token: str | None = None
+) -> APIRouter:
     if not enabled:
 
-        @router.get("")
-        @router.get("/{path:path}")
+        unauthed = APIRouter(prefix="/simulator", tags=["simulator"])
+
+        @unauthed.get("")
+        @unauthed.get("/{path:path}")
         async def simulator_disabled(path: str = "") -> None:
             raise HTTPException(status_code=404, detail="Simulator disabled")
 
-        return router
+        return unauthed
+
+    router = APIRouter(
+        prefix="/simulator",
+        tags=["simulator"],
+        dependencies=[Depends(_make_simulator_auth(dashboard_token))],
+    )
 
     @router.get("")
-    async def simulator_page() -> HTMLResponse:
+    async def simulator_page(request: Request) -> HTMLResponse:
         html_path = _STATIC_DIR / "simulator.html"
         if not html_path.is_file():
             raise HTTPException(status_code=500, detail="Simulator UI not found")
         html = html_path.read_text(encoding="utf-8")
-        return HTMLResponse(
+        resp = HTMLResponse(
             html,
             media_type="text/html",
             headers={"Cache-Control": "no-store"},
         )
+        # Persist a valid ?token= so subsequent same-origin fetch() calls to
+        # /simulator/api/* authenticate automatically (mirrors the dashboard).
+        query_token = request.query_params.get("token")
+        if query_token and dashboard_token and hmac.compare_digest(
+            query_token, dashboard_token
+        ):
+            resp.set_cookie(
+                "dashboard_token",
+                query_token,
+                httponly=True,
+                samesite="strict",
+                secure=request.url.scheme == "https",
+                path="/",
+            )
+        return resp
 
     @router.get("/api/templates")
     async def template_list(

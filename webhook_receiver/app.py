@@ -331,7 +331,11 @@ def create_app(
         )
 
     app.include_router(
-        create_simulator_router(enabled=cfg.enable_simulator, port=cfg.port)
+        create_simulator_router(
+            enabled=cfg.enable_simulator,
+            port=cfg.port,
+            dashboard_token=cfg.dashboard_token,
+        )
     )
     app.include_router(
         create_dashboard_router(store, beads_loop, dashboard_token=cfg.dashboard_token)
