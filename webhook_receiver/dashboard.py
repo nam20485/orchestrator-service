@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import glob
-import hmac
 import json
 import logging
 import os
@@ -15,6 +14,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, StreamingResponse
 
+from webhook_receiver.auth import make_dashboard_token_dep, persist_token_cookie
 from webhook_receiver.beads_loop import BeadsLoop
 from webhook_receiver.event_store import EventStore
 from webhook_receiver.workspace import (
@@ -248,7 +248,7 @@ def _generate_pages_bundle(ws: str, force: bool = False) -> tuple[bool, str | No
 
 
 def _make_dashboard_auth(token: str | None):
-    """Build a FastAPI dependency that gates every dashboard route.
+    """Gate every dashboard route behind the dashboard token.
 
     The dashboard exposes bead metadata and agent stdout/stderr, which may
     contain secrets or repo data. Because Caddy proxies the whole receiver
@@ -259,27 +259,11 @@ def _make_dashboard_auth(token: str | None):
     * When configured, a request must present the token via an
       ``Authorization: Bearer <token>`` header, a ``?token=`` query parameter,
       or a ``dashboard_token`` cookie. Constant-time comparison is used.
+
+    Token extraction and cookie persistence live in :mod:`webhook_receiver.auth`
+    so the simulator shares the exact same logic (no drift).
     """
-
-    async def _require_token(request: Request) -> None:
-        if not token:
-            raise HTTPException(
-                status_code=404, detail="Dashboard is disabled (DASHBOARD_TOKEN not set)"
-            )
-        provided: str | None = None
-        auth_header = request.headers.get("authorization", "")
-        if auth_header.lower().startswith("bearer "):
-            provided = auth_header.split(None, 1)[1].strip()
-        if not provided:
-            provided = request.query_params.get("token")
-        if not provided:
-            provided = request.cookies.get("dashboard_token")
-        if not provided or not hmac.compare_digest(str(provided), token):
-            raise HTTPException(
-                status_code=401, detail="Invalid or missing dashboard token"
-            )
-
-    return _require_token
+    return make_dashboard_token_dep(token)
 
 
 def _fetch_beads_view(ws: str) -> dict[str, Any]:
@@ -637,16 +621,7 @@ def _serve_html(
         media_type="text/html",
         headers={"Cache-Control": "no-store"},
     )
-    query_token = request.query_params.get("token")
-    if query_token and hmac.compare_digest(query_token, str(dashboard_token or "")):
-        resp.set_cookie(
-            "dashboard_token",
-            query_token,
-            httponly=True,
-            samesite="strict",
-            secure=request.url.scheme == "https",
-            path="/",
-        )
+    persist_token_cookie(resp, request, dashboard_token)
     return resp
 
 

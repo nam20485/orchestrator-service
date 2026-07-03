@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hmac
 import json
 import os
 from pathlib import Path
@@ -9,50 +8,11 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 
+from webhook_receiver.auth import make_dashboard_token_dep, persist_token_cookie
 from webhook_receiver.github import compute_signature
 from webhook_receiver.simulator_templates import ALL_EVENTS, get_template, list_templates
 
 _STATIC_DIR = Path(__file__).resolve().parent / "static"
-
-
-def _make_simulator_auth(token: str | None):
-    """Build a dependency that gates every enabled simulator route.
-
-    The simulator can mint signatures over the ``OS_WEBHOOK_SECRET`` and forward
-    them to ``/webhooks/github``, so it is at least as privileged as the
-    dashboard. Because Caddy proxies the whole receiver surface (not just
-    ``/webhooks/github``), an enabled simulator reached through a tunnel
-    (Funnel/ngrok) must require a token before it will sign/forward anything.
-
-    Mirrors the dashboard gate: the token may be presented via an
-    ``Authorization: Bearer <token>`` header, a ``?token=`` query parameter, or
-    a ``dashboard_token`` cookie, compared in constant time.
-
-    Fail-closed: if the simulator is enabled but ``DASHBOARD_TOKEN`` is unset,
-    every route returns ``401`` with an actionable message rather than exposing
-    the unauthenticated signing endpoint.
-    """
-
-    async def _require_token(request: Request) -> None:
-        if not token:
-            raise HTTPException(
-                status_code=401,
-                detail="Simulator requires DASHBOARD_TOKEN to be set",
-            )
-        provided: str | None = None
-        auth_header = request.headers.get("authorization", "")
-        if auth_header.lower().startswith("bearer "):
-            provided = auth_header.split(None, 1)[1].strip()
-        if not provided:
-            provided = request.query_params.get("token")
-        if not provided:
-            provided = request.cookies.get("dashboard_token")
-        if not provided or not hmac.compare_digest(str(provided), token):
-            raise HTTPException(
-                status_code=401, detail="Invalid or missing dashboard token"
-            )
-
-    return _require_token
 
 
 def create_simulator_router(
@@ -72,7 +32,21 @@ def create_simulator_router(
     router = APIRouter(
         prefix="/simulator",
         tags=["simulator"],
-        dependencies=[Depends(_make_simulator_auth(dashboard_token))],
+        # The simulator can mint signatures over OS_WEBHOOK_SECRET and forward
+        # them to /webhooks/github, so it is at least as privileged as the
+        # dashboard. Because Caddy proxies the whole receiver surface (not just
+        # /webhooks/github), an enabled simulator reached through a tunnel
+        # (Funnel/ngrok) must require a token. Shares the dashboard's token
+        # extraction/cookie logic via webhook_receiver.auth (no drift).
+        dependencies=[
+            Depends(
+                make_dashboard_token_dep(
+                    dashboard_token,
+                    disabled_status=401,
+                    disabled_detail="Simulator requires DASHBOARD_TOKEN to be set",
+                )
+            )
+        ],
     )
 
     @router.get("")
@@ -88,18 +62,7 @@ def create_simulator_router(
         )
         # Persist a valid ?token= so subsequent same-origin fetch() calls to
         # /simulator/api/* authenticate automatically (mirrors the dashboard).
-        query_token = request.query_params.get("token")
-        if query_token and dashboard_token and hmac.compare_digest(
-            query_token, dashboard_token
-        ):
-            resp.set_cookie(
-                "dashboard_token",
-                query_token,
-                httponly=True,
-                samesite="strict",
-                secure=request.url.scheme == "https",
-                path="/",
-            )
+        persist_token_cookie(resp, request, dashboard_token)
         return resp
 
     @router.get("/api/templates")
