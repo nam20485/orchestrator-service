@@ -5,8 +5,8 @@ description: >-
   clear on retry. Signs every tag against a single digest; one tag failing
   still reports failure but does not abort the remaining tags.
 
-  Requires `cosign` on PATH — install it first, e.g. with
-  sigstore/cosign-installer, before calling this action.
+  Self-contained: installs cosign itself, so callers do not need a separate
+  sigstore/cosign-installer step.
 inputs:
   tags:
     description: 'Whitespace-separated image tags to sign (e.g. steps.meta.outputs.tags).'
@@ -25,6 +25,11 @@ inputs:
 runs:
   using: composite
   steps:
+    - name: Install cosign
+      uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+      with:
+        cosign-release: 'v2.2.4'
+
     - name: Sign each tag with retry
       shell: bash
       env:
