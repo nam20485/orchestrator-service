@@ -105,6 +105,24 @@ These are reusable procedures referenced by the clause logic below. When a claus
 >
 > **Returns:** `{ workflow_name, args }` where `args` is a map of parameter names to values, or `null` if the body could not be parsed.
 
+### executeDynamicWorkflow($workflow_name, ...args)
+
+> Resolves and EXECUTES a dynamic workflow. This is a directive — it is NOT a
+> slash-command, skill, or tool. Never call a skill/tool named
+> "orchestrate-dynamic-workflow".
+
+> Steps:
+> 1. FIRST read `local_ai_instruction_modules/ai-dynamic-workflows.md` — the local
+>    registry of every dynamic workflow. Find `$workflow_name` and take its Raw URL.
+>    (If `$workflow_name` is `single-workflow`, its `$workflow_assignment` shortId is
+>    resolved from `local_ai_instruction_modules/ai-workflow-assignments.md`.)
+> 2. WebFetch that ONE raw URL -> the workflow definition (Script section + assignments).
+> 3. WebFetch each assignment definition ONLY as you reach it in the Script.
+> 4. Execute assignments IN ORDER, assignment-by-assignment (do NOT delegate the whole
+>    workflow to one subagent). At each assignment boundary, postStatusUpdate(...) so
+>    progress is visible in the issue thread.
+> 5. Never route `/orchestrate-dynamic-workflow` to a skill or command resolver.
+
 ## Match Clause Cases
 
  case (type = issues &&
@@ -121,8 +139,7 @@ These are reusable procedures referenced by the clause logic below. When a claus
             - postStatusUpdate("✅ All line items are already complete. Nothing to do.")
             - skip to ##Final.
           - postStatusUpdate("🤖 Found next line item: Phase " + $next.phase + ", Line Item " + $next.line_item + ". Creating epic via `create-epic-v2`...")
-          - /orchestrate-dynamic-workflow
-              $workflow_name = create-epic-v2 { $phase = $next.phase, $line_item = $next.line_item }
+          - executeDynamicWorkflow(single-workflow, $workflow_assignment = create-epic-v2, $phase = $next.phase, $line_item = $next.line_item)
 
           - if create-epic-v2 succeeds:
             - postStatusUpdate("✅ Epic created for Phase " + $next.phase + " Line Item " + $next.line_item + ". Applying `orchestration:epic-ready` label.")
@@ -150,8 +167,7 @@ case (type = issues &&
             - skip to ##Final.
 
           - postStatusUpdate("🤖 Next line item found: Phase " + $next.phase + ", Line Item " + $next.line_item + ". Creating next epic via `create-epic-v2`...")
-          - /orchestrate-dynamic-workflow
-              $workflow_name = create-epic-v2 { $phase = $next.phase, $line_item = $next.line_item }
+          - executeDynamicWorkflow(single-workflow, $workflow_assignment = create-epic-v2, $phase = $next.phase, $line_item = $next.line_item)
           
           - if create-epic-v2 succeeds:
             - postStatusUpdate("✅ Next epic created for Phase " + $next.phase + " Line Item " + $next.line_item + ". Applying `orchestration:epic-ready` and closing this epic.")
@@ -178,8 +194,7 @@ case (type = issues &&
           ## Per-Epic 4-Step Orchestration Sequence
           ## Step 1: Implement the epic (code, tests, open PRs)
           - postStatusUpdate("🤖 Step 1/4: Starting `implement-epic` for epic: " + $created_epic)
-          - /orchestrate-dynamic-workflow
-               $workflow_name = implement-epic { $epic = $created_epic }
+          - executeDynamicWorkflow(implement-epic, $epic = $created_epic)
           - if implement-epic succeeds:
             - postStatusUpdate("✅ Step 1/4: `implement-epic` completed for: " + $created_epic + ". Applying `orchestration:epic-implemented` label.")
             - apply label "orchestration:epic-implemented" to the newly-created epic issue.
@@ -206,8 +221,7 @@ case (type = issues &&
           ## This step handles: CI verification & remediation, code review delegation,
           ## auto-reviewer wait, PR comment resolution, and merge execution.
           - postStatusUpdate("🤖 Step 2/4: Starting `review-epic-prs` for epic: " + $implemented_epic)
-          - /orchestrate-dynamic-workflow
-               $workflow_name = review-epic-prs { $epic = $implemented_epic }
+          - executeDynamicWorkflow(review-epic-prs, $epic = $implemented_epic)
           - if review-epic-prs succeeds:
             - postStatusUpdate("✅ Step 2/4: `review-epic-prs` completed for: " + $implemented_epic + ". Applying `orchestration:epic-reviewed` label.")
             - apply label "orchestration:epic-reviewed" to the newly-created epic issue.
@@ -233,8 +247,7 @@ case (type = issues &&
           ## Lightweight: report progress, flag deviations, note plan-impacting discoveries.
 
           - postStatusUpdate("🤖 Step 3/4: Starting `report-progress` for epic: " + $implemented_epic)
-          - /orchestrate-dynamic-workflow
-              $workflow_name = single-workflow { $workflow_assignment = report-progress, $epic = $implemented_epic }
+          - executeDynamicWorkflow(single-workflow, $workflow_assignment = report-progress, $epic = $implemented_epic)
           - if report-progress fails:
             - postStatusUpdate("❌ Step 3/4 `report-progress` failed for: " + $implemented_epic + ". See workflow run logs.")
             - skip to ##Final.
@@ -246,8 +259,7 @@ case (type = issues &&
             - Update descriptions of upcoming epics/phases if needed.
 
           - postStatusUpdate("🤖 Step 4/4: Starting `debrief-and-document` for epic: " + $implemented_epic)
-          - /orchestrate-dynamic-workflow
-              $workflow_name = single-workflow { $workflow_assignment = debrief-and-document, $epic = $implemented_epic }         
+          - executeDynamicWorkflow(single-workflow, $workflow_assignment = debrief-and-document, $epic = $implemented_epic)
           - if debrief-and-document fails:
             - postStatusUpdate("❌ Step 4/4 `debrief-and-document` failed for: " + $implemented_epic + ". See workflow run logs.")
             - skip to ##Final.
@@ -267,8 +279,7 @@ case (type = issues &&
           - $dispatch = parse_workflow_dispatch_body(body)
           - if $dispatch is null → comment on the issue with an error explaining the body could not be parsed, then skip to ##Final.
           - postStatusUpdate("🤖 Orchestrator triggered — invoking `{$dispatch.workflow_name}` dynamic workflow...")
-          - /orchestrate-dynamic-workflow
-              $workflow_name = $dispatch.workflow_name { ...$dispatch.args }
+          - executeDynamicWorkflow($dispatch.workflow_name, ...$dispatch.args)
           - if the workflow succeeds:
             - postStatusUpdate("✅ `{$dispatch.workflow_name}` completed successfully.")
             ## PUBLISH & VERIFY — do NOT post "finished" or close until work is reachable on the remote.

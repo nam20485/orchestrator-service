@@ -230,7 +230,7 @@ When a root cause is determined and communicated, **display the log line(s) that
 
 ## Configuration
 
-- **Branch:** `optimization` — change to load instructions from another branch (`optimization`, `feature/*`, or any valid branch name).
+- **Branch:** `main` — change to load instructions from another branch (`feature/*`, or any valid branch name).
 - Replace all `{branch}` placeholders in remote URLs with the configured branch value.
 
 ## Instruction Source

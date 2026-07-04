@@ -119,6 +119,11 @@ RUN --mount=type=cache,target=/home/app/.cache/uv \
 # beads-loop dispatch to resolve a per-bead worktree path in-container.
 COPY scripts/prompt.ps1 scripts/init-project-workspace.ps1 ./scripts/
 
+# Entrypoint: chowns the root-owned runner-log bind mount to app before the
+# gosu privilege drop, then execs the server as the non-root app user.
+COPY scripts/webhook-entrypoint.sh /usr/local/bin/webhook-entrypoint.sh
+RUN chmod +x /usr/local/bin/webhook-entrypoint.sh
+
 # Ensure the app user owns /app (.venv, scripts, config — runtime user must read/write)
 RUN chown -R app:app /app
 
@@ -130,7 +135,7 @@ ENV PROMPT_SCRIPT=/app/scripts/prompt.ps1 \
 
 EXPOSE 8080
 
-# Privilege drop via gosu (no USER directive — container starts as root,
-# gosu drops to app before running the server).
-ENTRYPOINT ["gosu", "app"]
+# Privilege drop via the webhook entrypoint (chowns the log mount, then gosu
+# drops to app). No USER directive — container starts as root.
+ENTRYPOINT ["webhook-entrypoint.sh"]
 CMD ["uv", "run", "orchestrator-webhook"]

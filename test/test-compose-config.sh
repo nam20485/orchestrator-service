@@ -33,3 +33,14 @@ if (unset WORKSPACE_DIR && docker compose --env-file /dev/null -f compose.yaml c
 else
   echo "compose enforces WORKSPACE_DIR: ok"
 fi
+
+# Verify the webhook-receiver persists runner/beads logs to the host so a
+# torn-down/failed run stays diagnosable (T2.2). The mount target is the
+# container path runner.py / beads_loop.py write to.
+found_log_mount=$(docker compose -f compose.yaml config --format json \
+  | jq -r '[.services["webhook-receiver"].volumes[]?.target] | index("/tmp/orchestrator-webhook") // empty')
+if [[ -z "$found_log_mount" ]]; then
+  echo "FAIL: webhook-receiver must mount a host dir at /tmp/orchestrator-webhook"
+  exit 1
+fi
+echo "webhook-receiver log-dir mount: ok"

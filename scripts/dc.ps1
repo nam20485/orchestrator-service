@@ -55,7 +55,7 @@ if (-not (Test-Path -LiteralPath $composeFile)) {
     throw "compose.yaml not found: $composeFile"
 }
 
-$composeArgs = @('-f', $composeFile, $Command)
+$composeArgs = @('compose', '-f', $composeFile, $Command)
 
 # 'up' defaults to detached to match the documented `up -d` usage, unless the
 # caller passes a foreground/detach-conflicting flag via ExtraArgs.
@@ -73,7 +73,8 @@ if ($ExtraArgs) {
     $composeArgs += $ExtraArgs
 }
 
-Write-Host "IMAGE_REF=$ImageRef => docker compose $Command" -ForegroundColor Cyan
+$commandLine = "IMAGE_REF=$ImageRef => docker compose $Command"
+Write-Host $commandLine -ForegroundColor Cyan
 
 # Scope IMAGE_REF to this compose invocation only; restoring (or removing) the
 # prior value prevents a leaked IMAGE_REF from retargeting a later bare

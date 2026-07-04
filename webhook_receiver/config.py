@@ -17,6 +17,14 @@ def _default_prompt_script() -> Path:
 _DEFAULT_MAX_BODY_BYTES = 25 * 1024 * 1024
 
 
+def _parse_optional_int(name: str) -> int | None:
+    """Read an optional positive-int env var; empty/missing/unset -> None."""
+    raw = os.environ.get(name, "").strip()
+    if not raw:
+        return None
+    return int(raw)
+
+
 @dataclass(frozen=True)
 class Settings:
     host: str
@@ -39,6 +47,10 @@ class Settings:
     # (default) the entire dashboard surface is disabled and returns 404, so
     # the receiver cannot leak beads data through the proxy by default.
     dashboard_token: str | None = None
+    # Optional hard wall-clock timeout (seconds) for a dispatched opencode run.
+    # When set (env DISPATCH_TIMEOUT_SECS), a run exceeding it is killed and a
+    # failure comment is posted. None (default) = no timeout (wait forever).
+    dispatch_timeout: int | None = None
 
     @classmethod
     def from_env(cls) -> Settings:
@@ -80,4 +92,5 @@ class Settings:
             beads_max_retries=int(os.environ.get("BEADS_MAX_RETRIES", "3")),
             beads_workspace_root=os.environ.get("BEADS_WORKSPACE_ROOT", "/workspace"),
             dashboard_token=(os.environ.get("DASHBOARD_TOKEN", "").strip() or None),
+            dispatch_timeout=_parse_optional_int("DISPATCH_TIMEOUT_SECS"),
         )

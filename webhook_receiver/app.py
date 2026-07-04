@@ -22,7 +22,7 @@ from webhook_receiver.event_store import EventStore
 from webhook_receiver.filters import should_dispatch
 from webhook_receiver.github import verify_signature
 from webhook_receiver.prompts import build_orchestrator_prompt
-from webhook_receiver.runner import dispatch_to_opencode
+from webhook_receiver.runner import DispatchContext, dispatch_to_opencode
 from webhook_receiver.simulator import create_simulator_router
 from webhook_receiver.workspace import (
     ensure_project_from_clone,
@@ -168,7 +168,28 @@ def _safe_dispatch(
             "Failed to ensure project workspace for webhook dispatch; "
             "attempting dispatch with existing workspace state"
         )
-    dispatch_to_opencode(settings, prompt, store)
+    dispatch_ctx = _dispatch_context_from_payload(payload)
+    dispatch_to_opencode(settings, prompt, store, dispatch_ctx)
+
+
+def _dispatch_context_from_payload(
+    payload: dict[str, Any]
+) -> DispatchContext | None:
+    """Build a DispatchContext for the failure-comment path.
+
+    Returns None when the payload carries no attributable issue (e.g. a
+    non-issue event), in which case no failure comment is posted.
+    """
+    repo_full = payload.get("repository", {}).get("full_name")
+    issue = payload.get("issue", {})
+    number = issue.get("number")
+    if not repo_full or not isinstance(number, int):
+        return None
+    return DispatchContext(
+        repo_full_name=repo_full,
+        issue_number=number,
+        html_url=issue.get("html_url"),
+    )
 
 
 def create_app(
