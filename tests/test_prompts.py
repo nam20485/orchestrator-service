@@ -34,3 +34,37 @@ def test_build_prompt_truncates_large_payload() -> None:
         max_payload_chars=100,
     )
     assert "truncated" in prompt.lower()
+
+
+def test_dispatch_clause_links_issue_to_project_and_milestone() -> None:
+    """The dispatch clause must link the dispatch issue to the Project V2 and a
+    milestone (discovery-path-alignment leftover issue #1)."""
+    payload = {
+        "action": "labeled",
+        "repository": {"full_name": "org/repo"},
+    }
+    prompt = build_orchestrator_prompt(
+        delivery_id="d",
+        event="issues",
+        payload=payload,
+        max_payload_chars=120000,
+    )
+    assert "TRACKER LINKING" in prompt
+    assert "gh project item-add" in prompt
+    assert "gh issue edit" in prompt
+    assert "--milestone" in prompt
+    # Project/milestone must be verified after the attempt.
+    assert "milestone,projectItems" in prompt
+
+
+def test_dispatch_clause_links_pr_to_issue() -> None:
+    """A PR opened by the dispatch clause must reference its issue so GitHub
+    auto-links it (discovery-path-alignment leftover issue #2)."""
+    prompt = build_orchestrator_prompt(
+        delivery_id="d",
+        event="issues",
+        payload={"action": "labeled"},
+        max_payload_chars=120000,
+    )
+    assert "Resolves #" in prompt
+    assert "closingIssuesReferences" in prompt

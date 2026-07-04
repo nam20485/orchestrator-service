@@ -26,7 +26,20 @@ docker image inspect "$IMG" >/dev/null 2>&1 \
 # same way ./traces/runner gets created on first attach.
 PARENT="$(mktemp -d)"
 LOGDIR="$PARENT/runner"
-trap 'rm -rf "$PARENT"' EXIT
+
+cleanup() {
+  # The container's entrypoint chowns the bind mount to UID 1000 (app), so the
+  # CI runner user (a different UID) cannot `rm` the artifacts the container
+  # created. The image runs as root by default (the entrypoint does the gosu
+  # drop), so use it to restore ownership to the runner before the host cleanup.
+  # Best-effort: a functional test must never fail CI on cleanup.
+  if [ -n "${PARENT:-}" ]; then
+    docker run --rm --entrypoint chown -v "$PARENT:/work" "$IMG" \
+      -R "$(id -u):$(id -g)" /work >/dev/null 2>&1 || true
+    rm -rf "$PARENT" 2>/dev/null || true
+  fi
+}
+trap cleanup EXIT
 
 # Run the REAL image with the REAL entrypoint (no --entrypoint override). The
 # entrypoint execs `gosu app "$@"`, so this CMD runs as UID 1000. Assert:
