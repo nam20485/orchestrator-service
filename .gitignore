@@ -54,6 +54,10 @@ cover/
 *.log
 *.pid
 
+# Host-persisted runner/beads logs (compose bind mount -> ./traces/runner).
+# Generated at runtime; never commit.
+traces/runner/
+
 # Environments
 .env
 .envrc
