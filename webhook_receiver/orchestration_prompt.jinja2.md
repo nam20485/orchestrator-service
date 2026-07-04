@@ -105,24 +105,6 @@ These are reusable procedures referenced by the clause logic below. When a claus
 >
 > **Returns:** `{ workflow_name, args }` where `args` is a map of parameter names to values, or `null` if the body could not be parsed.
 
-### executeDynamicWorkflow($workflow_name, ...args)
-
-> Resolves and EXECUTES a dynamic workflow. This is a directive — it is NOT a
-> slash-command, skill, or tool. Never call a skill/tool named
-> "orchestrate-dynamic-workflow".
-
-> Steps:
-> 1. FIRST read `local_ai_instruction_modules/ai-dynamic-workflows.md` — the local
->    registry of every dynamic workflow. Find `$workflow_name` and take its Raw URL.
->    (If `$workflow_name` is `single-workflow`, its `$workflow_assignment` shortId is
->    resolved from `local_ai_instruction_modules/ai-workflow-assignments.md`.)
-> 2. WebFetch that ONE raw URL -> the workflow definition (Script section + assignments).
-> 3. WebFetch each assignment definition ONLY as you reach it in the Script.
-> 4. Execute assignments IN ORDER, assignment-by-assignment (do NOT delegate the whole
->    workflow to one subagent). At each assignment boundary, postStatusUpdate(...) so
->    progress is visible in the issue thread.
-> 5. Never route `/orchestrate-dynamic-workflow` to a skill or command resolver.
-
 ## Match Clause Cases
 
  case (type = issues &&
@@ -139,7 +121,8 @@ These are reusable procedures referenced by the clause logic below. When a claus
             - postStatusUpdate("✅ All line items are already complete. Nothing to do.")
             - skip to ##Final.
           - postStatusUpdate("🤖 Found next line item: Phase " + $next.phase + ", Line Item " + $next.line_item + ". Creating epic via `create-epic-v2`...")
-          - executeDynamicWorkflow(single-workflow, $workflow_assignment = create-epic-v2, $phase = $next.phase, $line_item = $next.line_item)
+          - /orchestrate-dynamic-workflow
+              $workflow_name = create-epic-v2 { $phase = $next.phase, $line_item = $next.line_item }
 
           - if create-epic-v2 succeeds:
             - postStatusUpdate("✅ Epic created for Phase " + $next.phase + " Line Item " + $next.line_item + ". Applying `orchestration:epic-ready` label.")
@@ -167,7 +150,8 @@ case (type = issues &&
             - skip to ##Final.
 
           - postStatusUpdate("🤖 Next line item found: Phase " + $next.phase + ", Line Item " + $next.line_item + ". Creating next epic via `create-epic-v2`...")
-          - executeDynamicWorkflow(single-workflow, $workflow_assignment = create-epic-v2, $phase = $next.phase, $line_item = $next.line_item)
+          - /orchestrate-dynamic-workflow
+              $workflow_name = create-epic-v2 { $phase = $next.phase, $line_item = $next.line_item }
           
           - if create-epic-v2 succeeds:
             - postStatusUpdate("✅ Next epic created for Phase " + $next.phase + " Line Item " + $next.line_item + ". Applying `orchestration:epic-ready` and closing this epic.")
@@ -194,7 +178,8 @@ case (type = issues &&
           ## Per-Epic 4-Step Orchestration Sequence
           ## Step 1: Implement the epic (code, tests, open PRs)
           - postStatusUpdate("🤖 Step 1/4: Starting `implement-epic` for epic: " + $created_epic)
-          - executeDynamicWorkflow(implement-epic, $epic = $created_epic)
+          - /orchestrate-dynamic-workflow
+               $workflow_name = implement-epic { $epic = $created_epic }
           - if implement-epic succeeds:
             - postStatusUpdate("✅ Step 1/4: `implement-epic` completed for: " + $created_epic + ". Applying `orchestration:epic-implemented` label.")
             - apply label "orchestration:epic-implemented" to the newly-created epic issue.
@@ -221,7 +206,8 @@ case (type = issues &&
           ## This step handles: CI verification & remediation, code review delegation,
           ## auto-reviewer wait, PR comment resolution, and merge execution.
           - postStatusUpdate("🤖 Step 2/4: Starting `review-epic-prs` for epic: " + $implemented_epic)
-          - executeDynamicWorkflow(review-epic-prs, $epic = $implemented_epic)
+          - /orchestrate-dynamic-workflow
+               $workflow_name = review-epic-prs { $epic = $implemented_epic }
           - if review-epic-prs succeeds:
             - postStatusUpdate("✅ Step 2/4: `review-epic-prs` completed for: " + $implemented_epic + ". Applying `orchestration:epic-reviewed` label.")
             - apply label "orchestration:epic-reviewed" to the newly-created epic issue.
@@ -247,7 +233,8 @@ case (type = issues &&
           ## Lightweight: report progress, flag deviations, note plan-impacting discoveries.
 
           - postStatusUpdate("🤖 Step 3/4: Starting `report-progress` for epic: " + $implemented_epic)
-          - executeDynamicWorkflow(single-workflow, $workflow_assignment = report-progress, $epic = $implemented_epic)
+          - /orchestrate-dynamic-workflow
+              $workflow_name = single-workflow { $workflow_assignment = report-progress, $epic = $implemented_epic }
           - if report-progress fails:
             - postStatusUpdate("❌ Step 3/4 `report-progress` failed for: " + $implemented_epic + ". See workflow run logs.")
             - skip to ##Final.
@@ -259,7 +246,8 @@ case (type = issues &&
             - Update descriptions of upcoming epics/phases if needed.
 
           - postStatusUpdate("🤖 Step 4/4: Starting `debrief-and-document` for epic: " + $implemented_epic)
-          - executeDynamicWorkflow(single-workflow, $workflow_assignment = debrief-and-document, $epic = $implemented_epic)
+          - /orchestrate-dynamic-workflow
+              $workflow_name = single-workflow { $workflow_assignment = debrief-and-document, $epic = $implemented_epic }         
           - if debrief-and-document fails:
             - postStatusUpdate("❌ Step 4/4 `debrief-and-document` failed for: " + $implemented_epic + ". See workflow run logs.")
             - skip to ##Final.
@@ -278,27 +266,9 @@ case (type = issues &&
           - postStatusUpdate("🤖 Orchestrator triggered — matched `orchestration:dispatch` clause. Parsing dispatch body...")
           - $dispatch = parse_workflow_dispatch_body(body)
           - if $dispatch is null → comment on the issue with an error explaining the body could not be parsed, then skip to ##Final.
-
-          ## TRACKER LINKING — link the dispatch issue to the GitHub Project + Milestone (mandatory).
-          ## Fixes the discovery-path-alignment defect where orchestration-created issues
-          ## (e.g. dispatch issues like gap-miner-v2-lima63#1) were never linked to the
-          ## project/milestone even though both existed. Best-effort on the project (it may
-          ## not exist yet); milestone only if one is found. Never abort the run on a missing
-          ## project/milestone — warn and continue.
-          - $dispatch_issue = event.issue.number
-          - $owner = event.repository.owner.login ; $repo = event.repository.name
-          - Resolve the project number (first project owned by $owner, or filter by a title matching $repo):
-            `$PROJECT_NUM=$(gh project list --owner $owner --format json | jq -r --arg repo "$repo" '[.[] | select(.title | test($repo; "i"))][0].number // .[0].number // empty')`
-          - If `$PROJECT_NUM` is non-empty: `gh project item-add $PROJECT_NUM --owner $owner --url "https://github.com/$owner/$repo/issues/$dispatch_issue" 2>/dev/null || echo "issue #$dispatch_issue already in project $PROJECT_NUM (or add skipped)"` (idempotent — an "already in project" error is treated as success).
-          - Else: postStatusUpdate("⚠️ No GitHub Project found for $owner; skipping project link for issue #$dispatch_issue.")
-          - Resolve a milestone (first open milestone — pass the dispatch's intended phase via `-Milestone "<title>"` if known, else auto-pick):
-            `$MS=$(gh api repos/$owner/$repo/milestones --jq 'map(select(.state=="open")) | .[0].title // empty')`
-          - If `$MS` is non-empty: `gh issue edit $dispatch_issue -R $owner/$repo --milestone "$MS"`.
-          - Verify the links: `gh issue view $dispatch_issue -R $owner/$repo --json milestone,projectItems`.
-            - If a link you attempted is still absent (e.g. `projectItems` empty despite a non-empty `$PROJECT_NUM`, or `milestone` null despite a non-empty `$MS`), postStatusUpdate("⚠️ Tracker linking incomplete for issue #$dispatch_issue (project/milestone not applied). Continuing.")
-
           - postStatusUpdate("🤖 Orchestrator triggered — invoking `{$dispatch.workflow_name}` dynamic workflow...")
-          - executeDynamicWorkflow($dispatch.workflow_name, ...$dispatch.args)
+          - /orchestrate-dynamic-workflow
+              $workflow_name = $dispatch.workflow_name { ...$dispatch.args }
           - if the workflow succeeds:
             - postStatusUpdate("✅ `{$dispatch.workflow_name}` completed successfully.")
             ## PUBLISH & VERIFY — do NOT post "finished" or close until work is reachable on the remote.
@@ -311,14 +281,7 @@ case (type = issues &&
               - If `origin/<branch>` is absent OR `git log origin/<branch>..HEAD` is non-empty (there are unpushed commits): run `git push -u origin <branch>`.
               - If push fails: postStatusUpdate("❌ `{$dispatch.workflow_name}` succeeded locally but `git push` failed. The work is not on the remote. Leaving the issue open for retry."), then leave the issue open and skip to ##Final.
               - Verify a PR exists: `gh pr list --head <branch> --json number`.
-                - If no PR exists: create it with a body that references the dispatch issue so GitHub auto-links the PR (Development panel) and the issue's "Linked PRs" — fixes the discovery-path-alignment defect where dispatch PRs were not linked to their issue:
-                  Write the body to a temp file (newlines survive the shell) and create the PR with `--body-file`:
-                  `printf 'Resolves #%s\n\n%s' "$dispatch_issue" "<derived from the workflow/dispatch>" > /tmp/pr-body.md && gh pr create --head <branch> --title "<workflow name>: <summary>" --body-file /tmp/pr-body.md`.
-                - If a PR already exists but is NOT linked to the dispatch issue (its body has no `Resolves #$dispatch_issue` / `Closes` / `Fixes` reference), append the reference:
-                  fetch its current body, prepend the reference, and update via `--body-file`:
-                  `gh pr view <pr_number> -R $owner/$repo --json body --jq .body > /tmp/pr-body.md; printf 'Resolves #%s\n\n%s' "$dispatch_issue" "$(cat /tmp/pr-body.md)" > /tmp/pr-body.md; gh pr edit <pr_number> -R $owner/$repo --body-file /tmp/pr-body.md`.
-                - Verify the PR→issue link: `gh pr view <pr_number> -R $owner/$repo --json closingIssuesReferences` and confirm it references `#$dispatch_issue`.
-                  - If the reference is absent, postStatusUpdate("⚠️ PR #<pr_number> was not auto-linked to issue #$dispatch_issue; add a 'Resolves #$dispatch_issue' line to the PR body manually.").
+                - If no PR exists: `gh pr create --head <branch> --title "<workflow name>: <summary>" --body "<derived from the workflow/dispatch>"`.
                 - If PR creation fails: postStatusUpdate("❌ Branch pushed but `gh pr create` failed. Leaving the issue open for retry."), then leave the issue open and skip to ##Final.
             - close the issue with a final postStatusUpdate("🏁 Dispatch complete — `{$dispatch.workflow_name}` finished with no errors.") then close it.
           - if the workflow fails:
