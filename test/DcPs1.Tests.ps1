@@ -29,4 +29,9 @@ Describe 'dc.ps1' {
         $content | Should -Match '\$env:IMAGE_REF'
         $content | Should -Match 'compose\.yaml'
     }
+
+    It 'always pulls the freshest image on up (--pull always)' {
+        $content = Get-Content -LiteralPath $script:DcPs1 -Raw
+        $content | Should -Match "'--pull',\s*'always'"
+    }
 }

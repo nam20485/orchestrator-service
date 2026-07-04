@@ -12,6 +12,10 @@
   Supported refs: main (default), development, nam20485. Each maps to the
   branch tag published by docker-publish.yml (<branch>-latest).
 
+  For `up`, the wrapper always passes `--pull always` so a stale local image
+  cache can never shadow the current <branch>-latest tag. Pass `--build`
+  explicitly via ExtraArgs to rebuild the image locally instead.
+
   Required env (set in your shell, never echoed by this script):
     WORKSPACE_DIR            host path bind-mounted to /workspace
     OPENCODE_SERVER_PASSWORD opencode server password
@@ -68,6 +72,10 @@ if ($Command -eq 'up') {
     if (-not $hasForeground) {
         $composeArgs += '-d'
     }
+    # Always pull the freshest published image for the chosen ref so a stale
+    # local cache can never shadow the current <branch>-latest tag. A caller
+    # may still add `--build` via ExtraArgs to force a rebuild of that image.
+    $composeArgs += '--pull', 'always'
 }
 if ($ExtraArgs) {
     $composeArgs += $ExtraArgs
