@@ -29,6 +29,9 @@ services:
       - "8080"
     volumes:
       - ${WORKSPACE_DIR:?WORKSPACE_DIR is required}:/workspace
+      # Persist runner/beads logs so a torn-down/failed run stays diagnosable.
+      # runner.py and beads_loop.py both write here (Path(tempfile.gettempdir())/"orchestrator-webhook").
+      - ${WEBHOOK_LOG_DIR:-./traces/runner}:/tmp/orchestrator-webhook
     environment:
       - OS_WEBHOOK_SECRET=${OS_WEBHOOK_SECRET}
       - OPENCODE_SERVER_URL=http://orchestratorservice:4099

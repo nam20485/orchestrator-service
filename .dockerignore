@@ -35,6 +35,7 @@ tests/
 # Host/client scripts (opencode image: entrypoint only; webhook image: prompt wrappers)
 scripts/*
 !scripts/docker-entrypoint.sh
+!scripts/webhook-entrypoint.sh
 !scripts/prompt.ps1
 !scripts/init-project-workspace.ps1
 !scripts/git-trust.sh
