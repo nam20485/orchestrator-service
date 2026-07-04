@@ -12,6 +12,8 @@ from webhook_receiver.config import Settings
 from webhook_receiver.runner import (
     DispatchContext,
     _base_args,
+    _extract_tool_invocations,
+    _is_planning_tool,
     _prompt_script_invocation,
     _run_completion_watcher,
     _stream_to_logger_and_file,
@@ -316,3 +318,100 @@ def test_dispatch_passes_dispatch_ctx_to_watcher(
 
     # Two streaming threads + one completion watcher = 3 total.
     assert mock_thread.call_count == 3
+
+
+# ── Run-completion tracing: zero-work detection ────────────────────────────
+
+# Mirrors the gap-miner-v2-oscar37 client stream: only planning/reading tools,
+# no bash/task/write/edit. This is the narrate-and-self-terminate signature.
+_OSCAR37_STDERR = (
+    '⚙ memory-graph_search_nodes {"query":"orchestrator"}\n'
+    '⚙ sequential-thinking_sequentialthinking {"thought":"planning"}\n'
+    "% WebFetch https://raw.githubusercontent.com/x/y/main/z.md\n"
+    "→ Read /workspace/x/local_ai_instruction_modules/ai-workflow-assignments.md\n"
+)
+
+
+def test_extract_tool_invocations_parses_glyph_lines() -> None:
+    tools = _extract_tool_invocations(_OSCAR37_STDERR)
+    assert tools == {
+        "memory-graph_search_nodes",
+        "sequential-thinking_sequentialthinking",
+        "webfetch",
+        "read",
+    }
+
+
+def test_extract_tool_invocations_ignores_json_lines() -> None:
+    # JSON/log lines must not false-match as tool calls.
+    noise = (
+        '{"entities": []}\n'
+        '["a", "b"]\n'
+        '"key": value\n'
+        "service=bus type=message.part.delta data\n"
+    )
+    assert _extract_tool_invocations(noise) == set()
+
+
+def test_is_planning_tool_classifies_correctly() -> None:
+    assert _is_planning_tool("memory-graph_search_nodes")
+    assert _is_planning_tool("sequential-thinking_sequentialthinking")
+    assert _is_planning_tool("webfetch")
+    assert _is_planning_tool("read")
+    # Execution / delegation tools are NOT planning tools.
+    assert not _is_planning_tool("task")
+    assert not _is_planning_tool("bash")
+    assert not _is_planning_tool("write")
+    assert not _is_planning_tool("edit")
+
+
+@patch("webhook_receiver.runner.subprocess.run")
+def test_zero_work_comment_posted_on_planning_only_clean_exit(
+    mock_run: MagicMock, tmp_path: Path
+) -> None:
+    (tmp_path / "p.stderr").write_text(_OSCAR37_STDERR, encoding="utf-8")
+    proc = _mock_proc(returncode=0)
+    store = MagicMock()
+
+    _run_completion_watcher(proc, store, _ctx(), str(tmp_path), "p")
+
+    assert mock_run.called
+    body = mock_run.call_args.kwargs["input"]
+    assert "no work tools" in body
+    assert "memory-graph_search_nodes" in body
+    store.emit.assert_called_once()
+    assert store.emit.call_args.args[0] == "dispatch_zero_work"
+
+
+@patch("webhook_receiver.runner.subprocess.run")
+def test_no_zero_work_comment_when_execution_tool_used(
+    mock_run: MagicMock, tmp_path: Path
+) -> None:
+    stderr = _OSCAR37_STDERR + "→ Task developer Implement the assignment\n"
+    (tmp_path / "p.stderr").write_text(stderr, encoding="utf-8")
+    proc = _mock_proc(returncode=0)
+    store = MagicMock()
+
+    _run_completion_watcher(proc, store, _ctx(), str(tmp_path), "p")
+
+    assert not mock_run.called  # no advisory comment — it did real work
+    store.emit.assert_called_once_with(
+        "dispatch_completed", exit_code=0, prompt_file="p.md"
+    )
+
+
+@patch("webhook_receiver.runner.subprocess.run")
+def test_no_zero_work_analysis_when_stderr_missing(
+    mock_run: MagicMock, tmp_path: Path
+) -> None:
+    # No stderr file -> cannot classify -> no zero-work comment (regression guard
+    # for the existing zero-exit "no comment" contract).
+    proc = _mock_proc(returncode=0)
+    store = MagicMock()
+
+    _run_completion_watcher(proc, store, _ctx(), str(tmp_path), "missing")
+
+    assert not mock_run.called
+    store.emit.assert_called_once_with(
+        "dispatch_completed", exit_code=0, prompt_file="missing.md"
+    )
