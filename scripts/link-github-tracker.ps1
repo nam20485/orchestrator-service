@@ -52,6 +52,7 @@
 
 .NOTES
     Requires the GitHub CLI (gh) authenticated with repo + project scopes.
+    Requires gh >= 2.30 (for 'gh project list --format json'); tested on 2.46.0.
 #>
 [CmdletBinding()]
 param(
@@ -223,6 +224,7 @@ function Get-ProjectNumber {
 
 if ($MyInvocation.InvocationName -ne '.') {
     $script:LinkDryRun = [bool]$DryRun
+    $script:HasErrors = $false
 
     if (-not $Repo) {
         Write-Error '-Repo is required (owner/repo).'
@@ -278,9 +280,11 @@ if ($MyInvocation.InvocationName -ne '.') {
             $actions.Add(@{ kind = 'verify'; issue = $Issue; project = $projOk; milestone = $msOk })
             if (-not $projOk -and $projNum) {
                 Write-Error "Project verification failed for issue #$Issue (project absent after add)."
+                $script:HasErrors = $true
             }
             if (-not $msOk) {
                 Write-Error "Milestone verification failed for issue #$Issue (expected '$Milestone')."
+                $script:HasErrors = $true
             }
         }
     }
@@ -297,7 +301,11 @@ if ($MyInvocation.InvocationName -ne '.') {
             $actions.Add(@{ kind = 'pr'; status = 'already-linked'; pr = $PR; issue = $ToIssue })
         }
         else {
-            $newBody = if ($prBefore) { New-LinkedPrBody -Body $prBefore.body -Issue $ToIssue } else { "Resolves #$ToIssue" }
+            # $prBefore is null only in DryRun (Invoke-Gh returns null for -AsJson);
+            # in real runs a missing PR intentionally throws. Coalesce the body to
+            # '' so New-LinkedPrBody yields just the marker (no dead literal branch).
+            $existingBody = if ($prBefore) { $prBefore.body } else { '' }
+            $newBody = New-LinkedPrBody -Body $existingBody -Issue $ToIssue
             Invoke-Gh -Arguments @('pr', 'edit', "$PR", '-R', $Repo, '--body', $newBody) | Out-Null
             $actions.Add(@{ kind = 'pr'; status = 'linked'; pr = $PR; issue = $ToIssue })
         }
@@ -307,10 +315,15 @@ if ($MyInvocation.InvocationName -ne '.') {
             $actions.Add(@{ kind = 'verify-pr'; pr = $PR; issue = $ToIssue; linked = $ok })
             if (-not $ok) {
                 Write-Error "PR #$PR does not resolve issue #$ToIssue after update (GitHub may need a moment to index the reference)."
+                $script:HasErrors = $true
             }
         }
     }
 
     $actions | ConvertTo-Json -Depth 6
+    if ($script:HasErrors) {
+        Write-Host 'Completed with verification errors (see above).' -ForegroundColor Yellow
+        exit 1
+    }
     Write-Host 'Done.' -ForegroundColor Green
 }

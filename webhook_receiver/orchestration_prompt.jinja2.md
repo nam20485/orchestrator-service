@@ -288,11 +288,11 @@ case (type = issues &&
           - $dispatch_issue = event.issue.number
           - $owner = event.repository.owner.login ; $repo = event.repository.name
           - Resolve the project number (first project owned by $owner, or filter by a title matching $repo):
-            `$PROJECT_NUM=$(gh project list --owner $owner --format json | jq -r '[.[] | select(.title | test($repo; "i"))][0].number // .[0].number // empty')`
-          - If `$PROJECT_NUM` is non-empty: `gh project item-add $PROJECT_NUM --owner $owner --url "https://github.com/$owner/$repo/issues/$dispatch_issue"` (treat an "already" error as success).
+            `$PROJECT_NUM=$(gh project list --owner $owner --format json | jq -r --arg repo "$repo" '[.[] | select(.title | test($repo; "i"))][0].number // .[0].number // empty')`
+          - If `$PROJECT_NUM` is non-empty: `gh project item-add $PROJECT_NUM --owner $owner --url "https://github.com/$owner/$repo/issues/$dispatch_issue" 2>/dev/null || echo "issue #$dispatch_issue already in project $PROJECT_NUM (or add skipped)"` (idempotent — an "already in project" error is treated as success).
           - Else: postStatusUpdate("⚠️ No GitHub Project found for $owner; skipping project link for issue #$dispatch_issue.")
           - Resolve a milestone (first open milestone — pass the dispatch's intended phase via `-Milestone "<title>"` if known, else auto-pick):
-            `$MS=$(gh api repos/$owner/$repo/milestones --jq '.[0].title // empty')`
+            `$MS=$(gh api repos/$owner/$repo/milestones --jq 'map(select(.state=="open")) | .[0].title // empty')`
           - If `$MS` is non-empty: `gh issue edit $dispatch_issue -R $owner/$repo --milestone "$MS"`.
           - Verify the links: `gh issue view $dispatch_issue -R $owner/$repo --json milestone,projectItems`.
             - If a link you attempted is still absent (e.g. `projectItems` empty despite a non-empty `$PROJECT_NUM`, or `milestone` null despite a non-empty `$MS`), postStatusUpdate("⚠️ Tracker linking incomplete for issue #$dispatch_issue (project/milestone not applied). Continuing.")
@@ -312,13 +312,11 @@ case (type = issues &&
               - If push fails: postStatusUpdate("❌ `{$dispatch.workflow_name}` succeeded locally but `git push` failed. The work is not on the remote. Leaving the issue open for retry."), then leave the issue open and skip to ##Final.
               - Verify a PR exists: `gh pr list --head <branch> --json number`.
                 - If no PR exists: create it with a body that references the dispatch issue so GitHub auto-links the PR (Development panel) and the issue's "Linked PRs" — fixes the discovery-path-alignment defect where dispatch PRs were not linked to their issue:
-                  `gh pr create --head <branch> --title "<workflow name>: <summary>" --body "Resolves #$dispatch_issue
-
-          <derived from the workflow/dispatch>"`.
+                  Write the body to a temp file (newlines survive the shell) and create the PR with `--body-file`:
+                  `printf 'Resolves #%s\n\n%s' "$dispatch_issue" "<derived from the workflow/dispatch>" > /tmp/pr-body.md && gh pr create --head <branch> --title "<workflow name>: <summary>" --body-file /tmp/pr-body.md`.
                 - If a PR already exists but is NOT linked to the dispatch issue (its body has no `Resolves #$dispatch_issue` / `Closes` / `Fixes` reference), append the reference:
-                  read its current body, then `gh pr edit <pr_number> -R $owner/$repo --body "Resolves #$dispatch_issue
-
-          <existing body>"`.
+                  fetch its current body, prepend the reference, and update via `--body-file`:
+                  `gh pr view <pr_number> -R $owner/$repo --json body --jq .body > /tmp/pr-body.md; printf 'Resolves #%s\n\n%s' "$dispatch_issue" "$(cat /tmp/pr-body.md)" > /tmp/pr-body.md; gh pr edit <pr_number> -R $owner/$repo --body-file /tmp/pr-body.md`.
                 - Verify the PR→issue link: `gh pr view <pr_number> -R $owner/$repo --json closingIssuesReferences` and confirm it references `#$dispatch_issue`.
                   - If the reference is absent, postStatusUpdate("⚠️ PR #<pr_number> was not auto-linked to issue #$dispatch_issue; add a 'Resolves #$dispatch_issue' line to the PR body manually.").
                 - If PR creation fails: postStatusUpdate("❌ Branch pushed but `gh pr create` failed. Leaving the issue open for retry."), then leave the issue open and skip to ##Final.
