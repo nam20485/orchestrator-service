@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import logging
+import subprocess
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -9,8 +10,10 @@ import pytest
 
 from webhook_receiver.config import Settings
 from webhook_receiver.runner import (
+    DispatchContext,
     _base_args,
     _prompt_script_invocation,
+    _run_completion_watcher,
     _stream_to_logger_and_file,
     dispatch_to_opencode,
 )
@@ -192,6 +195,124 @@ def test_dispatch_starts_streaming_threads(
 
     dispatch_to_opencode(settings, "prompt")
 
-    assert mock_thread.call_count == 2
     targets = [c.kwargs.get("target") or c.args[0] for c in mock_thread.call_args_list]
-    assert all(t is _stream_to_logger_and_file for t in targets)
+    streaming = [t for t in targets if t is _stream_to_logger_and_file]
+    assert len(streaming) == 2
+
+
+# ── DispatchContext + failure comment (T2.1) ───────────────────────────────
+
+
+def _mock_proc(returncode: int) -> MagicMock:
+    proc = MagicMock()
+    proc.returncode = returncode
+    proc.wait = MagicMock()
+    proc.kill = MagicMock()
+    return proc
+
+
+def _ctx() -> DispatchContext:
+    return DispatchContext(repo_full_name="owner/repo", issue_number=7)
+
+
+@patch("webhook_receiver.runner.subprocess.run")
+def test_failure_comment_posted_on_nonzero_exit(
+    mock_run: MagicMock,
+) -> None:
+    proc = _mock_proc(returncode=1)
+    store = MagicMock()
+    _run_completion_watcher(proc, store, _ctx(), "/tmp/x", "prompt-abc")
+
+    assert mock_run.called
+    cmd = mock_run.call_args[0][0]
+    assert cmd[0] == "gh"
+    assert "comment" in cmd
+    assert "7" in cmd
+    assert "--repo" in cmd
+    assert "owner/repo" in cmd
+    assert "--body-file" in cmd
+    body = mock_run.call_args.kwargs["input"]
+    assert "did not complete" in body
+    assert "prompt-abc.stdout" in body
+
+
+@patch("webhook_receiver.runner.subprocess.run")
+def test_no_failure_comment_on_zero_exit(
+    mock_run: MagicMock,
+) -> None:
+    proc = _mock_proc(returncode=0)
+    store = MagicMock()
+    _run_completion_watcher(proc, store, _ctx(), "/tmp/x", "prompt-abc")
+
+    assert not mock_run.called
+    store.emit.assert_called_once_with(
+        "dispatch_completed", exit_code=0, prompt_file="prompt-abc.md"
+    )
+
+
+@patch("webhook_receiver.runner.subprocess.run")
+def test_no_failure_comment_when_dispatch_ctx_none(
+    mock_run: MagicMock,
+) -> None:
+    proc = _mock_proc(returncode=2)
+    store = MagicMock()
+    _run_completion_watcher(proc, store, None, "/tmp/x", "prompt-abc")
+
+    assert not mock_run.called
+    store.emit.assert_called_once_with(
+        "dispatch_failed", exit_code=2, prompt_file="prompt-abc.md", timed_out=False
+    )
+
+
+@patch("webhook_receiver.runner.subprocess.run")
+def test_failure_comment_swallows_gh_error(
+    mock_run: MagicMock,
+) -> None:
+    """A failing gh call must never crash the completion watcher."""
+    mock_run.side_effect = OSError("gh exploded")
+    proc = _mock_proc(returncode=3)
+    store = MagicMock()
+
+    # Should not raise.
+    _run_completion_watcher(proc, store, _ctx(), "/tmp/x", "prompt-abc")
+
+    assert mock_run.called
+    store.emit.assert_called_once()
+
+
+@patch("webhook_receiver.runner.subprocess.run")
+def test_dispatch_timeout_kills_and_comments(
+    mock_run: MagicMock,
+) -> None:
+    proc = _mock_proc(returncode=-9)
+    # wait() raises TimeoutExpired the first call (timeout), returns on the
+    # second call (after kill).
+    proc.wait.side_effect = [subprocess.TimeoutExpired(cmd="x", timeout=1), None]
+    store = MagicMock()
+
+    _run_completion_watcher(proc, store, _ctx(), "/tmp/x", "prompt-abc", timeout=1)
+
+    proc.kill.assert_called_once()
+    body = mock_run.call_args.kwargs["input"]
+    assert "timed out" in body
+    store.emit.assert_called_once_with(
+        "dispatch_failed", exit_code=-9, prompt_file="prompt-abc.md", timed_out=True
+    )
+
+
+@patch("webhook_receiver.runner.threading.Thread")
+@patch("webhook_receiver.runner.subprocess.Popen")
+def test_dispatch_passes_dispatch_ctx_to_watcher(
+    mock_popen: MagicMock, mock_thread: MagicMock, tmp_path: Path
+) -> None:
+    """dispatch_to_opencode must always start the completion watcher thread so a
+    non-zero exit posts a failure comment even when event_store is None."""
+    mock_proc = MagicMock()
+    mock_proc.pid = 5
+    mock_popen.return_value = mock_proc
+    settings = _test_settings(prompt_script=tmp_path / "prompt.ps1")
+
+    dispatch_to_opencode(settings, "p", event_store=None, dispatch_ctx=_ctx())
+
+    # Two streaming threads + one completion watcher = 3 total.
+    assert mock_thread.call_count == 3

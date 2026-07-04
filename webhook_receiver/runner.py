@@ -5,6 +5,7 @@ import os
 import subprocess
 import tempfile
 import threading
+from dataclasses import dataclass
 from pathlib import Path
 
 from webhook_receiver.config import Settings
@@ -12,6 +13,21 @@ from webhook_receiver.event_store import EventStore
 from webhook_receiver.filters import should_filter
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class DispatchContext:
+    """Identity of the webhook event that triggered a dispatch.
+
+    Carried into the completion watcher so a non-zero/killed run can post a
+    failure comment on the triggering issue (mirrors the golden-path GHA
+    ``if: failure()`` step). ``None`` means no issue is attributable and the
+    failure comment is skipped.
+    """
+
+    repo_full_name: str
+    issue_number: int
+    html_url: str | None = None
 
 
 def _base_args(settings: Settings) -> list[str]:
@@ -62,10 +78,129 @@ def _stream_to_logger_and_file(
         pass  # pipe closed
 
 
+def _build_failure_body(
+    ctx: DispatchContext,
+    exit_code: int,
+    log_dir: str,
+    prompt_stem: str,
+    timed_out: bool = False,
+) -> str:
+    reason = "timed out" if timed_out else f"exited with status {exit_code}"
+    return (
+        f"❌ Orchestrator run did not complete ({reason}).\n\n"
+        f"Runner logs (`{log_dir}`):\n"
+        f"- `{prompt_stem}.stdout`\n"
+        f"- `{prompt_stem}.stderr`\n"
+    )
+
+
+def _post_failure_comment(
+    ctx: DispatchContext,
+    exit_code: int,
+    log_dir: str,
+    prompt_stem: str,
+    timed_out: bool = False,
+) -> None:
+    """Post a failure comment on the triggering issue via ``gh issue comment``.
+
+    Best-effort: any error is logged and swallowed so it can never crash the
+    completion watcher thread. Uses ``GH_ORCHESTRATION_AGENT_TOKEN`` (the PAT
+    the agent uses for orchestration) falling back to ``GITHUB_TOKEN``.
+    """
+    body = _build_failure_body(ctx, exit_code, log_dir, prompt_stem, timed_out)
+    cmd = [
+        "gh",
+        "issue",
+        "comment",
+        str(ctx.issue_number),
+        "--repo",
+        ctx.repo_full_name,
+        "--body-file",
+        "-",
+    ]
+    env = os.environ.copy()
+    token = os.environ.get("GH_ORCHESTRATION_AGENT_TOKEN") or os.environ.get(
+        "GITHUB_TOKEN"
+    )
+    if token:
+        env["GH_TOKEN"] = token
+    try:
+        subprocess.run(
+            cmd,
+            input=body,
+            env=env,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+    except Exception:
+        logger.warning(
+            "Failed to post failure comment for issue %s in %s",
+            ctx.issue_number,
+            ctx.repo_full_name,
+            exc_info=True,
+        )
+
+
+def _run_completion_watcher(
+    proc: subprocess.Popen,
+    event_store: EventStore | None,
+    dispatch_ctx: DispatchContext | None,
+    log_dir: str,
+    prompt_stem: str,
+    timeout: int | None = None,
+) -> None:
+    """Wait for the dispatched run to finish, then emit events + post a failure
+    comment on a non-zero/killed/timeout exit.
+
+    Factored out of the daemon thread so it is directly unit-testable with a
+    mock ``proc``. A timeout (``DISPATCH_TIMEOUT_SECS``) kills the process and
+    treats the result as a failure.
+    """
+    timed_out = False
+    try:
+        if timeout is not None:
+            try:
+                proc.wait(timeout=timeout)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait()
+                timed_out = True
+        else:
+            proc.wait()
+    except Exception:
+        logger.exception("Completion watcher error while waiting for pid")
+
+    exit_code = proc.returncode
+    failed = exit_code != 0
+
+    if failed and dispatch_ctx is not None:
+        _post_failure_comment(
+            dispatch_ctx, exit_code, str(log_dir), prompt_stem, timed_out
+        )
+
+    if event_store is not None:
+        if failed:
+            event_store.emit(
+                "dispatch_failed",
+                exit_code=exit_code,
+                prompt_file=f"{prompt_stem}.md",
+                timed_out=timed_out,
+            )
+        else:
+            event_store.emit(
+                "dispatch_completed",
+                exit_code=exit_code,
+                prompt_file=f"{prompt_stem}.md",
+            )
+
+
 def dispatch_to_opencode(
     settings: Settings,
     prompt: str,
     event_store: EventStore | None = None,
+    dispatch_ctx: DispatchContext | None = None,
 ) -> None:
     """Run the prompt script in the background (non-blocking for the HTTP handler)."""
     log_dir = Path(tempfile.gettempdir()) / "orchestrator-webhook"
@@ -128,15 +263,17 @@ def dispatch_to_opencode(
         daemon=True,
     ).start()
 
-    # Watcher: wait for process completion and emit an event.
-    if event_store:
+    # Watcher: wait for process completion, emit events, and post a failure
+    # comment on a non-zero/killed/timeout exit. Always started (even without
+    # an event_store) so a failed run leaves a diagnosable issue comment.
+    def _watch() -> None:
+        _run_completion_watcher(
+            proc,
+            event_store,
+            dispatch_ctx,
+            log_dir,
+            prompt_path.stem,
+            settings.dispatch_timeout,
+        )
 
-        def _watch() -> None:
-            proc.wait()
-            event_store.emit(
-                "dispatch_completed",
-                prompt_file=prompt_path.name,
-                exit_code=proc.returncode,
-            )
-
-        threading.Thread(target=_watch, daemon=True).start()
+    threading.Thread(target=_watch, daemon=True).start()

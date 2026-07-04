@@ -55,7 +55,8 @@ def test_dispatch_end_to_end_creates_files_and_spawns(
     dispatch_to_opencode(settings, prompt)
 
     assert mock_popen.called
-    assert mock_thread.call_count == 2
+    # Two stdout/stderr streaming threads + one completion watcher thread.
+    assert mock_thread.call_count == 3
 
     cmd = mock_popen.call_args[0][0]
     assert cmd[0] == "pwsh"
