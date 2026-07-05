@@ -98,3 +98,10 @@ plan_docs/automated_iterative_root_cause_analysis/commands/iterative-root-cause-
 plan_docs/automated_iterative_root_cause_analysis/commands/review-plan.md
 traces/gap-miner-v2-juliet79.log.txt
 traces/gap-miner-v2-lima63-log.txt
+# raw captured dispatch transcripts (keep the analysis docs, ignore raw captures)
+traces/gap-miner-v2-delta48-373i6gxj.md
+traces/gap-miner-v2-delta48-373i6gxj.stderr
+traces/gap-miner-v2-delta48-373i6gxj.stdout
+traces/golden-path-foxtrot54.log.txt
+# stray host downloads unrelated to the project
+amdgpu-install_*.deb
