@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
+import tempfile
+from dataclasses import dataclass, field
 from pathlib import Path
 
 
@@ -15,6 +16,19 @@ def _default_prompt_script() -> Path:
 
 # GitHub webhook payloads are capped at 25 MB.
 _DEFAULT_MAX_BODY_BYTES = 25 * 1024 * 1024
+
+
+def default_log_dir() -> Path:
+    """In-container directory for per-run logs + the bvr pages bundle.
+
+    The compose bind mount maps the host ``WEBHOOK_LOG_DIR`` onto this exact
+    container path (see ``compose.yaml``, ``webhook-receiver.volumes``) so the
+    captured stdout/stderr/manifests persist on the host and survive container
+    restarts. Code MUST read this path from :attr:`Settings.log_dir` (which
+    defaults to this) rather than re-deriving ``Path(tempfile.gettempdir()) /
+    "orchestrator-webhook"`` in three places.
+    """
+    return Path(tempfile.gettempdir()) / "orchestrator-webhook"
 
 
 def _parse_optional_int(name: str) -> int | None:
@@ -50,7 +64,13 @@ class Settings:
     # Optional hard wall-clock timeout (seconds) for a dispatched opencode run.
     # When set (env DISPATCH_TIMEOUT_SECS), a run exceeding it is killed and a
     # failure comment is posted. None (default) = no timeout (wait forever).
+    # Recommended value ~5400 (≈ the golden-path project-setup runtime) so a
+    # hung run is killed and flagged instead of waiting forever.
     dispatch_timeout: int | None = None
+    # Directory runner.py / beads_loop.py / dashboard.py use for per-run logs,
+    # run manifests, and the bvr pages bundle. Defaults to the in-container path
+    # covered by the compose bind mount; tests override it with a tmp dir.
+    log_dir: Path = field(default_factory=default_log_dir)
 
     @classmethod
     def from_env(cls) -> Settings:

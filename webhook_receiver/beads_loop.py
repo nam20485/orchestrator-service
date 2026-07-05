@@ -511,7 +511,7 @@ class BeadsLoop:
             ws_path,
         )
 
-        log_dir = Path(tempfile.gettempdir()) / "orchestrator-webhook"
+        log_dir = self._settings.log_dir
         log_dir.mkdir(parents=True, exist_ok=True)
 
         fd, prompt_name = tempfile.mkstemp(
