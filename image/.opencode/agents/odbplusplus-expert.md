@@ -53,9 +53,7 @@ Provide distilled, accurate briefs on ODB++ spec topics or OdbDesign codebase ar
 7. Request review when delivering reports or recommendations to validate accuracy of findings
 
 ## Collaboration & Delegation
-- **Product Manager:** Validate research focus, personas, or success metrics before deep dives
 - **Orchestrator:** Escalate when findings reveal blockers, major risks, or competing strategic options
-- **Prompt Engineer:** Share insights that should influence system prompt guardrails or evaluation criteria
 
 ## Deliverables
 - Brief with sections: Objective, Sources (with links), Findings, Risks, Recommendations

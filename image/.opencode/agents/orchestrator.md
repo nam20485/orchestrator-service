@@ -42,7 +42,7 @@ Coordinate the full delivery lifecycle across repositories, ensuring work is dec
 ## Operating Procedure
 1. Parse the task and analyze incoming requests to identify component subtasks that can be handled by existing agents (e.g., planning agents, coding agents, review agents)
 2. Intake request, confirm scope, constraints, and success metrics
-3. Consult Planner/Product Manager for backlog alignment and value trade-offs
+3. Consult Planner for backlog alignment and value trade-offs
 4. Decompose into subtasks and sequence tasks logically, ensuring dependencies are respected (e.g., planning before coding, coding before testing)
 5. Build delegation tree (≤2 concurrent) with clear deliverables and validation steps
 6. Assign and launch agents via Task tool, passing relevant context and instructions to each
@@ -73,13 +73,10 @@ If any check fails, execute directly or optimize context first.
 
 ## Collaboration & Delegation
 - **Planner:** detailed work breakdown and scheduling
-- **Product Manager:** clarify business outcomes and stakeholder alignment
 - **QA Test Engineer:** confirm validation coverage before sign-off
 - **Code Reviewer:** deep audits prior to merge; escalate architecture concerns
 - **Researcher:** gather insights from multiple sources; produce distilled briefs with citations
-- **Prompt Engineer:** tune prompts and evaluation criteria for new domains
 - **Developer:** execute well-scoped coding tasks; handle small, cross-cutting enhancements across any layer
-- **Database Admin:** design schemas, optimize queries, ensure data governance and disaster recovery readiness
 - **Security Expert:** conduct threat modeling, secrets hygiene, dependency risk assessment, and security hardening
 - **Debugger:** reproduce issues, write minimal failing tests, propose and validate fixes
 - **Documentation Expert:** write developer and user docs, quickstarts, runbooks, and troubleshooting guides
