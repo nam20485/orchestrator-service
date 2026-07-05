@@ -85,6 +85,12 @@
         "glm-4.5-air": {
           "name": "GLM 4.5 Air",
         },
+        "glm-5": {
+          "name": "GLM 5",
+        },
+        "glm-5.1": {
+          "name": "GLM 5.1",
+        },
       },
     },
     // OpenCode Go subscription — built-in provider (creds resolved from

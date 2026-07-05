@@ -71,7 +71,7 @@ class Settings:
                 os.environ.get("PROMPT_SCRIPT", str(_default_prompt_script()))
             ).resolve(),
             workspace=os.environ.get("ORCHESTRATOR_WORKSPACE", "/workspace"),
-            model=os.environ.get("OPENCODE_MODEL", "zai-coding-plan/glm-4.7"),
+            model=os.environ.get("OPENCODE_MODEL", "zai-coding-plan/glm-5"),
             agent=os.environ.get("OPENCODE_AGENT", "orchestrator"),
             max_payload_chars=int(
                 os.environ.get("WEBHOOK_MAX_PAYLOAD_CHARS", "120000")
