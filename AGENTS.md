@@ -30,6 +30,34 @@
 - Host client scripts: `scripts/prompt.ps1`, `scripts/attach.ps1` (PowerShell thin wrappers to local `opencode`; pwsh is a host prerequisite); one-shot via `opencode run --attach <url>`, interactive via `opencode attach <url>`.
 - GitHub webhook stack: `webhook_receiver/` FastAPI validates App webhooks with `OS_WEBHOOK_SECRET` and dispatches OpenCode via `scripts/prompt.ps1` (`-PromptFile` for large payloads); `webhook-receiver` (internal :8080) behind `webhook-proxy` (Caddy on host :80; prod TLS via `compose.https.yaml` for :443); path `/webhooks/github`. Hybrid auth: App for delivery/subscriptions; agent `gh`/API uses `GH_ORCHESTRATION_AGENT_TOKEN` (PAT), not installation JWT. Subscribing to `issues` requires App **Issues: Read** (read is enough for webhook delivery). Dev simulator at `/simulator` when `WEBHOOK_ENABLE_SIMULATOR=1` (off by default), `OS_WEBHOOK_SECRET` injected server-side. Local Funnel: `compose.yaml` only; prod: `COMPOSE_FILE=compose.yaml:compose.https.yaml`.
 
+## Greater System
+
+`orchestrator-service` is one of three cooperating repositories that together form an end-to-end "software factory": a template/runtime, a repo factory, and a canonical workflow-definition store. This repo is the running service that executes workflows; the factory stamps out new project instances from a GitHub template; and the workflow-definition repo is the single source of truth the orchestrator fetches fresh at runtime. The subsections below describe each repo and how a new project flows through them.
+
+### orchestrator-service (this repo)
+
+The GitHub Actions + webhook-driven AI orchestration runtime. It is the running service that executes dynamic workflows: the OpenCode server (`opencode serve` on :4099), the `webhook-receiver` (FastAPI), and the `webhook-proxy` (Caddy). The agent roster, OpenCode config, and orchestration prompt live in `image/` (copied into `/app` in the container). It is the runtime/architectural reference this ecosystem is built around; new project instances inherit this structure from the GitHub template the factory clones (see below).
+
+### nam20485/workflow-launch2 (repo factory)
+
+The repo that stamps out new project instances from a GitHub template. Two scripts form the entry point:
+
+- **`scripts/create-repo-from-slug.ps1`** — thin entry point. Params: `-Slug` (required, validated `^[A-Za-z0-9_.-]+$`), `-Visibility` (`public`/`private`, default `public`), `-Owner` (default `intel-agency`), `-Yes`, `-LaunchAgent`, `-Count` (default `1`). It delegates to `create-repo-with-plan-docs.ps1` with `-PlanDocsDir ./plan_docs/$Slug`.
+- **`scripts/create-repo-with-plan-docs.ps1`** — the full pipeline (`#requires -Version 7.0`). Creates one or more repos named `<RepoName>-<randomSuffix>` (letter suffixes appended when `-Count > 1`) under `-Owner`, creates the repo secret `GEMINI_API_KEY` and a `VERSION_PREFIX` repo variable, clones each locally, copies the slug's `plan_docs/` into the new repo's `plan_docs/`, replaces template placeholders (template name → new repo name, template owner → owner), commits, pushes, then triggers `project-setup`. Params: `-RepoName`, `-Owner`, `-PlanDocsDir`, `-CloneParentDir`, `-Visibility`, `-DryRun`, `-Yes`, `-LaunchEditor`, `-Count`. The GitHub template it clones is `intel-agency/ai-new-workflow-app-template` (not this repo directly).
+
+Each slug under `plan_docs/` is an application spec keyed by app-name slug (e.g. `gap-miner-v2`, `accp`, `Helix3D`, `advanced-memory-v0`, `job-command-center`); that slug directory's plan/architecture docs are seeded into the new repo's `plan_docs/`.
+
+### nam20485/agent-instructions (workflow definitions)
+
+The canonical, single-source-of-truth repository for dynamic workflows and workflow assignments. The orchestrator fetches these FRESH per assignment at runtime (fetch-then-execute) rather than trusting local copies or cached plans. It defines the dynamic workflows the orchestrator walks — including `project-setup`, `create-epic-v2`, `implement-epic`, and `review-epic-prs` — and the `project-setup` workflow's assignment loop is what the orchestrator runs end-to-end on a freshly created repo. See [Instruction Source](#instruction-source) and [Module Registry](#module-registry) for the loading protocol and full module list.
+
+### How a new project is created
+
+1. `workflow-launch2` runs `create-repo-from-slug.ps1 -Slug <app>` → `create-repo-with-plan-docs.ps1` creates `<app>-<randomSuffix>` from the `ai-new-workflow-app-template` template, seeds `plan_docs/` from the slug directory, replaces template placeholders, commits, and pushes.
+2. The factory then runs `trigger-project-setup.ps1`, which opens a dispatch issue on the new repo (label `orchestration:dispatch`, body `/orchestrate-dynamic-workflow` + `$workflow_name = project-setup`). Separately, the instance's `validate` CI runs on push.
+3. The webhook receiver dispatches the orchestrator, which fetches the `project-setup` workflow + assignments from `agent-instructions` and walks the per-assignment script to completion.
+4. The codename suffixes (e.g. `gap-miner-v2-delta48`, `…-november10`) are each a distinct instance created this way — useful for A/B comparisons such as the glm-4.7-vs-glm-5 delegation experiment.
+
 ## Current Architecture
 
 The system is a **three-tier software factory** built around the Beads DAG ecosystem. Authoritative architecture docs: `plan_docs/agent-loop-refactor/architecture.md` and `plan_docs/agent-loop-refactor/application_plan.md`.
