@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Events — Orchestration Dashboard</title>
+  <style>
+    :root {
+      --bg: #0f1419; --surface: #1a2332; --surface2: #1e293b; --border: #2d3a4d;
+      --text: #e6edf3; --muted: #8b949e; --accent: #388bfd;
+      --ok: #3fb950; --err: #f85149; --warn: #f0c14b;
+      --mono: ui-monospace, "Cascadia Code", "SF Mono", monospace;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: system-ui, -apple-system, sans-serif;
+      background: var(--bg); color: var(--text); line-height: 1.5; }
+    .topbar { background: var(--surface); border-bottom: 1px solid var(--border);
+      padding: 0.6rem 1.5rem; display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; }
+    .topbar h1 { font-size: 1.05rem; margin: 0; }
+    .topbar a.back { font-size: 0.85rem; color: var(--accent); text-decoration: none; white-space: nowrap; }
+    .topbar a.back:hover { text-decoration: underline; }
+    .topbar select { background: var(--surface2); color: var(--text); border: 1px solid var(--border);
+      border-radius: 4px; padding: 0.2rem 0.4rem; font-family: var(--mono); font-size: 0.76rem; max-width: 340px; }
+    .container { max-width: 1200px; margin: 0 auto; padding: 1rem 1.5rem; }
+    .grid { display: grid; grid-template-columns: 1fr 320px; gap: 1rem; }
+    @media (max-width: 880px) { .grid { grid-template-columns: 1fr; } }
+    .panel { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+    .panel > h2 { margin: 0; padding: 0.5rem 0.75rem; font-size: 0.78rem; color: var(--muted);
+      text-transform: uppercase; letter-spacing: 0.04em; border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; gap: 0.5rem; }
+    .stream { max-height: 70vh; overflow-y: auto; font-family: var(--mono); font-size: 0.78rem; }
+    .ev { display: flex; gap: 0.5rem; padding: 0.18rem 0.75rem; border-bottom: 1px solid rgba(45,58,77,0.4); align-items: baseline; }
+    .ev:hover { background: var(--surface2); }
+    .ev .seq { color: var(--muted); min-width: 2.2rem; text-align: right; font-size: 0.7rem; }
+    .ev .badge { display: inline-block; min-width: 5.5rem; text-align: center; padding: 0.05rem 0.3rem;
+      border-radius: 3px; font-size: 0.66rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; }
+    .ev .agent { color: var(--accent); font-size: 0.72rem; }
+    .ev .detail { color: var(--text); word-break: break-word; flex: 1; }
+    .ev.tool .detail, .ev.read .detail, .ev.write .detail, .ev.glob .detail, .ev.webfetch .detail { color: var(--muted); }
+    .b-delegation { background: rgba(56,139,253,0.16); color: var(--accent); }
+    .b-delegation_done { background: rgba(63,185,80,0.16); color: var(--ok); }
+    .b-error, .b-exit { background: rgba(248,81,73,0.16); color: var(--err); }
+    .b-checklist { background: rgba(240,193,75,0.16); color: var(--warn); }
+    .b-model, .b-launch { background: rgba(56,139,253,0.16); color: var(--accent); }
+    .b-tool, .b-read, .b-write, .b-glob, .b-webfetch, .b-watchdog { background: rgba(139,148,158,0.14); color: var(--muted); }
+    .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+    .dot.live { background: var(--ok); box-shadow: 0 0 6px var(--ok); animation: pulse 1.4s infinite; }
+    .dot.idle { background: var(--muted); }
+    @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.35; } }
+    .empty { color: var(--muted); padding: 1.5rem; text-align: center; font-size: 0.85rem; }
+    .meta { font-size: 0.78rem; color: var(--muted); display: flex; gap: 1rem; align-items: center; flex-wrap: wrap; }
+    .meta code { background: var(--surface2); padding: 0.05rem 0.3rem; border-radius: 3px; color: var(--text); }
+    .syslist { max-height: 70vh; overflow-y: auto; }
+    .sysev { padding: 0.35rem 0.75rem; border-bottom: 1px solid rgba(45,58,77,0.4); font-size: 0.76rem; }
+    .sysev .t { color: var(--muted); font-family: var(--mono); font-size: 0.7rem; }
+    .sysev .ty { color: var(--accent); font-family: var(--mono); }
+  </style>
+</head>
+<body>
+  <div class="topbar">
+    <a class="back" href="/dashboard">&larr; Dashboard</a>
+    <h1>Events</h1>
+    <select id="runSel" title="Switch run"></select>
+    <span class="meta" id="runMeta"></span>
+  </div>
+  <div class="container">
+    <div class="grid">
+      <div class="panel">
+        <h2><span class="dot idle" id="liveDot"></span> Live run stream <span id="evCount" style="margin-left:auto;color:var(--muted);font-weight:400;text-transform:none"></span></h2>
+        <div class="stream" id="stream"><div class="empty">Loading…</div></div>
+      </div>
+      <div class="panel">
+        <h2>System events</h2>
+        <div class="syslist" id="syslist"><div class="empty">Loading…</div></div>
+      </div>
+    </div>
+  </div>
+<script>
+const API = '/api/dashboard';
+let curStem = null;
+let lastSeq = null;
+let poll = null;
+
+function esc(s){const d=document.createElement('div');d.textContent=s==null?'':String(s);return d.innerHTML;}
+function fmtTs(t){ if(!t) return ''; const d=new Date(t*1000); return d.toISOString().substr(11,8); }
+function badgeClass(k){ return 'b-' + (k||'tool'); }
+
+function renderStream(events, available){
+  const el = document.getElementById('stream');
+  if(!available && (!events || !events.length)){ el.innerHTML = '<div class="empty">No runs captured yet.</div>'; return; }
+  if(!events.length){ el.innerHTML = '<div class="empty">No tool-stream events parsed from this run yet.</div>'; return; }
+  // Capture scroll state before the DOM swap so the read position survives.
+  const prevTop = el.scrollTop;
+  const prevHeight = el.scrollHeight || 1;
+  const nearBottom = prevHeight - prevTop - el.clientHeight < 80;
+  let html = '';
+  for(const e of events){
+    const agent = e.agent ? `<span class="agent">→ ${esc(e.agent)}</span>` : '';
+    html += `<div class="ev ${esc(e.kind)}"><span class="seq">${e.seq}</span>` +
+      `<span class="badge ${badgeClass(e.kind)}">${esc(e.kind)}</span>${agent}` +
+      `<span class="detail">${esc(e.detail)}</span></div>`;
+  }
+  el.innerHTML = html;
+  if(nearBottom){
+    el.scrollTop = el.scrollHeight;
+  } else {
+    // Preserve the user's position proportionally across the rebuild.
+    el.scrollTop = prevTop * (el.scrollHeight / prevHeight);
+  }
+  document.getElementById('evCount').textContent = events.length + ' events';
+}
+
+function renderMeta(payload){
+  const m = document.getElementById('runMeta');
+  const modelEv = (payload.events||[]).find(e=>e.kind==='model');
+  const newest = (payload.events||[]).reduce((a,e)=>Math.max(a,e.seq),0);
+  // Live only with a prior baseline AND genuine growth since last poll.
+  // lastSeq is null right after a run switch, so the first load of any run
+  // (including a finished historical one) is not falsely shown as live.
+  const isLive = lastSeq !== null && newest > lastSeq;
+  document.getElementById('liveDot').className = 'dot ' + (isLive ? 'live' : 'idle');
+  lastSeq = newest;
+  m.innerHTML = (modelEv?`<span>model: <code>${esc(modelEv.detail)}</code></span>`:'') +
+    `<span>stem: <code>${esc(payload.stem||'—')}</code></span>`;
+}
+
+function renderSys(events){
+  const el = document.getElementById('syslist');
+  if(!events || !events.length){ el.innerHTML = '<div class="empty">No system events yet.</div>'; return; }
+  const sorted = events.slice().sort((a,b)=>(b.ts||0)-(a.ts||0));
+  let html = '';
+  for(const e of sorted){
+    const data = e.data ? ' ' + Object.entries(e.data).map(([k,v])=>`${k}=${JSON.stringify(v)}`).join(' ') : '';
+    html += `<div class="sysev"><span class="t">${esc(fmtTs(e.ts))}</span> <span class="ty">${esc(e.type)}</span>` +
+      `<div style="color:var(--muted);font-family:var(--mono);font-size:0.7rem;word-break:break-word">${esc(data)}</div></div>`;
+  }
+  el.innerHTML = html;
+}
+
+function populateSelector(runs){
+  const sel = document.getElementById('runSel');
+  if(!runs || !runs.length){ sel.innerHTML = '<option>no runs</option>'; return; }
+  const cur = sel.value;
+  sel.innerHTML = runs.map(r=>`<option value="${esc(r)}">${esc(r)}</option>`).join('');
+  if(cur && runs.includes(cur)) sel.value = cur;
+  else if(curStem && runs.includes(curStem)) sel.value = curStem;
+}
+
+async function loadRun(){
+  try {
+    const url = curStem ? `${API}/run-events?stem=${encodeURIComponent(curStem)}` : `${API}/run-events`;
+    const r = await fetch(url);
+    if(!r.ok) throw new Error('status '+r.status);
+    const p = await r.json();
+    populateSelector(p.runs||[]);
+    if(!curStem) curStem = p.stem;
+    renderMeta(p);
+    renderStream(p.events||[], p.available);
+  } catch(e){
+    document.getElementById('stream').innerHTML = '<div class="empty">Failed to load run events.</div>';
+  }
+}
+
+async function loadSys(){
+  try {
+    const r = await fetch(`${API}/events?limit=50`);
+    if(!r.ok) throw new Error('status '+r.status);
+    renderSys(await r.json());
+  } catch(e){ /* leave previous */ }
+}
+
+function tick(){ loadRun(); loadSys(); }
+
+document.getElementById('runSel').addEventListener('change', e=>{
+  curStem = e.target.value || null;
+  lastSeq = null;
+  loadRun();
+});
+
+tick();
+poll = setInterval(tick, 5000);
+</script>
+</body>
+</html>

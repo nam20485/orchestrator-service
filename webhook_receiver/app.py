@@ -185,10 +185,15 @@ def _dispatch_context_from_payload(
     number = issue.get("number")
     if not repo_full or not isinstance(number, int):
         return None
+    # The label that triggered this dispatch (``issues.labeled``). Used by the
+    # completion watcher to gate the close-on-success incomplete check to the
+    # ``orchestration:dispatch`` clause only (other labels don't close the issue).
+    trigger_label = str((payload.get("label") or {}).get("name") or "").strip() or None
     return DispatchContext(
         repo_full_name=repo_full,
         issue_number=number,
         html_url=issue.get("html_url"),
+        trigger_label=trigger_label,
     )
 
 
@@ -359,7 +364,12 @@ def create_app(
         )
     )
     app.include_router(
-        create_dashboard_router(store, beads_loop, dashboard_token=cfg.dashboard_token)
+        create_dashboard_router(
+            store,
+            beads_loop,
+            dashboard_token=cfg.dashboard_token,
+            log_dir=cfg.log_dir,
+        )
     )
     app.include_router(create_dashboard_page_router(dashboard_token=cfg.dashboard_token))
     app.include_router(

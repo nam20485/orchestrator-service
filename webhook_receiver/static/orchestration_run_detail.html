@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Run Detail — Orchestration Dashboard</title>
+  <style>
+    :root {
+      --bg: #0f1419; --surface: #1a2332; --surface2: #1e293b; --border: #2d3a4d;
+      --text: #e6edf3; --muted: #8b949e; --accent: #388bfd;
+      --ok: #3fb950; --err: #f85149; --warn: #f0c14b;
+      --mono: ui-monospace, "Cascadia Code", "SF Mono", monospace;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: system-ui, -apple-system, sans-serif;
+      background: var(--bg); color: var(--text); line-height: 1.5; }
+    .topbar { background: var(--surface); border-bottom: 1px solid var(--border);
+      padding: 0.75rem 1.5rem; display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; }
+    .topbar h1 { font-size: 1.1rem; margin: 0; }
+    .topbar a.back { font-size: 0.85rem; color: var(--accent); text-decoration: none; white-space: nowrap; }
+    .topbar a.back:hover { text-decoration: underline; }
+    .container { max-width: 1200px; margin: 0 auto; padding: 1.5rem; }
+    .head-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+      padding: 1rem 1.25rem; margin-bottom: 1.25rem; }
+    .kv { font-size: 0.8rem; color: var(--muted); display: flex; gap: 1.25rem; flex-wrap: wrap; }
+    .kv b { color: var(--text); font-weight: 600; }
+    .kv .mono, .mono { font-family: var(--mono); }
+    .badge { display: inline-block; padding: 0.1rem 0.5rem; border-radius: 4px; font-size: 0.7rem;
+      font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; }
+    .badge.completed { background: rgba(63,185,80,0.15); color: var(--ok); }
+    .badge.failed { background: rgba(248,81,73,0.15); color: var(--err); }
+    .badge.zero_work { background: rgba(240,193,75,0.15); color: var(--warn); }
+    .badge.incomplete { background: rgba(240,193,75,0.15); color: var(--warn); }
+    .badge.running { background: rgba(56,139,253,0.15); color: var(--accent); }
+    .log-tabs { display: flex; gap: 0; }
+    .log-tab { padding: 0.35rem 0.9rem; background: var(--surface); border: 1px solid var(--border);
+      border-bottom: none; border-radius: 4px 4px 0 0; cursor: pointer; font-size: 0.8rem; color: var(--muted); }
+    .log-tab.active { color: var(--text); border-color: var(--accent); }
+    .log-box { background: #0d1117; border: 1px solid var(--border); border-radius: 0 4px 4px 4px;
+      padding: 0.75rem; font-family: var(--mono); font-size: 0.78rem;
+      height: calc(100vh - 340px); min-height: 240px; overflow-y: auto;
+      white-space: pre-wrap; word-break: break-all; color: #adbac7; }
+    .log-box.empty { color: var(--muted); }
+    .controls { display: flex; align-items: center; gap: 0.75rem; margin-top: 0.6rem; font-size: 0.8rem; color: var(--muted); }
+    button { background: var(--accent); color: #fff; border: none; border-radius: 4px;
+      padding: 0.3rem 0.75rem; font-size: 0.8rem; cursor: pointer; }
+    button:hover { filter: brightness(1.1); }
+    button.secondary { background: var(--surface2); border: 1px solid var(--border); }
+  </style>
+</head>
+<body>
+  <div class="topbar">
+    <a class="back" href="/dashboard/runs">&larr; Back to runs</a>
+    <h1 id="pageTitle">Run</h1>
+  </div>
+  <div class="container">
+    <div class="head-card">
+      <div class="kv" id="kv">Loading…</div>
+    </div>
+    <div class="log-tabs">
+      <div class="log-tab active" id="tabStderr" data-log-tab="stderr">stderr</div>
+      <div class="log-tab" id="tabStdout" data-log-tab="stdout">stdout</div>
+      <div class="log-tab" id="tabPrompt" data-log-tab="prompt">prompt</div>
+    </div>
+    <div class="log-box empty" id="logBox">Loading logs…</div>
+    <div class="controls">
+      <button class="secondary" id="refreshBtn">Refresh now</button>
+      <span id="lastRefresh"></span>
+    </div>
+  </div>
+<script>
+const API = '/api/dashboard';
+const STEM = decodeURIComponent((window.location.pathname.split('/dashboard/runs/')[1] || '').replace(/\/+$/,''));
+let currentTab = 'stderr';
+let cache = {prompt:'',stdout:'',stderr:''};
+
+function esc(s){const d=document.createElement('div');d.textContent=s==null?'':String(s);return d.innerHTML;}
+
+async function loadManifest(){
+  try {
+    const r = await fetch(`${API}/runs`);
+    const runs = r.ok ? await r.json() : [];
+    const d = runs.find(x => x.stem === STEM) || {};
+    const kv = document.getElementById('kv');
+    const parts = [];
+    parts.push(`<span>repo: <b class="mono">${esc(d.repo_full_name || '—')}</b></span>`);
+    parts.push(`<span>issue: <b class="mono">${esc(d.issue_number != null ? '#'+d.issue_number : '—')}</b></span>`);
+    parts.push(`<span>workflow: <b class="mono">${esc(d.workflow || '—')}</b></span>`);
+    parts.push(`<span>status: ${d.classification ? `<span class="badge ${esc(d.classification)}">${esc(d.classification)}</span>` : '<span class="badge running">running</span>'}</span>`);
+    if (d.exit_code != null) parts.push(`<span>exit: <b class="mono">${esc(d.exit_code)}</b></span>`);
+    if (d.started_at) parts.push(`<span>started: <b class="mono">${esc(d.started_at)}</b></span>`);
+    if (d.ended_at) parts.push(`<span>ended: <b class="mono">${esc(d.ended_at)}</b></span>`);
+    if (d.tools && d.tools.length) parts.push(`<span>tools: <b class="mono">${esc(d.tools.join(', '))}</b></span>`);
+    kv.innerHTML = parts.join('');
+    document.title = `Run ${d.workflow || STEM} — Orchestration Dashboard`;
+  } catch (e){
+    document.getElementById('kv').textContent = 'Failed to load manifest.';
+  }
+}
+
+async function loadLog(){
+  const box = document.getElementById('logBox');
+  try {
+    const r = await fetch(`${API}/runs/${encodeURIComponent(STEM)}/logs?tail=1000`);
+    if (!r.ok) throw new Error('status ' + r.status);
+    cache = await r.json();
+    render();
+    document.getElementById('lastRefresh').textContent = 'updated ' + new Date().toLocaleTimeString();
+  } catch (e){
+    box.textContent = 'Failed to load logs.';
+    box.className = 'log-box empty';
+  }
+}
+
+function render(){
+  const box = document.getElementById('logBox');
+  const content = cache[currentTab] || '';
+  box.textContent = content || '(empty)';
+  box.className = 'log-box' + (content ? '' : ' empty');
+}
+
+function switchTab(tab){
+  currentTab = tab;
+  ['Stderr','Stdout','Prompt'].forEach(t => {
+    document.getElementById('tab'+t).classList.toggle('active', tab === t.toLowerCase());
+  });
+  render();
+}
+document.getElementById('tabStderr').addEventListener('click', () => switchTab('stderr'));
+document.getElementById('tabStdout').addEventListener('click', () => switchTab('stdout'));
+document.getElementById('tabPrompt').addEventListener('click', () => switchTab('prompt'));
+document.getElementById('refreshBtn').addEventListener('click', () => { loadManifest(); loadLog(); });
+
+loadManifest();
+loadLog();
+</script>
+</body>
+</html>

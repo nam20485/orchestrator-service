@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Orchestration Runs — Orchestration Dashboard</title>
+  <style>
+    :root {
+      --bg: #0f1419; --surface: #1a2332; --surface2: #1e293b; --border: #2d3a4d;
+      --text: #e6edf3; --muted: #8b949e; --accent: #388bfd;
+      --ok: #3fb950; --err: #f85149; --warn: #f0c14b;
+      --mono: ui-monospace, "Cascadia Code", "SF Mono", monospace;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: system-ui, -apple-system, sans-serif;
+      background: var(--bg); color: var(--text); line-height: 1.5; }
+    .topbar { background: var(--surface); border-bottom: 1px solid var(--border);
+      padding: 0.75rem 1.5rem; display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; }
+    .topbar h1 { font-size: 1.1rem; margin: 0; }
+    .topbar a.back { font-size: 0.85rem; color: var(--accent); text-decoration: none; white-space: nowrap; }
+    .topbar a.back:hover { text-decoration: underline; }
+    .container { max-width: 1200px; margin: 0 auto; padding: 1.5rem; }
+    .note { color: var(--muted); font-size: 0.85rem; margin-bottom: 1rem; }
+    table { width: 100%; border-collapse: collapse; background: var(--surface);
+      border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+    th, td { padding: 0.5rem 0.75rem; text-align: left; border-bottom: 1px solid var(--border);
+      font-size: 0.82rem; vertical-align: top; }
+    th { color: var(--muted); font-weight: 600; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.03em; }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: var(--surface2); }
+    td.mono { font-family: var(--mono); font-size: 0.78rem; }
+    a.stem { color: var(--accent); text-decoration: none; font-family: var(--mono); font-size: 0.76rem; }
+    a.stem:hover { text-decoration: underline; }
+    .badge { display: inline-block; padding: 0.1rem 0.5rem; border-radius: 4px; font-size: 0.7rem;
+      font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; }
+    .badge.completed { background: rgba(63,185,80,0.15); color: var(--ok); }
+    .badge.failed { background: rgba(248,81,73,0.15); color: var(--err); }
+    .badge.zero_work { background: rgba(240,193,75,0.15); color: var(--warn); }
+    .badge.incomplete { background: rgba(240,193,75,0.15); color: var(--warn); }
+    .badge.running { background: rgba(56,139,253,0.15); color: var(--accent); }
+    .empty { color: var(--muted); padding: 2rem; text-align: center; }
+  </style>
+</head>
+<body>
+  <div class="topbar">
+    <a class="back" href="/dashboard">&larr; Back to dashboard</a>
+    <h1>Orchestration Runs</h1>
+  </div>
+  <div class="container">
+    <p class="note">Webhook-dispatched orchestrator runs captured by <code>runner.py</code>. Click a run for its prompt / stdout / stderr.</p>
+    <div id="tableWrap"></div>
+  </div>
+<script>
+const API = '/api/dashboard';
+function esc(s){const d=document.createElement('div');d.textContent=s==null?'':String(s);return d.innerHTML;}
+function clsBadge(c){return c ? `<span class="badge ${esc(c)}">${esc(c)}</span>` : '<span class="badge running">running</span>';}
+async function load(){
+  const wrap = document.getElementById('tableWrap');
+  try {
+    const r = await fetch(`${API}/runs`);
+    if (!r.ok) throw new Error('status ' + r.status);
+    const runs = await r.json();
+    if (!runs.length){ wrap.innerHTML = '<div class="empty">No runs captured yet.</div>'; return; }
+    let rows = '';
+    for (const d of runs){
+      const repo = d.repo_full_name || '—';
+      const issue = d.issue_number != null ? '#' + d.issue_number : '—';
+      const wf = d.workflow || '—';
+      const started = (d.started_at || '').replace('T',' ').replace(/Z$/,'');
+      const ended = (d.ended_at || '').replace('T',' ').replace(/Z$/,'');
+      const exitc = d.exit_code != null ? esc(d.exit_code) : '—';
+      rows += `<tr>
+        <td><a class="stem" href="/dashboard/runs/${encodeURIComponent(d.stem)}">${esc(d.stem)}</a></td>
+        <td class="mono">${esc(repo)}</td>
+        <td class="mono">${esc(issue)}</td>
+        <td class="mono">${esc(wf)}</td>
+        <td>${clsBadge(d.classification)}</td>
+        <td class="mono">${esc(exitc)}</td>
+        <td class="mono">${esc(started)}</td>
+        <td class="mono">${esc(ended)}</td>
+      </tr>`;
+    }
+    wrap.innerHTML = `<table><thead><tr>
+      <th>Run</th><th>Repo</th><th>Issue</th><th>Workflow</th><th>Status</th><th>Exit</th><th>Started (UTC)</th><th>Ended (UTC)</th>
+    </tr></thead><tbody>${rows}</tbody></table>`;
+  } catch (e){
+    wrap.innerHTML = '<div class="empty">Failed to load runs.</div>';
+  }
+}
+load();
+</script>
+</body>
+</html>
