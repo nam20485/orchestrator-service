@@ -257,6 +257,30 @@ case (type = issues &&
         }
 
 case (type = issues &&
+        action = labeled &&
+        labels contains: "orchestration:fr-submitted" &&
+        labels contains: "feature-request")
+        {
+          ## Feature Request submitted — begin feature request creation loop.
+          ## Label-driven: matches on `orchestration:fr-submitted` regardless of title format.
+          ## Human or delegating agent applies this label when the plan is reviewed and ready.
+
+          - postStatusUpdate("🤖 Orchestrator matched `orchestration:fr-submitted` clause. Scanning plan for next unimplemented line item...")
+          - $next = find_next_unimplemented_fr_phase()
+          - if $next is null:
+            - postStatusUpdate("✅ All line items are already complete. Nothing to do.")
+            - skip to ##Final.
+          - postStatusUpdate("🤖 Found next line item: Phase " + $next.phase + ", Line Item " + $next.line_item + ". Creating epic via `create-epic-v2`...")
+          - /orchestrate-dynamic-workflow
+              $workflow_name = create-epic-v2 { $phase = $next.phase, $line_item = $next.line_item }
+
+          - if create-epic-v2 succeeds:
+            - postStatusUpdate("✅ Epic created for Phase " + $next.phase + " Line Item " + $next.line_item + ". Applying `orchestration:fr-ready` label.")
+            - apply label "orchestration:fr-ready" to the newly-created epic issue.
+          - else → postStatusUpdate("❌ `create-epic-v2` failed for Phase " + $next.phase + " Line Item " + $next.line_item + ". See workflow run logs."), skip to ##Final.
+        }
+
+case (type = issues &&
        action = labeled &&
        labels contains: "orchestration:dispatch")
        {
