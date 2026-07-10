@@ -6,23 +6,24 @@ Analyzed `traces/gap-miner-v2-lima63-log.txt` (1832 lines) for lines that carry 
 
 | # | Noise category | Lines | % of log | Filter (regex) | checkbox | feedback |
 |---|----------------|------:|---------:|-----------------|:---|:---|
-| 1 | Permission-always-allowed evaluations | 407 | 22% | `evaluated permission=.*action\.action=allow` |
-| 2 | `tracking hash=` (unchanged workspace) | 263 | 14% | `message=tracking hash=` |
-| 3 | `message=loop … step=N` counters | 141 | 8% | `message=loop .*step=` |
-| 4 | `message=stream … modelID=` | 134 | 7% | `message=stream .*modelID=` |
-| 5 | `"llm runtime selected"` (dup of #4) | 134 | 7% | `"llm runtime selected"` |
-| 6 | `message=process … messageID=` | 133 | 7% | `message=process .*messageID=` |
+| 1 | Permission-always-allowed evaluations | 407 | 22% | `evaluated permission=.*action\.action=allow` | X|remove|
+| 2 | `tracking hash=` (unchanged workspace) | 263 | 14% | `message=tracking hash=`| X|remove|
+| 3 | `message=loop … step=N` counters | 141 | 8% | `message=loop .*step=` | X|remove|
+| 4 | `message=stream … modelID=` | 134 | 7% | `message=stream .*modelID=` | X|remove|
+| 5 | `"llm runtime selected"` (dup of #4) | 134 | 7% | `"llm runtime selected"` | X|remove|
+| 6 | `message=process … messageID=` | 133 | 7% | `message=process .*messageID=` | X|remove|
 
 Lower-volume, equally empty:
+|
 
-| # | Noise category | Lines | Filter (regex) |
-|---|----------------|------:|-----------------|
-| 7 | `touching file` internal tracking | 30 | `"touching file"` |
+| # | Noise category | Lines | Filter (regex) | checkbox | feedback |
+|---|----------------|------:|-----------------|:---|:---|
+| 7 | `touching file` internal tracking | 30 | `"touching file"` | X|remove|
 | 8 | Uvicorn access `POST /webhooks/github … 202` (dup of app log) | 26 | `POST /webhooks/github HTTP/1.1" 202` |
 | 9 | `Filtered delivery_id` (non-dispatched webhook events) | 25 | `Filtered delivery_id` |
-| 10 | Blank lines | 20 | `^$` |
-| 11 | `message=loading path=` (config probe, mostly not-found) | 11 | `message=loading path=` |
-| 12 | `created id=ses … permission="[…]"` (huge perm-JSON blob) | 11 | `created id=ses` |
+| 10 | Blank lines | 20 | `^$` |X|remove|
+| 11 | `message=loading path=` (config probe, mostly not-found) | 11 | `message=loading path=` |X|remove|
+| 12 | `created id=ses … permission="[…]"` (huge perm-JSON blob) | 11 | `created id=ses` |X|remove|
 | 13 | `resolved path` (cwd echo) | 18 | `"resolved path"` |
 | 14 | `formatting file` (post-edit formatter) | 6 | `message=formatting` |
 
