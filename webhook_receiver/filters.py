@@ -4,8 +4,24 @@ import os
 import re
 
 _DEFAULT_BLACKLIST: list[str] = [
+    # OpenCode bus message-part churn (high-frequency, zero signal).
     r"service=bus\s+type=message\.part\.delta",
     r"service=bus\s+type=message\.part\.updated",
+    # Per-run boilerplate emitted identically on every tool call / loop step /
+    # config probe. ~73% of a run log is pure repetition from these patterns.
+    # See traces/gap-miner-v2-lima63-log-noise-analysis.md (only the "X/remove"
+    # categories are listed here; high-signal lines such as "exiting loop" and
+    # all ERROR/WARN levels are intentionally kept).
+    r"evaluated permission=.*action\.action=allow",  # 1: permission-always-allowed
+    r"message=tracking hash=",  # 2: unchanged-workspace hash echo
+    r"message=loop .*step=",  # 3: bare loop counter (does NOT match "exiting loop")
+    r"message=stream .*modelID=",  # 4: per-call provider/model restatement
+    r'"llm runtime selected"',  # 5: duplicate of #4 (runtime is always ai-sdk)
+    r"message=process .*messageID=",  # 6: opaque per-message ID churn
+    r'"touching file"',  # 7: internal file-access bookkeeping
+    r"^$",  # 10: interleaved blank lines
+    r"message=loading path=",  # 11: config-file probe (mostly not-found)
+    r"created id=ses",  # 12: session-creation with giant perm JSON blob
 ]
 
 

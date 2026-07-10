@@ -13,7 +13,46 @@ def test_should_filter_matches_default_blacklist() -> None:
 def test_should_filter_passes_normal_lines() -> None:
     assert not filters.should_filter("normal log line")
     assert not filters.should_filter("INFO server started")
-    assert not filters.should_filter("")
+    # High-signal run-narrative lines must survive filtering.
+    assert not filters.should_filter(
+        'message="exiting loop" session.id=ses_0d7beca54ffe3ACvvcZv31Yc0u'
+    )
+    assert not filters.should_filter(
+        "Webhook received delivery_id=81f44120 event=issues action=labeled"
+    )
+
+
+# ── run-log boilerplate (traces/gap-miner-v2-lima63-log-noise-analysis.md) ──
+# Each "X/remove" noise category must be filtered from the container logger.
+
+
+def test_should_filter_matches_log_noise_categories() -> None:
+    samples = [
+        # 1: permission-always-allowed evaluations
+        'message="evaluated permission=memory-graph_search_nodes pattern=* '
+        'action.permission=* action.action=allow action.pattern=*',
+        # 2: tracking hash echo (unchanged workspace)
+        "message=tracking hash=d28910629f2af8ddd331b44acabe41cab0717105 cwd=/workspace",
+        # 3: bare loop counter (must NOT swallow "exiting loop")
+        "message=loop session.id=ses_0d7beca54ffe3ACvvcZv31Yc0u step=0",
+        # 4: per-call provider/model restatement
+        "message=stream providerID=zai-coding-plan modelID=glm-4.7 session.id=ses_",
+        # 5: duplicate of #4 (runtime always ai-sdk)
+        '"llm runtime selected" llm.runtime=ai-sdk llm.provider=zai-coding-plan',
+        # 6: opaque per-message ID churn
+        "message=process session.id=ses_0d7beca54ffe3ACvvcZv31Yc0u "
+        "messageID=msg_f28413ad7001NBaD5L8uMDuvIe",
+        # 7: internal file-access bookkeeping
+        'message="touching file" file=/workspace/nam20485-gap-miner-v2-lima63/AGENTS.md',
+        # 10: interleaved blank line (runner emits "\n"; EOF sentinel is "")
+        "\n",
+        # 11: config-file probe (mostly not-found)
+        "message=loading path=/home/app/.config/opencode/config.json",
+        # 12: session-creation with giant permission JSON blob
+        'message=created id=ses_0d7beca54ffe3ACvvcZv31Yc0u title="New session - ..."',
+    ]
+    for line in samples:
+        assert filters.should_filter(line), repr(line)
 
 
 def test_load_patterns_from_env(monkeypatch) -> None:
