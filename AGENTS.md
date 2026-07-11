@@ -308,3 +308,13 @@ The **remote** Exa MCP server authenticates via `exaApiKey={env:EXA_API_KEY}` an
 - **`crawling_exa`** — Crawl multiple pages of a site; collect a doc subsite in one call.
 
 Prefer Z.AI `webSearchPrime`/`webReader` as the default for single-shot lookups; reach for Exa when its neural search, code-context, or crawling fits better.
+
+## Cursor Cloud specific instructions
+
+The runnable dev application in this environment is the **Python FastAPI `webhook-receiver`** (the OpenCode server + Beads loop need external provider API keys and a Rust-nightly `br`/`bvr` build, so they are out of scope for local run/lint/test). The startup update script runs `uv sync --group dev`; `uv`, `pwsh`, and Pester 5.7.1 persist in the VM snapshot.
+
+- **Run the receiver (dev):** `OS_WEBHOOK_SECRET=<any> uv run orchestrator-webhook` (defaults to `0.0.0.0:8080`; `orchestrator-webhook` == `python -m webhook_receiver`). `OS_WEBHOOK_SECRET` is **required** or startup raises. Health: `curl localhost:8080/health`.
+- **Dashboard/simulator gotcha:** `/dashboard` returns **404** unless `DASHBOARD_TOKEN` is set, and `/simulator` returns 404 unless `WEBHOOK_ENABLE_SIMULATOR=1`. Once set, pass the token via `?token=<DASHBOARD_TOKEN>` (or `Authorization: Bearer`). Webhook POSTs to `/webhooks/github` require a valid `X-Hub-Signature-256` HMAC-SHA256 of the body keyed by `OS_WEBHOOK_SECRET`.
+- **Beads loop:** set `BEADS_ENABLED=false` to run the receiver without the `br` binary installed; otherwise `BeadsLoop` just logs `NOT_INITIALIZED` and idles (a normal state, not an error).
+- **Validation:** `pwsh -NoProfile -File ./scripts/validate.ps1 -All` runs lint + scan + test (see the Validation section above). Pester **must be 5.x** — `test/run-pester-tests.ps1` uses `Invoke-Pester -Script`, which Pester 6 removed; installing Pester 6 breaks the `pester` step.
+- **Docker is not installed here**, so the compose/caddyfile/docker-user validation steps and the CI `build` job are skipped locally (build is CI-only, as documented above) — this is expected, not a failure.
