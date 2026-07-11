@@ -56,6 +56,7 @@
   },
   "permission": {
     "external_directory": {
+      "*": "deny",
       "/tmp/*": "allow"
     },
     "mcp_tool": {
