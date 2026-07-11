@@ -12,7 +12,7 @@ from fastapi.testclient import TestClient
 from webhook_receiver.app import create_app
 from webhook_receiver.beads_loop import BeadsLoop
 from webhook_receiver.config import Settings
-from webhook_receiver.dashboard import _parse_beads
+from webhook_receiver.dashboard import _parse_beads, _read_run_logs, _run_events_for
 from webhook_receiver.event_store import EventStore
 
 
@@ -1194,6 +1194,50 @@ def test_run_events_endpoint_default_newest_and_stem_filter(tmp_path: Path) -> N
 
     # unsafe stem rejected
     assert client.get("/api/dashboard/run-events?stem=bad.stem").status_code == 400
+
+
+def test_run_events_cache_bounded_across_growing_file(tmp_path: Path) -> None:
+    """A growing transcript must replace (not accumulate) cache entries."""
+    from webhook_receiver import dashboard
+
+    log_dir = tmp_path / "orchestrator-webhook"
+    log_dir.mkdir()
+    stem = "prompt-grow"
+    glyph = "\x1b[0m\u2022 \x1b[0m"
+    path = log_dir / f"{stem}.stderr"
+
+    original_ttl = dashboard._CACHE_TTL
+    dashboard._CACHE_TTL = 0.0  # force a cache miss (re-parse) on every poll
+    try:
+        for i in range(3):
+            path.write_text(f"{glyph}Step {i}\x1b[90m Developer Agent\x1b[0m\n")
+            os.utime(path, (time.time(), time.time()))
+            result = _run_events_for(log_dir, stem)
+            assert result["available"] is True
+    finally:
+        dashboard._CACHE_TTL = original_ttl
+
+    run_keys = [k for k in dashboard._CACHE if k.startswith("run_events:")]
+    assert len(run_keys) == 1
+    assert run_keys[0] == f"run_events:{stem}"
+
+
+def test_read_run_logs_available_reflects_content(tmp_path: Path) -> None:
+    """available must be False when no log files exist (mirrors bead_logs)."""
+    log_dir = tmp_path / "orchestrator-webhook"
+    log_dir.mkdir()
+    stem = "prompt-x"
+
+    # No files at all → not available.
+    result = _read_run_logs(log_dir, stem, tail=50)
+    assert result["available"] is False
+    assert result["stdout"] == "" and result["stderr"] == ""
+
+    # With content → available.
+    (log_dir / f"{stem}.stderr").write_text("some output\n")
+    result = _read_run_logs(log_dir, stem, tail=50)
+    assert result["available"] is True
+    assert result["stderr"] == "some output"
 
 
 def test_events_page_serves_html(tmp_path: Path) -> None:

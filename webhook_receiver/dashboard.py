@@ -712,12 +712,17 @@ def _read_run_logs(log_dir: Path, stem: str, tail: int) -> dict[str, Any]:
             return ""
         return _tail_lines(path, tail)
 
+    prompt = _tail(f"{stem}.md")
+    stdout = _tail(f"{stem}.stdout")
+    stderr = _tail(f"{stem}.stderr")
     return {
         "stem": stem,
-        "prompt": _tail(f"{stem}.md"),
-        "stdout": _tail(f"{stem}.stdout"),
-        "stderr": _tail(f"{stem}.stderr"),
-        "available": True,
+        "prompt": prompt,
+        "stdout": stdout,
+        "stderr": stderr,
+        # Mirror bead_logs: report availability from actual content rather than
+        # hardcoding True, so a missing run is distinguishable from an empty one.
+        "available": bool(prompt or stdout or stderr),
     }
 
 
@@ -766,10 +771,13 @@ def _run_events_for(log_dir: Path, stem: str | None) -> dict[str, Any]:
     """Blocking worker for the ``/run-events`` endpoint.
 
     Discovers runs (cached), validates the stem, and parses the target run's
-    ``.stderr``. The parse result is cached keyed by ``(stem, mtime, size)`` so
-    the dashboard's 5s poll does not re-read/re-parse a growing multi-MB
-    transcript on every tick.
+    ``.stderr``. The parse result is cached keyed by ``stem`` only so a
+    re-parse of a growing multi-MB transcript replaces the prior entry instead
+    of accumulating unbounded keys; the 5s TTL bounds staleness between polls.
     """
+    def _parse_stderr(path: Path) -> list[dict[str, Any]]:
+        return parse_events(path.read_text(encoding="utf-8", errors="replace"))
+
     runs = _cached("discover_runs", _discover_runs, log_dir)
     target = stem if stem else (runs[0] if runs else None)
     events: list[dict[str, Any]] = []
@@ -777,17 +785,10 @@ def _run_events_for(log_dir: Path, stem: str | None) -> dict[str, Any]:
     if target:
         stderr_path = log_dir / f"{target}.stderr"
         if stderr_path.is_file():
-            st = stderr_path.stat()
-            key = f"run_events:{target}:{st.st_mtime_ns}:{st.st_size}"
-            now = time.time()
-            cached = _CACHE.get(key)
-            if cached and now - cached[0] < _CACHE_TTL:
-                events = cached[1]
-            else:
-                events = parse_events(
-                    stderr_path.read_text(encoding="utf-8", errors="replace")
-                )
-                _CACHE[key] = (now, events)
+            # Keyed by stem only (not mtime/size) so a re-parse of a growing
+            # transcript replaces the prior entry instead of accumulating
+            # unbounded keys; the 5s TTL already bounds staleness between polls.
+            events = _cached(f"run_events:{target}", _parse_stderr, stderr_path)
             available = True
     return {"stem": target, "runs": runs, "events": events, "available": available}
 
