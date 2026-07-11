@@ -43,6 +43,11 @@ services:
       - BEADS_POLL_INTERVAL=${BEADS_POLL_INTERVAL:-10}
       - BEADS_MAX_RETRIES=${BEADS_MAX_RETRIES:-3}
       - BEADS_WORKSPACE_ROOT=${BEADS_WORKSPACE_ROOT:-/workspace}
+      # Kill a dispatched run (one opencode invocation) that exceeds this many
+      # seconds and post a failure comment. Prevents a hung permission prompt or
+      # stuck tool from stalling the pipeline indefinitely (e.g. a subagent
+      # deadlocked on an unanswerable external_directory ask). 2700s = 45 min.
+      - DISPATCH_TIMEOUT_SECS=${DISPATCH_TIMEOUT_SECS:-2700}
       - DASHBOARD_TOKEN=${DASHBOARD_TOKEN:-}
     depends_on:
       - orchestratorservice
