@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import os
+import time
 from pathlib import Path
 from unittest.mock import patch
 
@@ -10,7 +12,7 @@ from fastapi.testclient import TestClient
 from webhook_receiver.app import create_app
 from webhook_receiver.beads_loop import BeadsLoop
 from webhook_receiver.config import Settings
-from webhook_receiver.dashboard import _parse_beads
+from webhook_receiver.dashboard import _parse_beads, _read_run_logs, _run_events_for
 from webhook_receiver.event_store import EventStore
 
 
@@ -344,11 +346,12 @@ def test_events_limit() -> None:
 
 def test_bead_logs_not_found(tmp_path: Path) -> None:
     store = EventStore()
-    app = create_app(_test_settings(), event_store=store)
+    app = create_app(
+        _test_settings(log_dir=tmp_path / "orchestrator-webhook"), event_store=store
+    )
     client = _client(app)
 
-    with patch("webhook_receiver.dashboard.tempfile.gettempdir", return_value=str(tmp_path)):
-        resp = client.get("/api/dashboard/beads/br-nonexist/logs")
+    resp = client.get("/api/dashboard/beads/br-nonexist/logs")
 
     assert resp.status_code == 200
     data = resp.json()
@@ -364,11 +367,10 @@ def test_bead_logs_found(tmp_path: Path) -> None:
     (log_dir / "bead-br-1-abc.stderr").write_text("error1\n")
 
     store = EventStore()
-    app = create_app(_test_settings(), event_store=store)
+    app = create_app(_test_settings(log_dir=log_dir), event_store=store)
     client = _client(app)
 
-    with patch("webhook_receiver.dashboard.tempfile.gettempdir", return_value=str(tmp_path)):
-        resp = client.get("/api/dashboard/beads/br-1/logs")
+    resp = client.get("/api/dashboard/beads/br-1/logs")
 
     data = resp.json()
     assert data["available"] is True
@@ -388,13 +390,14 @@ def test_bead_logs_rejects_glob_chars() -> None:
 
 def test_bead_logs_accepts_valid_ids(tmp_path: Path) -> None:
     store = EventStore()
-    app = create_app(_test_settings(), event_store=store)
+    app = create_app(
+        _test_settings(log_dir=tmp_path / "orchestrator-webhook"), event_store=store
+    )
     client = _client(app)
 
-    with patch("webhook_receiver.dashboard.tempfile.gettempdir", return_value=str(tmp_path)):
-        for valid_id in ["br-1", "workspace-abc", "br_my_bead", "task-123"]:
-            resp = client.get(f"/api/dashboard/beads/{valid_id}/logs")
-            assert resp.status_code == 200, f"Expected 200 for {valid_id!r}"
+    for valid_id in ["br-1", "workspace-abc", "br_my_bead", "task-123"]:
+        resp = client.get(f"/api/dashboard/beads/{valid_id}/logs")
+        assert resp.status_code == 200, f"Expected 200 for {valid_id!r}"
 
 
 def test_bead_logs_clamps_tail_zero(tmp_path: Path) -> None:
@@ -403,11 +406,10 @@ def test_bead_logs_clamps_tail_zero(tmp_path: Path) -> None:
     (log_dir / "bead-br-1-abc.stdout").write_text("line1\nline2\nline3\n")
 
     store = EventStore()
-    app = create_app(_test_settings(), event_store=store)
+    app = create_app(_test_settings(log_dir=log_dir), event_store=store)
     client = _client(app)
 
-    with patch("webhook_receiver.dashboard.tempfile.gettempdir", return_value=str(tmp_path)):
-        resp = client.get("/api/dashboard/beads/br-1/logs?tail=0")
+    resp = client.get("/api/dashboard/beads/br-1/logs?tail=0")
 
     data = resp.json()
     assert data["available"] is True
@@ -422,12 +424,11 @@ def test_bead_logs_clamps_tail_upper_bound(tmp_path: Path) -> None:
     (log_dir / "bead-br-1-abc.stdout").write_text(content + "\n")
 
     store = EventStore()
-    app = create_app(_test_settings(), event_store=store)
+    app = create_app(_test_settings(log_dir=log_dir), event_store=store)
     client = _client(app)
 
-    with patch("webhook_receiver.dashboard.tempfile.gettempdir", return_value=str(tmp_path)):
-        # An absurd tail value is clamped to 2000; all 10 lines still fit.
-        resp = client.get("/api/dashboard/beads/br-1/logs?tail=999999")
+    # An absurd tail value is clamped to 2000; all 10 lines still fit.
+    resp = client.get("/api/dashboard/beads/br-1/logs?tail=999999")
 
     data = resp.json()
     assert resp.status_code == 200
@@ -1059,3 +1060,209 @@ def test_dashboard_html_has_view_selector() -> None:
     assert 'value="pages"' in resp.text
     # Persisted client-side via the localStorage key used by applyView().
     assert "dashboard.viewType" in resp.text
+
+
+# ── Orchestration runs (webhook dispatches) ────────────────────────────────
+
+from webhook_receiver.dashboard import (  # noqa: E402
+    _load_run_manifests,
+    _valid_run_stem,
+)
+
+
+def test_valid_run_stem_allows_slug_chars() -> None:
+    assert _valid_run_stem("prompt-owner__repo__issue-7__project-setup__ts-abc")
+    assert _valid_run_stem("br-1")
+    assert not _valid_run_stem("")
+    assert not _valid_run_stem("a.b")        # dot not produced by runner
+    assert not _valid_run_stem("a/b")        # path separator
+    assert not _valid_run_stem("..")
+    assert not _valid_run_stem(None)
+
+
+def test_load_run_manifests_sorts_newest_first(tmp_path: Path) -> None:
+    log_dir = tmp_path / "orchestrator-webhook"
+    log_dir.mkdir()
+    for stem, started in [
+        ("older", "2026-07-04T10:00:00Z"),
+        ("newer", "2026-07-04T20:00:00Z"),
+    ]:
+        (log_dir / f"{stem}.manifest.json").write_text(
+            json.dumps({"stem": stem, "started_at": started, "workflow": "project-setup"})
+        )
+    runs = _load_run_manifests(log_dir)
+    assert [r["stem"] for r in runs] == ["newer", "older"]
+
+
+def test_load_run_manifests_missing_dir_is_empty(tmp_path: Path) -> None:
+    assert _load_run_manifests(tmp_path / "nope") == []
+
+
+def test_runs_list_endpoint(tmp_path: Path) -> None:
+    log_dir = tmp_path / "orchestrator-webhook"
+    log_dir.mkdir()
+    (log_dir / "r1.manifest.json").write_text(
+        json.dumps({"stem": "r1", "repo_full_name": "o/r", "workflow": "project-setup",
+                    "classification": "completed", "started_at": "2026-07-04T20:00:00Z"})
+    )
+    app = create_app(_test_settings(log_dir=log_dir), event_store=EventStore())
+    client = _client(app)
+
+    resp = client.get("/api/dashboard/runs")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert len(data) == 1
+    assert data[0]["stem"] == "r1"
+    assert data[0]["workflow"] == "project-setup"
+
+
+def test_run_logs_endpoint_returns_tails(tmp_path: Path) -> None:
+    log_dir = tmp_path / "orchestrator-webhook"
+    log_dir.mkdir()
+    stem = "prompt-owner__repo__issue-1__project-setup__ts-abc"
+    (log_dir / f"{stem}.md").write_text("THE PROMPT")
+    (log_dir / f"{stem}.stdout").write_text("out line\n")
+    (log_dir / f"{stem}.stderr").write_text("err line\n")
+    app = create_app(_test_settings(log_dir=log_dir), event_store=EventStore())
+    client = _client(app)
+
+    resp = client.get(f"/api/dashboard/runs/{stem}/logs")
+    assert resp.status_code == 200
+    d = resp.json()
+    assert d["prompt"] == "THE PROMPT"
+    assert d["stdout"] == "out line"
+    assert d["stderr"] == "err line"
+
+
+def test_run_logs_endpoint_rejects_unsafe_stem(tmp_path: Path) -> None:
+    log_dir = tmp_path / "orchestrator-webhook"
+    log_dir.mkdir()
+    app = create_app(_test_settings(log_dir=log_dir), event_store=EventStore())
+    client = _client(app)
+
+    # A stem containing a dot/path separator must be rejected (no traversal).
+    resp = client.get("/api/dashboard/runs/bad.stem/logs")
+    assert resp.status_code == 400
+
+
+# Parser (run_stream.parse_events) tests live in tests/test_run_stream.py.
+
+
+def test_discover_runs_newest_first(tmp_path: Path) -> None:
+    from webhook_receiver.dashboard import _discover_runs
+
+    log_dir = tmp_path / "orchestrator-webhook"
+    log_dir.mkdir()
+    older = log_dir / "prompt-old.stderr"
+    newer = log_dir / "prompt-new.stderr"
+    older.write_text("x")
+    newer.write_text("x")
+    # Force newer's mtime strictly after older's.
+    os.utime(older, (time.time() - 100, time.time() - 100))
+    os.utime(newer, (time.time(), time.time()))
+
+    stems = _discover_runs(log_dir)
+    assert stems == ["prompt-new", "prompt-old"]
+    assert _discover_runs(tmp_path / "nope") == []
+
+
+def test_run_events_endpoint_default_newest_and_stem_filter(tmp_path: Path) -> None:
+    log_dir = tmp_path / "orchestrator-webhook"
+    log_dir.mkdir()
+    a = "prompt-a"
+    b = "prompt-b"
+    _del = "\x1b[0m\u2022 \x1b[0m"            # • delegation glyph, ANSI-wrapped
+    (log_dir / f"{a}.stderr").write_text(f"{_del}Do A\x1b[90m Developer Agent\x1b[0m\n")
+    (log_dir / f"{b}.stderr").write_text(f"{_del}Do B\x1b[90m Planner Agent\x1b[0m\n")
+    os.utime(log_dir / f"{a}.stderr", (time.time() - 50, time.time() - 50))  # a older
+    app = create_app(_test_settings(log_dir=log_dir), event_store=EventStore())
+    client = _client(app)
+
+    # default → newest (b)
+    resp = client.get("/api/dashboard/run-events")
+    assert resp.status_code == 200
+    d = resp.json()
+    assert d["stem"] == b
+    assert d["runs"] == [b, a]
+    assert d["available"] is True
+    assert d["events"][0]["kind"] == "delegation"
+    assert d["events"][0]["agent"] == "Planner"
+
+    # explicit older stem
+    resp = client.get(f"/api/dashboard/run-events?stem={a}")
+    assert resp.json()["events"][0]["agent"] == "Developer"
+
+    # unsafe stem rejected
+    assert client.get("/api/dashboard/run-events?stem=bad.stem").status_code == 400
+
+
+def test_run_events_cache_bounded_across_growing_file(tmp_path: Path) -> None:
+    """A growing transcript must replace (not accumulate) cache entries."""
+    from webhook_receiver import dashboard
+
+    log_dir = tmp_path / "orchestrator-webhook"
+    log_dir.mkdir()
+    stem = "prompt-grow"
+    glyph = "\x1b[0m\u2022 \x1b[0m"
+    path = log_dir / f"{stem}.stderr"
+
+    original_ttl = dashboard._CACHE_TTL
+    dashboard._CACHE_TTL = 0.0  # force a cache miss (re-parse) on every poll
+    try:
+        for i in range(3):
+            path.write_text(f"{glyph}Step {i}\x1b[90m Developer Agent\x1b[0m\n")
+            os.utime(path, (time.time(), time.time()))
+            result = _run_events_for(log_dir, stem)
+            assert result["available"] is True
+    finally:
+        dashboard._CACHE_TTL = original_ttl
+
+    run_keys = [k for k in dashboard._CACHE if k.startswith("run_events:")]
+    assert len(run_keys) == 1
+    assert run_keys[0] == f"run_events:{stem}"
+
+
+def test_read_run_logs_available_reflects_content(tmp_path: Path) -> None:
+    """available must be False when no log files exist (mirrors bead_logs)."""
+    log_dir = tmp_path / "orchestrator-webhook"
+    log_dir.mkdir()
+    stem = "prompt-x"
+
+    # No files at all → not available.
+    result = _read_run_logs(log_dir, stem, tail=50)
+    assert result["available"] is False
+    assert result["stdout"] == "" and result["stderr"] == ""
+
+    # With content → available.
+    (log_dir / f"{stem}.stderr").write_text("some output\n")
+    result = _read_run_logs(log_dir, stem, tail=50)
+    assert result["available"] is True
+    assert result["stderr"] == "some output"
+
+
+def test_events_page_serves_html(tmp_path: Path) -> None:
+    app = create_app(_test_settings(log_dir=tmp_path), event_store=EventStore())
+    client = _client(app)
+    resp = client.get("/dashboard/events")
+    assert resp.status_code == 200
+    assert "text/html" in resp.headers.get("content-type", "")
+    assert "Live run stream" in resp.text
+
+
+def test_tail_lines_large_file_returns_last_n(tmp_path: Path) -> None:
+    from webhook_receiver.dashboard import _tail_lines
+
+    p = tmp_path / "big.stderr"
+    # ~150KB (spans multiple 64KB read chunks) so the seek-from-end path is used.
+    p.write_bytes("".join(f"line {i}\n" for i in range(5000)).encode())
+    assert _tail_lines(p, 10) == "\n".join(f"line {i}" for i in range(4990, 5000))
+
+
+def test_tail_lines_small_and_missing(tmp_path: Path) -> None:
+    from webhook_receiver.dashboard import _tail_lines
+
+    p = tmp_path / "small"
+    p.write_text("a\nb\nc\n")
+    assert _tail_lines(p, 2) == "b\nc"
+    assert _tail_lines(p, 100) == "a\nb\nc"   # n > line count → whole file
+    assert _tail_lines(tmp_path / "missing", 5) == ""

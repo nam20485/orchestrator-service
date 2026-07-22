@@ -44,3 +44,5 @@ def test_settings_from_env_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
     assert cfg.beads_max_retries == 3
     assert cfg.beads_workspace_root == "/workspace"
     assert cfg.dashboard_token is None
+    # log_dir defaults to the in-container path the compose bind mount covers.
+    assert cfg.log_dir.name == "orchestrator-webhook"

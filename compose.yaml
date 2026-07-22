@@ -1,6 +1,6 @@
 services:
   orchestratorservice:
-    image: ghcr.io/nam20485/orchestrator-service:main-latest
+    image: ghcr.io/nam20485/orchestrator-service:${IMAGE_REF:-main}-latest
     pull_policy: always
     platform: linux/amd64
     ports:
@@ -22,13 +22,16 @@ services:
       - OPENCODE_SERVER_PASSWORD=${OPENCODE_SERVER_PASSWORD:?OPENCODE_SERVER_PASSWORD is required}
 
   webhook-receiver:
-    image: ghcr.io/nam20485/orchestrator-service/webhook:main-latest
+    image: ghcr.io/nam20485/orchestrator-service/webhook:${IMAGE_REF:-main}-latest
     pull_policy: always
     platform: linux/amd64
     expose:
       - "8080"
     volumes:
       - ${WORKSPACE_DIR:?WORKSPACE_DIR is required}:/workspace
+      # Persist runner/beads logs so a torn-down/failed run stays diagnosable.
+      # runner.py and beads_loop.py both write here (Path(tempfile.gettempdir())/"orchestrator-webhook").
+      - ${WEBHOOK_LOG_DIR:-./traces/runner}:/tmp/orchestrator-webhook
     environment:
       - OS_WEBHOOK_SECRET=${OS_WEBHOOK_SECRET}
       - OPENCODE_SERVER_URL=http://orchestratorservice:4099
@@ -40,13 +43,18 @@ services:
       - BEADS_POLL_INTERVAL=${BEADS_POLL_INTERVAL:-10}
       - BEADS_MAX_RETRIES=${BEADS_MAX_RETRIES:-3}
       - BEADS_WORKSPACE_ROOT=${BEADS_WORKSPACE_ROOT:-/workspace}
+      # Kill a dispatched run (one opencode invocation) that exceeds this many
+      # seconds and post a failure comment. Prevents a hung permission prompt or
+      # stuck tool from stalling the pipeline indefinitely (e.g. a subagent
+      # deadlocked on an unanswerable external_directory ask). 2700s = 45 min.
+      - DISPATCH_TIMEOUT_SECS=${DISPATCH_TIMEOUT_SECS:-2700}
       - DASHBOARD_TOKEN=${DASHBOARD_TOKEN:-}
     depends_on:
       - orchestratorservice
     restart: unless-stopped
 
   webhook-proxy:
-    image: ghcr.io/nam20485/orchestrator-service/caddy:main-latest
+    image: ghcr.io/nam20485/orchestrator-service/caddy:${IMAGE_REF:-main}-latest
     pull_policy: always
     # CAP_NET_BIND_SERVICE allows non-root Caddy to bind privileged ports (:80/:443)
     cap_add:

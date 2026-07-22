@@ -32,7 +32,6 @@ Safeguard product quality by designing scalable test strategies, executing valid
 ## Collaboration & Delegation
 - **Developer:** fix defects, add instrumentation, improve testability
 - **Security Expert:** coordinate for penetration or security testing
-- **Product Manager:** confirm acceptance criteria and risk tolerance
 
 ## Deliverables
 - Test plan outlining scope, tools, and pass/fail criteria

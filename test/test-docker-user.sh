@@ -46,6 +46,12 @@ grep -q 'gosu app' scripts/docker-entrypoint.sh || fail "docker-entrypoint.sh mi
 grep -q '/app/.memory' scripts/docker-entrypoint.sh || fail "docker-entrypoint.sh missing memory-dir chown"
 grep -q 'su-exec caddy' deploy/caddy/caddy-entrypoint.sh || fail "caddy-entrypoint.sh missing 'su-exec caddy' drop"
 grep -qE 'for d in /data /config' deploy/caddy/caddy-entrypoint.sh || fail "caddy-entrypoint.sh missing /data+/config chown"
+# Webhook entrypoint must chown the root-owned runner-log bind mount to app
+# before the gosu drop (Docker creates ./traces/runner as root:root on first
+# attach; without this fixup the non-root app user cannot write runner logs).
+grep -q 'gosu app' scripts/webhook-entrypoint.sh || fail "webhook-entrypoint.sh missing 'gosu app' drop"
+grep -q '/tmp/orchestrator-webhook' scripts/webhook-entrypoint.sh || fail "webhook-entrypoint.sh missing log-dir chown"
+grep -qF 'ENTRYPOINT ["webhook-entrypoint.sh"]' Dockerfile.webhook || fail "Dockerfile.webhook must use webhook-entrypoint.sh as ENTRYPOINT"
 echo "entrypoint privilege-drop logic: ok"
 
 echo "docker-user: ok"

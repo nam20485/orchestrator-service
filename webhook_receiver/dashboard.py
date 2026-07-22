@@ -6,7 +6,6 @@ import json
 import logging
 import os
 import subprocess
-import tempfile
 import time
 from pathlib import Path
 from typing import Any
@@ -16,7 +15,9 @@ from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Stre
 
 from webhook_receiver.auth import make_dashboard_token_dep, persist_token_cookie
 from webhook_receiver.beads_loop import BeadsLoop
+from webhook_receiver.config import default_log_dir
 from webhook_receiver.event_store import EventStore
+from webhook_receiver.run_stream import parse_events
 from webhook_receiver.workspace import (
     discover_projects,
     project_workspace_path,
@@ -32,6 +33,9 @@ _CACHE_TTL = 5.0
 # are cached for longer than the per-request beads view.
 _PAGES_TTL = 60.0
 _MAX_SSE_SUBSCRIBERS = 10
+# The host log dir accumulates dispatch runs indefinitely (compose bind mount);
+# cap how many we scan/return per dashboard request so cost stays bounded.
+_MAX_RUNS = 100
 
 # bvr pages bundles live under the temp dir alongside per-bead agent logs.
 _PAGES_SUBDIR = "bvr-pages"
@@ -193,7 +197,7 @@ def _fetch_beads_graph(ws: str) -> dict[str, Any]:
 
 
 def _bvr_bundle_dir() -> Path:
-    return Path(tempfile.gettempdir()) / "orchestrator-webhook" / _PAGES_SUBDIR
+    return default_log_dir() / _PAGES_SUBDIR
 
 
 def _run_bvr_export(args: list[str], cwd: str) -> None:
@@ -354,6 +358,7 @@ def create_dashboard_router(
     event_store: EventStore,
     beads_loop: BeadsLoop | None = None,
     dashboard_token: str | None = None,
+    log_dir: Path | None = None,
 ) -> APIRouter:
     auth = _make_dashboard_auth(dashboard_token)
     router = APIRouter(
@@ -361,6 +366,10 @@ def create_dashboard_router(
         tags=["dashboard"],
         dependencies=[Depends(auth)],
     )
+    # Run-log directory shared by runner.py (orchestration dispatches) and
+    # beads_loop.py (bead agents). Defaults to the in-container path covered by
+    # the compose bind mount; app.py passes settings.log_dir through.
+    runs_log_dir = log_dir or default_log_dir()
 
     # ── overview ───────────────────────────────────────────────────────────
 
@@ -500,7 +509,7 @@ def create_dashboard_router(
         if not _valid_bead_id(bead_id):
             raise HTTPException(status_code=400, detail="Invalid bead ID")
         tail = max(1, min(tail, 2000))
-        log_dir = Path(tempfile.gettempdir()) / "orchestrator-webhook"
+        log_dir = runs_log_dir
         safe_id = glob.escape(bead_id)
 
         def _read_latest(suffix: str) -> str:
@@ -597,10 +606,44 @@ def create_dashboard_router(
             },
         )
 
+    # ── orchestration runs (webhook dispatches) ──────────────────────────────
+
+    @router.get("/runs")
+    async def list_runs() -> list[dict[str, Any]]:
+        # Manifest listing is O(N) over accumulated dispatch files; cache it on
+        # the same TTL used for br/bvr calls so dashboard load stays bounded.
+        return await asyncio.to_thread(
+            _cached,
+            f"runs_manifests:{runs_log_dir}",
+            _load_run_manifests,
+            runs_log_dir,
+        )
+
+    @router.get("/runs/{stem}/logs")
+    async def run_logs(stem: str, tail: int = 400) -> dict[str, Any]:
+        tail = max(1, min(tail, 4000))
+        return await asyncio.to_thread(_read_run_logs, runs_log_dir, stem, tail)
+
+    # ── live run event feed (tool-stream glyphs) ────────────────────────────
+
+    @router.get("/run-events")
+    async def run_events(stem: str | None = None) -> dict[str, Any]:
+        """Typed tool-stream events for a dispatch run (default: newest).
+
+        Parses the run's captured ``.stderr`` glyphs into a readable event list
+        for the live ``/dashboard/events`` feed. Returns the stem list so the
+        page can switch runs. All blocking work (run discovery, file read, glyph
+        parse) runs off the event loop; results are cached by content mtime/size
+        so the 5s client poll is cheap even on multi-MB transcripts.
+        """
+        if stem and not _valid_run_stem(stem):
+            raise HTTPException(status_code=400, detail="Invalid run stem")
+        return await asyncio.to_thread(_run_events_for, runs_log_dir, stem)
+
     return router
 
 
-# ── HTML page route (separate so it has no /api prefix) ────────────────────
+# ── HTML page routes (separate so they have no /api prefix) ────────────────
 
 
 def _serve_html(
@@ -630,6 +673,126 @@ def _valid_bead_id(bead_id: str | None) -> bool:
     return bool(bead_id) and bead_id.replace("-", "").replace("_", "").isalnum()
 
 
+def _valid_run_stem(stem: str | None) -> bool:
+    """Path-safe check for a run-log stem (prompt-...-<rand>).
+
+    Stems are produced by runner.py from repo/issue/workflow/timestamp + a
+    tempfile random suffix, so they contain only ``[A-Za-z0-9_-]``. Rejecting
+    anything else prevents path traversal when serving ``<stem>.stdout`` etc.
+    """
+    return bool(stem) and all(c.isalnum() or c in "-_" for c in stem)
+
+
+def _load_run_manifests(log_dir: Path) -> list[dict[str, Any]]:
+    """Read every ``*.manifest.json`` in *log_dir*, newest-first by started_at."""
+    if not log_dir.is_dir():
+        return []
+    runs: list[dict[str, Any]] = []
+    for mf in log_dir.glob("*.manifest.json"):
+        try:
+            data = json.loads(mf.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if not isinstance(data, dict):
+            continue
+        data.setdefault("stem", mf.name[: -len(".manifest.json")])
+        runs.append(data)
+    runs.sort(key=lambda d: str(d.get("started_at", "")), reverse=True)
+    return runs[:_MAX_RUNS]
+
+
+def _read_run_logs(log_dir: Path, stem: str, tail: int) -> dict[str, Any]:
+    """Tail the prompt/stdout/stderr files for one dispatch stem."""
+    if not _valid_run_stem(stem):
+        raise HTTPException(status_code=400, detail="Invalid run stem")
+
+    def _tail(name: str) -> str:
+        path = log_dir / name
+        if not path.is_file():
+            return ""
+        return _tail_lines(path, tail)
+
+    prompt = _tail(f"{stem}.md")
+    stdout = _tail(f"{stem}.stdout")
+    stderr = _tail(f"{stem}.stderr")
+    return {
+        "stem": stem,
+        "prompt": prompt,
+        "stdout": stdout,
+        "stderr": stderr,
+        # Mirror bead_logs: report availability from actual content rather than
+        # hardcoding True, so a missing run is distinguishable from an empty one.
+        "available": bool(prompt or stdout or stderr),
+    }
+
+
+def _tail_lines(path: Path, n: int) -> str:
+    """Return the last *n* lines of *path* without decoding the whole file.
+
+    Reads backward in fixed chunks until *n* newlines are seen (or start of
+    file), so a multi-MB prompt/transcript only costs the trailing bytes.
+    """
+    try:
+        size = path.stat().st_size
+    except OSError:
+        return ""
+    chunk = 65536
+    collected: list[bytes] = []
+    pos = size
+    newlines = 0
+    with path.open("rb") as f:
+        while pos > 0 and newlines <= n:
+            read_size = min(chunk, pos)
+            pos -= read_size
+            f.seek(pos)
+            data = f.read(read_size)
+            collected.append(data)
+            newlines += data.count(b"\n")
+    text = b"".join(reversed(collected)).decode("utf-8", errors="replace")
+    lines = text.splitlines()
+    return "\n".join(lines[-n:])
+
+
+def _discover_runs(log_dir: Path) -> list[str]:
+    """Return run stems (``prompt-*``) newest-first by ``.stderr`` mtime.
+
+    Picks the active/latest run when manifests are absent (older images write
+    no ``.manifest.json`` sidecar) and feeds the run selector on the events
+    page. Capped to the newest ``_MAX_RUNS`` so cost stays bounded as the host
+    log dir grows.
+    """
+    if not log_dir.is_dir():
+        return []
+    files = sorted(log_dir.glob("prompt-*.stderr"), key=os.path.getmtime, reverse=True)
+    return [f.name[: -len(".stderr")] for f in files[:_MAX_RUNS]]
+
+
+def _run_events_for(log_dir: Path, stem: str | None) -> dict[str, Any]:
+    """Blocking worker for the ``/run-events`` endpoint.
+
+    Discovers runs (cached), validates the stem, and parses the target run's
+    ``.stderr``. The parse result is cached keyed by ``stem`` only so a
+    re-parse of a growing multi-MB transcript replaces the prior entry instead
+    of accumulating unbounded keys; the 5s TTL bounds staleness between polls.
+    """
+    def _parse_stderr(path: Path) -> list[dict[str, Any]]:
+        return parse_events(path.read_text(encoding="utf-8", errors="replace"))
+
+    runs = _cached("discover_runs", _discover_runs, log_dir)
+    target = stem if stem else (runs[0] if runs else None)
+    events: list[dict[str, Any]] = []
+    available = False
+    if target:
+        stderr_path = log_dir / f"{target}.stderr"
+        if stderr_path.is_file():
+            # Keyed by stem only (not mtime/size) so a re-parse of a growing
+            # transcript replaces the prior entry instead of accumulating
+            # unbounded keys; the 5s TTL already bounds staleness between polls.
+            events = _cached(f"run_events:{target}", _parse_stderr, stderr_path)
+            available = True
+    return {"stem": target, "runs": runs, "events": events, "available": available}
+
+
 def create_dashboard_page_router(dashboard_token: str | None = None) -> APIRouter:
     auth = _make_dashboard_auth(dashboard_token)
     router = APIRouter(tags=["dashboard"], dependencies=[Depends(auth)])
@@ -643,6 +806,20 @@ def create_dashboard_page_router(dashboard_token: str | None = None) -> APIRoute
         if not _valid_bead_id(bead_id):
             raise HTTPException(status_code=400, detail="Invalid bead ID")
         return _serve_html(request, "bead_detail.html", dashboard_token)
+
+    @router.get("/dashboard/runs")
+    async def runs_page(request: Request) -> HTMLResponse:
+        return _serve_html(request, "orchestration_runs.html", dashboard_token)
+
+    @router.get("/dashboard/runs/{stem}")
+    async def run_detail_page(request: Request, stem: str) -> HTMLResponse:
+        if not _valid_run_stem(stem):
+            raise HTTPException(status_code=400, detail="Invalid run stem")
+        return _serve_html(request, "orchestration_run_detail.html", dashboard_token)
+
+    @router.get("/dashboard/events")
+    async def events_page(request: Request) -> HTMLResponse:
+        return _serve_html(request, "events.html", dashboard_token)
 
     return router
 

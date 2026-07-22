@@ -26,7 +26,7 @@ This document provides mandatory delegation requirements that enhance the orches
 | ----------------- | ---------------------- | ------------------ | ----------------------------- |
 | Repository Setup  | `developer`            | `github-expert`    | If tools unavailable          |
 | GitHub Operations | `github-expert`        | `developer`        | If org-level changes required |
-| Project Planning  | `product-manager`      | `planner`          | Never                         |
+| Project Planning  | `planner`              | —                  | Never                         |
 | Code Structure    | `developer`            | —                  | If specialized needs          |
 | Documentation     | `documentation-expert` | `developer`        | If expert unavailable         |
 | Testing           | `qa-test-engineer`     | `developer`        | If QA unavailable             |
@@ -63,7 +63,7 @@ Direct Execution Justification: [Only if not delegated - must be tool limitation
 Each assignment MUST be delegated to specialized agents **-OR-** broken down by task type according to section #Delegation Strategies:
 
 - `init-existing-repository` → delegate to `developer` AND `github-expert`
-- `create-app-plan` → delegate to `product-manager` AND `planner`
+- `create-app-plan` → delegate to `planner`
 - `create-project-structure` → delegate to `developer` AND `github-expert`
 
 ### Delegation Strategies
@@ -82,9 +82,9 @@ Each assignment MUST be delegated to specialized agents **-OR-** broken down by 
 | Task                       | Primary Agents                         | Supporting Agents                       | Notes                                                       |
 | -------------------------- | -------------------------------------- | --------------------------------------- | ----------------------------------------------------------- |
 | `init-existing-repository` | `developer`            | `github-expert`                    | Configure remotes, branches, and automation scripts.        |
-| `create-app-plan`          | `product-manager`, `planner` | `documentation-expert`         | Define roadmap, milestones, and success metrics.            |
+| `create-app-plan`          | `planner` | `documentation-expert`         | Define roadmap, milestones, and success metrics.            |
 | `create-project-structure` | `developer`            | `github-expert`, `qa-test-engineer` | Scaffold services, CI/CD, and baseline tests.               |
-| `update-documentation`     | `documentation-expert` | `product-manager`, `developer`   | Capture decisions, runbooks, and onboarding guides.         |
+| `update-documentation`     | `documentation-expert` | `developer`                      | Capture decisions, runbooks, and onboarding guides.         |
 | `expand-test-suite`        | `qa-test-engineer`     | `developer`                      | Add regression, integration, and edge-case coverage.        |
 | `security-audit`           | `security-expert`      | `developer`                      | Review threat models, secrets hygiene, and dependency risk. |
 

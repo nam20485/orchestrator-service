@@ -1,0 +1,64 @@
+name: 'Cosign Sign with Retry'
+description: >-
+  Sign published container image tags with cosign, retrying transient sigstore
+  upstream errors ("stream error ... INTERNAL_ERROR; received from peer") that
+  clear on retry. Signs every tag against a single digest; one tag failing
+  still reports failure but does not abort the remaining tags.
+
+  Self-contained: installs cosign itself, so callers do not need a separate
+  sigstore/cosign-installer step.
+inputs:
+  tags:
+    description: 'Whitespace-separated image tags to sign (e.g. steps.meta.outputs.tags).'
+    required: true
+  digest:
+    description: 'Image digest to sign (e.g. steps.build-and-push.outputs.digest).'
+    required: true
+  max-attempts:
+    description: 'Maximum signing attempts per tag.'
+    required: false
+    default: '5'
+  backoff-multiplier:
+    description: 'Seconds multiplied by the attempt number for the retry backoff sleep.'
+    required: false
+    default: '5'
+runs:
+  using: composite
+  steps:
+    - name: Install cosign
+      uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+      with:
+        cosign-release: 'v2.2.4'
+
+    - name: Sign each tag with retry
+      shell: bash
+      env:
+        TAGS: ${{ inputs.tags }}
+        DIGEST: ${{ inputs.digest }}
+        MAX_ATTEMPTS: ${{ inputs.max-attempts }}
+        BACKOFF_MULTIPLIER: ${{ inputs.backoff-multiplier }}
+      run: |
+        set -u
+        # Retry each tag's signing a few times. Cosign can hit transient
+        # sigstore upstream errors ("stream error ... INTERNAL_ERROR; received
+        # from peer") that clear on retry; failing the whole step on the first
+        # tag error would skip signing the remaining tags.
+        sign_with_retry() {
+          local tag="$1" digest="$2" attempt=0
+          while [ "$attempt" -lt "$MAX_ATTEMPTS" ]; do
+            attempt=$((attempt + 1))
+            echo "Signing ${tag}@${digest} (attempt ${attempt}/${MAX_ATTEMPTS})"
+            if cosign sign --yes "${tag}@${digest}"; then
+              return 0
+            fi
+            echo "::warning::cosign sign failed for ${tag} (attempt ${attempt}); retrying in $((attempt * BACKOFF_MULTIPLIER))s"
+            sleep $((attempt * BACKOFF_MULTIPLIER))
+          done
+          echo "::error::cosign sign failed for ${tag} after ${attempt} attempts"
+          return 1
+        }
+        fail=0
+        for tag in ${TAGS}; do
+          sign_with_retry "${tag}" "${DIGEST}" || fail=1
+        done
+        exit "${fail}"
