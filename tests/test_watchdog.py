@@ -14,6 +14,8 @@ import time
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from webhook_receiver.watchdog import (
     REASON_CONSECUTIVE_ERRORS,
     REASON_HARD_CEILING,
@@ -581,20 +583,20 @@ class TestServerLogMonitor:
         start = time.monotonic()
         mon = _ServerLogMonitor(str(log), start)
         # Same size on the next poll → no growth → idle accrues from start.
-        assert mon.idle_secs(start + 5) == 5
-        assert mon.idle_secs(start + 12) == 12
+        assert mon.idle_secs(start + 5) == pytest.approx(5)
+        assert mon.idle_secs(start + 12) == pytest.approx(12)
 
     def test_growth_resets_idle(self, tmp_path: Path) -> None:
         log = tmp_path / "opencode.log"
         log.write_text("baseline\n", encoding="utf-8")
         start = time.monotonic()
         mon = _ServerLogMonitor(str(log), start)
-        assert mon.idle_secs(start + 5) == 5
+        assert mon.idle_secs(start + 5) == pytest.approx(5)
         # Append bytes (server activity, e.g. subagent delegation).
         log.write_text("baseline\nnew server entry\n", encoding="utf-8")
-        assert mon.idle_secs(start + 10) == 0  # grew → reset
+        assert mon.idle_secs(start + 10) == 0  # grew → reset (exact)
         # No further growth → idle accrues from the last growth time.
-        assert mon.idle_secs(start + 25) == 15  # 25 - 10
+        assert mon.idle_secs(start + 25) == pytest.approx(15)  # 25 - 10
 
     def test_pre_existing_content_excluded(self, tmp_path: Path) -> None:
         # Content present before the dispatch must NOT count as activity.
@@ -602,7 +604,7 @@ class TestServerLogMonitor:
         log.write_text("x" * 500, encoding="utf-8")
         start = time.monotonic()
         mon = _ServerLogMonitor(str(log), start)
-        assert mon.idle_secs(start + 3) == 3  # baseline excluded, no growth
+        assert mon.idle_secs(start + 3) == pytest.approx(3)  # baseline excluded
 
     def test_missing_file_returns_none(self, tmp_path: Path) -> None:
         mon = _ServerLogMonitor(str(tmp_path / "nope.log"), time.monotonic())
