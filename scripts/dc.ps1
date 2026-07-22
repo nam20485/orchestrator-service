@@ -12,6 +12,8 @@
   Supported refs: main (default), development, nam20485. Each maps to the
   branch tag published by docker-publish.yml (<branch>-latest).
 
+  Command abbreviations are accepted: u=up, d=down, l=logs.
+
   For `up`, the wrapper always passes `--pull always` so a stale local image
   cache can never shadow the current <branch>-latest tag. Pass `--build`
   explicitly via ExtraArgs to rebuild the image locally instead.
@@ -39,7 +41,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Position = 0)]
-    [ValidateSet('up', 'down', 'logs')]
+    [ValidateSet('up', 'down', 'logs', 'u', 'd', 'l')]
     [string]$Command,
 
     [Parameter(Position = 1)]
@@ -52,6 +54,14 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+
+# Normalize abbreviated command aliases (u/d/l) to their canonical forms so the
+# rest of the script only deals with 'up', 'down', 'logs'.
+switch ($Command) {
+    'u' { $Command = 'up' }
+    'd' { $Command = 'down' }
+    'l' { $Command = 'logs' }
+}
 
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $composeFile = Join-Path $repoRoot 'compose.yaml'
