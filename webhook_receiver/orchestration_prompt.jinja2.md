@@ -260,11 +260,17 @@ case (type = issues &&
        action = labeled &&
        labels contains: "orchestration:dispatch")
        {
-          ## Dynamic workflow dispatch — triggered by orchestration:dispatch label.
-          ## The issue title defaults to "orchestrate-dynamic-workflow" and the body
-          ## contains the workflow name and arguments.
-          - postStatusUpdate("🤖 Orchestrator triggered — matched `orchestration:dispatch` clause. Parsing dispatch body...")
-          - $dispatch = parse_workflow_dispatch_body(body)
+           ## Dynamic workflow dispatch — triggered by orchestration:dispatch label.
+           ## The issue title defaults to "orchestrate-dynamic-workflow" and the body
+           ## contains the workflow name and arguments.
+           - postStatusUpdate("🤖 Orchestrator triggered — matched `orchestration:dispatch` clause. Parsing dispatch body...")
+           ## Link the dispatch issue to the project board early so it is tracked even
+           ## if the run fails mid-way (prevents orphaned dispatch issues with no
+           ## milestone/project/PR trail — see gap-miner-v2-papa85 run 70c74cd7).
+           ## Best-effort: discover the project via `gh project list --owner <owner> --limit 5`
+           ## and `gh project item-add <num> --owner <owner> --url <issue-url>`. Skip
+           ## silently if no project is found or the add fails — this must not block the run.
+           - $dispatch = parse_workflow_dispatch_body(body)
           - if $dispatch is null → comment on the issue with an error explaining the body could not be parsed, then skip to ##Final.
           - postStatusUpdate("🤖 Orchestrator triggered — invoking `{$dispatch.workflow_name}` dynamic workflow...")
           - /orchestrate-dynamic-workflow

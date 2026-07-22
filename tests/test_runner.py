@@ -19,10 +19,16 @@ from webhook_receiver.runner import (
     _parse_workflow_name,
     _prompt_script_invocation,
     _run_completion_watcher,
+    _sanitize_for_comment,
     _stream_to_logger_and_file,
     _update_run_manifest,
     _write_run_manifest,
     dispatch_to_opencode,
+)
+from webhook_receiver.watchdog import (
+    REASON_IDLE_TIMEOUT,
+    WatchdogConfig,
+    WatchdogState,
 )
 
 
@@ -454,6 +460,76 @@ def test_no_zero_work_analysis_when_stderr_missing(
     )
 
 
+# ── Secret sanitization ────────────────────────────────────────────────────
+
+
+class TestSanitizeForComment:
+    # Construct fake tokens dynamically so the literal pattern doesn't appear
+    # in the source file (avoids tripping the pre-commit secret scanner).
+    _FAKE_GHP = "ghp_" + "A" * 36
+    _FAKE_SK = "sk-" + "B" * 24
+
+    def test_github_pat_redacted(self) -> None:
+        msg = f"Error: auth failed with {self._FAKE_GHP}"
+        sanitized = _sanitize_for_comment(msg)
+        assert "ghp_" not in sanitized
+        assert "[REDACTED]" in sanitized
+
+    def test_openai_key_redacted(self) -> None:
+        msg = f"API key {self._FAKE_SK} is invalid"
+        sanitized = _sanitize_for_comment(msg)
+        assert "sk-" + "B" not in sanitized
+        assert "[REDACTED]" in sanitized
+
+    def test_bearer_token_redacted(self) -> None:
+        msg = "Bearer ya29.abcdef1234567890abcdef1234567890 expired"
+        sanitized = _sanitize_for_comment(msg)
+        assert "ya29." not in sanitized
+        assert "[REDACTED]" in sanitized
+
+    def test_key_value_assignment_redacted(self) -> None:
+        msg = "Config: api_key=sk_test_12345 not found"
+        sanitized = _sanitize_for_comment(msg)
+        assert "sk_test_12345" not in sanitized
+        assert "[REDACTED]" in sanitized
+
+    def test_normal_text_preserved(self) -> None:
+        msg = "level=ERROR AI_APICallError: Usage limit reached for 5 hour"
+        assert _sanitize_for_comment(msg) == msg
+
+    def test_empty_string(self) -> None:
+        assert _sanitize_for_comment("") == ""
+
+
+@patch("webhook_receiver.runner.subprocess.run")
+def test_consecutive_errors_comment_is_sanitized(
+    mock_run: MagicMock,
+) -> None:
+    """Error messages with secrets must be sanitized before posting to GitHub."""
+    fake_ghp = "ghp_" + "A" * 36
+    proc = _wd_proc()
+    state = WatchdogState(0.0)
+    for _ in range(4):
+        state.record_line("level=ERROR some error")
+    # The LAST error line contains the secret — this is what gets posted.
+    state.record_line(f"level=ERROR auth failed token={fake_ghp}")
+    cfg = WatchdogConfig(
+        idle_timeout_secs=999999,
+        hard_ceiling_secs=None,
+        poll_interval_secs=0,
+        max_consecutive_errors=5,
+        error_grace_secs=300,
+    )
+    _run_completion_watcher(
+        proc, MagicMock(), _ctx(), "/tmp/x", "prompt-abc",
+        state=state, watchdog_config=cfg,
+    )
+
+    body = mock_run.call_args.kwargs["input"]
+    assert "ghp_" not in body
+    assert "[REDACTED]" in body
+
+
 # ── Dispatch identity: workflow parse, slug, manifest ──────────────────────
 
 
@@ -652,3 +728,167 @@ def test_dispatch_slug_dotted_workflow_and_repo_pass_stem_validator() -> None:
     stem = _dispatch_slug(ctx, "my.workflow", "20260704T204631Z")
     assert _valid_run_stem(stem), f"stem failed validator: {stem!r}"
     assert "." not in stem
+
+
+# ── Watchdog integration with _run_completion_watcher ──────────────────────
+
+
+def _wd_proc(returncode_none_first: bool = True) -> MagicMock:
+    """Mock proc for watchdog-path testing.
+
+    *returncode_none_first*: when True, poll() returns None first (process
+    running) then the returncode (process killed/exited). This simulates the
+    watchdog seeing a live process then killing it.
+    """
+    proc = MagicMock()
+    proc.pid = 4242
+    proc.returncode = -15
+    if returncode_none_first:
+        proc.poll.side_effect = [None, -15]
+    else:
+        proc.poll.return_value = -15
+    proc.terminate = MagicMock()
+    proc.kill = MagicMock()
+    proc.wait = MagicMock()
+    return proc
+
+
+def _idle_state(idle_secs: float = 1000) -> WatchdogState:
+    """A WatchdogState whose last_line_time is *idle_secs* in the past."""
+    import time as _time
+
+    state = WatchdogState(_time.monotonic() - idle_secs)
+    state._last_line_time = _time.monotonic() - idle_secs
+    return state
+
+
+@patch("webhook_receiver.runner.subprocess.run")
+def test_watchdog_idle_timeout_posts_failure_comment(
+    mock_run: MagicMock,
+) -> None:
+    """When the watchdog kills on idle timeout, _run_completion_watcher posts
+    a failure comment with the idle-timeout reason (not generic 'timed out')."""
+    proc = _wd_proc()
+    state = _idle_state(idle_secs=1000)
+    cfg = WatchdogConfig(
+        idle_timeout_secs=1,
+        hard_ceiling_secs=None,
+        poll_interval_secs=0,
+    )
+    store = MagicMock()
+    _run_completion_watcher(
+        proc, store, _ctx(), "/tmp/x", "prompt-abc",
+        state=state, watchdog_config=cfg,
+    )
+
+    body = mock_run.call_args.kwargs["input"]
+    assert "idle" in body.lower()
+    store.emit.assert_called_once()
+    assert store.emit.call_args.kwargs.get("timed_out") is True
+
+
+@patch("webhook_receiver.runner.subprocess.run")
+def test_watchdog_hard_ceiling_posts_failure_comment(
+    mock_run: MagicMock,
+) -> None:
+    """When the watchdog kills on hard ceiling, the failure comment says so."""
+    proc = _wd_proc()
+    # Active state (recent lines) but elapsed exceeds ceiling.
+    import time as _time
+
+    state = WatchdogState(_time.monotonic() - 100)
+    state.record_line("recent activity")
+    cfg = WatchdogConfig(
+        idle_timeout_secs=999999,
+        hard_ceiling_secs=1,
+        poll_interval_secs=0,
+    )
+    store = MagicMock()
+    _run_completion_watcher(
+        proc, store, _ctx(), "/tmp/x", "prompt-abc",
+        state=state, watchdog_config=cfg,
+    )
+
+    body = mock_run.call_args.kwargs["input"]
+    assert "ceiling" in body.lower()
+    assert "idle" not in body.lower()
+
+
+@patch("webhook_receiver.runner.subprocess.run")
+def test_watchdog_consecutive_errors_posts_failure_comment(
+    mock_run: MagicMock,
+) -> None:
+    """When the watchdog kills on consecutive errors, the failure comment
+    includes the error count and last error message."""
+    proc = _wd_proc()
+    state = WatchdogState(0.0)
+    for i in range(5):
+        state.record_line(f"level=ERROR AI_APICallError: Usage limit {i}")
+    cfg = WatchdogConfig(
+        idle_timeout_secs=999999,
+        hard_ceiling_secs=None,
+        poll_interval_secs=0,
+        max_consecutive_errors=5,
+        error_grace_secs=300,
+    )
+    store = MagicMock()
+    _run_completion_watcher(
+        proc, store, _ctx(), "/tmp/x", "prompt-abc",
+        state=state, watchdog_config=cfg,
+    )
+
+    body = mock_run.call_args.kwargs["input"]
+    assert "consecutive" in body.lower()
+    assert "Usage limit" in body
+
+
+@patch("webhook_receiver.runner.subprocess.run")
+def test_watchdog_classification_in_manifest(
+    mock_run: MagicMock, tmp_path: Path
+) -> None:
+    """The manifest records the specific kill reason as the classification."""
+    import json
+
+    proc = _wd_proc()
+    state = _idle_state(idle_secs=1000)
+    cfg = WatchdogConfig(
+        idle_timeout_secs=1,
+        hard_ceiling_secs=None,
+        poll_interval_secs=0,
+    )
+    _run_completion_watcher(
+        proc, MagicMock(), _ctx(), str(tmp_path), "p",
+        state=state, watchdog_config=cfg,
+    )
+
+    mf = json.loads((tmp_path / "p.manifest.json").read_text())
+    assert mf["classification"] == REASON_IDLE_TIMEOUT
+    assert mf["kill_reason"] == REASON_IDLE_TIMEOUT
+
+
+@patch("webhook_receiver.runner.subprocess.run")
+def test_watchdog_process_exit_no_kill_reason(
+    mock_run: MagicMock,
+) -> None:
+    """When the process exits on its own via the watchdog path, no kill reason
+    is set and the standard exit-code classification applies."""
+    mock_run.return_value = _closed_state_run()
+    proc = MagicMock()
+    proc.pid = 4242
+    proc.returncode = 0
+    proc.poll.return_value = 0  # process exited cleanly on first check
+    proc.terminate = MagicMock()
+    proc.kill = MagicMock()
+    proc.wait = MagicMock()
+    state = WatchdogState(0.0)
+    cfg = WatchdogConfig(poll_interval_secs=0)
+    store = MagicMock()
+    _run_completion_watcher(
+        proc, store, _ctx(), "/tmp/x", "prompt-abc",
+        state=state, watchdog_config=cfg,
+    )
+
+    assert _no_comment_posted(mock_run)
+    store.emit.assert_called_once_with(
+        "dispatch_completed", exit_code=0, prompt_file="prompt-abc.md"
+    )

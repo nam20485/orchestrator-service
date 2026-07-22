@@ -61,12 +61,25 @@ class Settings:
     # (default) the entire dashboard surface is disabled and returns 404, so
     # the receiver cannot leak beads data through the proxy by default.
     dashboard_token: str | None = None
-    # Optional hard wall-clock timeout (seconds) for a dispatched opencode run.
-    # When set (env DISPATCH_TIMEOUT_SECS), a run exceeding it is killed and a
-    # failure comment is posted. None (default) = no timeout (wait forever).
-    # Recommended value ~5400 (≈ the golden-path project-setup runtime) so a
-    # hung run is killed and flagged instead of waiting forever.
+    # ── Idle watchdog configuration ─────────────────────────────────────────
+    # The watchdog replaces the previous single wall-clock timeout
+    # (DISPATCH_TIMEOUT_SECS) with activity-aware monitoring. A run is killed
+    # if (a) it produces no stdout/stderr output for IDLE_TIMEOUT_SECS, (b) it
+    # emits MAX_CONSECUTIVE_ERRORS error lines without a non-error line, or
+    # (c) it exceeds HARD_CEILING_SECS regardless of activity. See watchdog.py
+    # and docs/idle-timeout-implementation-report.md for the full design
+    # rationale (ported from the battle-tested bash watchdog in
+    # intel-agency/workflow-orchestration-service).
+    #
+    # HARD_CEILING_SECS is the absolute safety net. It accepts the legacy
+    # DISPATCH_TIMEOUT_SECS env var for backward compatibility.
     dispatch_timeout: int | None = None
+    idle_timeout_secs: int = 900
+    error_grace_secs: int = 300
+    hard_ceiling_secs: int | None = 5400
+    watchdog_poll_secs: int = 30
+    max_consecutive_errors: int = 5
+    watchdog_debug: bool = False
     # Directory runner.py / beads_loop.py / dashboard.py use for per-run logs,
     # run manifests, and the bvr pages bundle. Defaults to the in-container path
     # covered by the compose bind mount; tests override it with a tmp dir.
@@ -112,5 +125,22 @@ class Settings:
             beads_max_retries=int(os.environ.get("BEADS_MAX_RETRIES", "3")),
             beads_workspace_root=os.environ.get("BEADS_WORKSPACE_ROOT", "/workspace"),
             dashboard_token=(os.environ.get("DASHBOARD_TOKEN", "").strip() or None),
+            # Legacy wall-clock timeout (kept for backward compat; feeds
+            # hard_ceiling_secs when HARD_CEILING_SECS is not set).
             dispatch_timeout=_parse_optional_int("DISPATCH_TIMEOUT_SECS"),
+            idle_timeout_secs=int(os.environ.get("IDLE_TIMEOUT_SECS", "900")),
+            error_grace_secs=int(os.environ.get("ERROR_GRACE_SECS", "300")),
+            hard_ceiling_secs=(
+                _parse_optional_int("HARD_CEILING_SECS")
+                or _parse_optional_int("DISPATCH_TIMEOUT_SECS")
+                or 5400
+            ),
+            watchdog_poll_secs=int(os.environ.get("WATCHDOG_POLL_SECS", "30")),
+            max_consecutive_errors=int(
+                os.environ.get("MAX_CONSECUTIVE_ERRORS", "5")
+            ),
+            watchdog_debug=os.environ.get("WATCHDOG_DEBUG", "")
+            .strip()
+            .lower()
+            in ("1", "true", "yes"),
         )
