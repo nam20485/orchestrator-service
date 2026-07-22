@@ -53,7 +53,12 @@ def should_filter(line: str) -> bool:
 
 _EVENT_ALLOW: set[str] = {"issues"}
 _ACTION_ALLOW: set[str] = {"labeled"}
-_LABEL_PREFIXES: tuple[str, ...] = ("orchestration:",)
+# Both colon-prefixed namespaces are dispatch-trigger label spaces: every
+# ``orchestration:*`` and ``gh-issue-tracking:*`` label maps to a match clause
+# in orchestration_prompt.jinja2.md. The gh-issue-tracking hierarchy taxonomy
+# uses BARE names (plan/epic/story/task — see skill labels.json), so these
+# prefixes never collide with organizational labels.
+_LABEL_PREFIXES: tuple[str, ...] = ("orchestration:", "gh-issue-tracking:")
 _LABEL_EXACT: set[str] = {"implementation:ready", "implementation:complete"}
 
 
