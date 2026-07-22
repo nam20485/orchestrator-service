@@ -689,6 +689,43 @@ def test_incomplete_not_triggered_for_non_dispatch_label(
     assert store.emit.call_args.args[0] == "dispatch_completed"
 
 
+@patch("webhook_receiver.runner.subprocess.run")
+def test_incomplete_triggered_for_direct_body_label(
+    mock_run: MagicMock, tmp_path: Path
+) -> None:
+    """``gh-issue-tracking:direct-body`` carries the same close-on-success
+    contract as ``orchestration:dispatch``: a clean, real-work run that leaves
+    the triggering issue open is flagged incomplete (the silent false-success
+    mode the check was added to catch).
+    """
+    def _run_side_effect(*args, **kwargs):
+        cmd = args[0] if args else None
+        if cmd and "view" in cmd:
+            return subprocess.CompletedProcess(
+                args=[], returncode=0, stdout='{"state":"open"}'
+            )
+        return subprocess.CompletedProcess(args=[], returncode=0, stdout="")
+
+    mock_run.side_effect = _run_side_effect
+    (tmp_path / "p.stderr").write_text("→ Task developer work\n", encoding="utf-8")
+    proc = _mock_proc(returncode=0)
+    ctx = DispatchContext(
+        repo_full_name="owner/repo",
+        issue_number=7,
+        trigger_label="gh-issue-tracking:direct-body",
+    )
+    store = MagicMock()
+
+    _run_completion_watcher(proc, store, ctx, str(tmp_path), "p")
+
+    # An incomplete advisory comment is posted …
+    bodies = [c.kwargs["input"] for c in mock_run.call_args_list if "input" in c.kwargs]
+    assert any("dispatch issue is still open" in b for b in bodies)
+    # … and the run is classified incomplete (not completed).
+    store.emit.assert_called_once()
+    assert store.emit.call_args.args[0] == "dispatch_incomplete"
+
+
 # ── dispatch_to_opencode writes identity manifest + slug filename ───────────
 
 

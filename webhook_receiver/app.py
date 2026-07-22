@@ -187,7 +187,8 @@ def _dispatch_context_from_payload(
         return None
     # The label that triggered this dispatch (``issues.labeled``). Used by the
     # completion watcher to gate the close-on-success incomplete check to the
-    # ``orchestration:dispatch`` clause only (other labels don't close the issue).
+    # clauses that close the issue on success (``orchestration:dispatch`` and
+    # ``gh-issue-tracking:direct-body``); other labels don't close the issue.
     trigger_label = str((payload.get("label") or {}).get("name") or "").strip() or None
     return DispatchContext(
         repo_full_name=repo_full,

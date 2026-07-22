@@ -603,18 +603,23 @@ def _run_completion_watcher(
     # exactly this — exit 0, real tools used, but the workflow was abandoned
     # partway and Issue #1 stayed open with no comment.
     #
-    # The close-on-success contract is ONLY part of the ``orchestration:dispatch``
-    # prompt clause (it closes the triggering issue). Other dispatched labels
-    # (``orchestration:plan-approved``, ``epic-ready``, …) succeed by creating an
-    # epic and ``skip to ##Final`` without closing the issue, so probing their
-    # state would false-positive. Gate the check on the dispatch label.
-    _DISPATCH_LABEL = "orchestration:dispatch"
+    # The close-on-success contract applies to every prompt clause that closes
+    # the triggering issue on success and publishes work with best-effort steps
+    # that leave the issue open on push/PR failure — currently
+    # ``orchestration:dispatch`` and ``gh-issue-tracking:direct-body``. Other
+    # labels (``orchestration:plan-approved``, ``epic-ready``, …) succeed by
+    # creating an epic and skip to ##Final WITHOUT closing the issue, so
+    # probing their state would false-positive. Gate the check on that label
+    # set.
+    _CLOSE_ON_SUCCESS_LABELS = frozenset(
+        {"orchestration:dispatch", "gh-issue-tracking:direct-body"}
+    )
     incomplete = False
     if (
         not failed
         and not zero_work
         and dispatch_ctx is not None
-        and (dispatch_ctx.trigger_label or "").lower() == _DISPATCH_LABEL
+        and (dispatch_ctx.trigger_label or "").lower() in _CLOSE_ON_SUCCESS_LABELS
     ):
         if not _dispatch_issue_closed(dispatch_ctx):
             incomplete = True
