@@ -76,8 +76,12 @@
   },
   "permission": {
     "external_directory": {
+      // Recursive glob required: subagents write temp artifacts under
+      // /tmp/kilo/<repo>/… (multi-segment). A bare `/tmp/*` (single segment)
+      // did NOT match, so opencode defaulted to `ask` and deadlocked headless
+      // runs with no human to approve the prompt. `**` matches at any depth.
       "*": "deny",
-      "/tmp/*": "allow"
+      "/tmp/**": "allow"
     },
     "mcp_tool": {
       "sequential-thinking:sequentialthinking": "allow",
