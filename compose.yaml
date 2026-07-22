@@ -36,9 +36,13 @@ services:
       # runner.py and beads_loop.py both write here (Path(tempfile.gettempdir())/"orchestrator-webhook").
       - ${WEBHOOK_LOG_DIR:-./traces/runner}:/tmp/orchestrator-webhook
       # Read-only mount of the opencode server log (written by
-      # orchestratorservice). Lets the idle watchdog detect server-side agent
-      # activity during subagent delegation, when the client stdout goes silent.
-      - opencode-logs:/home/app/.local/share/opencode/log:ro
+      # orchestratorservice) at a path that does NOT collide with the opencode
+      # client's own data dir. The client also writes ~/.local/share/opencode/
+      # log/opencode.log, so mounting the shared server log over that exact path
+      # read-only made the client's FileSystem.open fail ("Read-only file
+      # system") and crash on startup. Mounting elsewhere lets the watchdog
+      # read the server log while the client keeps a writable log of its own.
+      - opencode-logs:/var/log/opencode-server:ro
     environment:
       - OS_WEBHOOK_SECRET=${OS_WEBHOOK_SECRET}
       - OPENCODE_SERVER_URL=http://orchestratorservice:4099
@@ -78,7 +82,7 @@ services:
       # secondary activity signal — if the client stdout is silent but the server
       # log is being written, the agent is actively working (e.g. subagent
       # delegation) and the kill is withheld.
-      - OPENCODE_SERVER_LOG_PATH=${OPENCODE_SERVER_LOG_PATH:-/home/app/.local/share/opencode/log/opencode.log}
+      - OPENCODE_SERVER_LOG_PATH=${OPENCODE_SERVER_LOG_PATH:-/var/log/opencode-server/opencode.log}
       - DASHBOARD_TOKEN=${DASHBOARD_TOKEN:-}
     depends_on:
       - orchestratorservice
