@@ -54,7 +54,7 @@ services:
       # verbatim with the orchestration token + --dangerously-skip-permissions,
       # so it is fail-closed when unset. The webhook payload's sender.login is
       # matched against this list (see filters.should_dispatch).
-      - DIRECT_BODY_ALLOWED_SENDERS=${DIRECT_BODY_ALLOWED_SENDERS:-nam20485}
+      - DIRECT_BODY_ALLOWED_SENDERS=${DIRECT_BODY_ALLOWED_SENDERS}
       - WEBHOOK_ENABLE_SIMULATOR=${WEBHOOK_ENABLE_SIMULATOR:-0}
       - BEADS_ENABLED=${BEADS_ENABLED:-true}
       - BEADS_POLL_INTERVAL=${BEADS_POLL_INTERVAL:-10}
