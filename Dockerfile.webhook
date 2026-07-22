@@ -30,7 +30,7 @@ FROM debian:trixie-20260518-slim
 LABEL org.opencontainers.image.title=orchestrator-webhook
 
 ARG DEBIAN_FRONTEND=noninteractive
-ARG OPENCODE_VERSION=1.15.13
+ARG OPENCODE_VERSION=1.18.4
 ARG POWERSHELL_VERSION=7.6.2
 ARG APP_UID=1000
 ARG APP_GID=1000
