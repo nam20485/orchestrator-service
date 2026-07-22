@@ -6,7 +6,27 @@
   ],
   "default_agent": "orchestrator",
   "model": "zai-coding-plan/glm-5.2",
-  "small_model": "google/gemini-3.5-flash",
+  "small_model": "zai-coding-plan/glm-4.5-air",
+  "agent": {
+    // Subagent model + reasoning-effort overrides (best-effort). The
+    // orchestrator is intentionally OMITTED: it receives model+variant from
+    // the dispatch CLI (--model zai-coding-plan/glm-5.2 --variant max), the
+    // reliable session-level path that must not be downgraded. NOTE opencode
+    // issue #27790: same-model agents with different per-agent variants may
+    // not reliably preserve the variant at runtime (can bleed to the session
+    // default "max"); if so, subagents simply run at "max" — acceptable.
+    "developer":                 { "model": "zai-coding-plan/glm-5.2", "variant": "high" },
+    "code-reviewer":             { "model": "zai-coding-plan/glm-5.2", "variant": "high" },
+    "debugger":                  { "model": "zai-coding-plan/glm-5.2", "variant": "high" },
+    "documentation-expert":      { "model": "zai-coding-plan/glm-5.2", "variant": "high" },
+    "github-expert":             { "model": "zai-coding-plan/glm-5.2", "variant": "high" },
+    "odbplusplus-expert":        { "model": "zai-coding-plan/glm-5.2", "variant": "high" },
+    "planner":                   { "model": "zai-coding-plan/glm-5.2", "variant": "high" },
+    "qa-test-engineer":          { "model": "zai-coding-plan/glm-5.2", "variant": "high" },
+    "researcher":                { "model": "zai-coding-plan/glm-5.2", "variant": "high" },
+    "security-expert":           { "model": "zai-coding-plan/glm-5.2", "variant": "high" },
+    "agent-instructions-expert": { "model": "zai-coding-plan/glm-5.2", "variant": "high" }
+  },
   "mcp": {
     "sequential-thinking": {
       "type": "local",
@@ -78,7 +98,7 @@
     "zai-coding-plan": {
       "models": {
         "glm-5.2": {
-          "name": "GLM 5.2",
+          "name": "GLM 5.2"
         },
         "glm-4.7": {
           "name": "GLM 4.7",

@@ -54,8 +54,8 @@ scope: repository
   </template_usage>
 
   <tech_stack>
-    <item>opencode CLI — agent runtime (`opencode --model zai-coding-plan/glm-5 --agent orchestrator`)</item>
-    <item>Z.AI GLM models (`glm-5`, `glm-4.7`, `glm-4.7-flash`) via `ZAI_CODING_API_KEY`</item>
+    <item>opencode CLI — agent runtime (`opencode --model zai-coding-plan/glm-5.2 --variant max --agent orchestrator`)</item>
+    <item>Z.AI GLM models (`glm-5.2` default, `glm-5`, `glm-5.1`, `glm-4.7`, `glm-4.5-air`) via `ZAI_CODING_API_KEY`</item>
     <item>Google Gemini models (`gemini-3.1-pro-preview`, `gemini-3.1-flash-lite-preview`, etc.) via `GEMINI_API_KEY`</item>
     <item>GitHub Actions — workflow trigger and runner; prebuilt devcontainer from `<org>/orchestrator-service-prebuild`</item>
     <item>.NET SDK 10 + Aspire + Avalonia templates, Bun, uv (all in devcontainer, sourced from external prebuild image)</item>
@@ -79,7 +79,7 @@ scope: repository
     <entry><path>scripts/start-opencode-server.sh</path><description>Guarded `opencode serve` bootstrapper used by the devcontainer lifecycle and workflow attach path. Uses `setsid` to survive devcontainer exec session teardown.</description></entry>
     <entry><path>scripts/devcontainer-opencode.sh</path><description>Primary CLI wrapper for devcontainer-based orchestration. Supports subcommands for one-shot prompt execution and server attach mode. Used by the `orchestrator-agent` workflow.</description></entry>
     <entry><path>scripts/assemble-orchestrator-prompt.sh</path><description>Assembles the orchestrator prompt from the template, event context, and event JSON. Writes to `.assembled-orchestrator-prompt.md`.</description></entry>
-    <entry><path>run_opencode_prompt.sh</path><description>Root-level script — validates API keys, exports `GH_TOKEN`/`GITHUB_TOKEN`/`GITHUB_PERSONAL_ACCESS_TOKEN` from `GH_ORCHESTRATION_AGENT_TOKEN`, and invokes `opencode run --model zai-coding-plan/glm-5 --agent orchestrator` in server attach mode.</description></entry>
+    <entry><path>run_opencode_prompt.sh</path><description>Root-level script — validates API keys, exports `GH_TOKEN`/`GITHUB_TOKEN`/`GITHUB_PERSONAL_ACCESS_TOKEN` from `GH_ORCHESTRATION_AGENT_TOKEN`, and invokes `opencode run --model zai-coding-plan/glm-5.2 --variant max --agent orchestrator` in server attach mode.</description></entry>
     <!-- Tests -->
     <entry><path>test/</path><description>Test suite — shell scripts (`bash`) and Pester (`pwsh`) tests: devcontainer tool availability, prompt assembly, image tag logic, opencode run/server, watchdog IO detection, and workflow/agent validation.</description></entry>
     <entry><path>test/fixtures/</path><description>Sample webhook payloads for local testing (issues-opened, pr-opened, pr-review-submitted, etc.) and prompt fixtures.</description></entry>
@@ -450,7 +450,7 @@ scope: repository
     </system_utilities>
 
     <cli_tools>
-      <tool name="opencode" version="1.15.13">OpenCode CLI — server runs `opencode serve`; agents defined under `.opencode/agents/`.</tool>
+      <tool name="opencode" version="1.18.4">OpenCode CLI — server runs `opencode serve`; agents defined under `.opencode/agents/`.</tool>
       <tool name="gh">GitHub CLI — issues, PRs, repos, Actions. Authenticate with `GH_ORCHESTRATION_AGENT_TOKEN` / `GITHUB_TOKEN` from compose env.</tool>
     </cli_tools>
 

@@ -57,6 +57,11 @@ class Settings:
     beads_poll_interval: int
     beads_max_retries: int
     beads_workspace_root: str
+    # Reasoning-effort variant passed to opencode via --variant (e.g. "max",
+    # "high", "minimal"). Sets the orchestrator session default; subagents may
+    # override per-agent via the opencode.json "agent" block. Empty string
+    # omits --variant entirely (uses the provider default).
+    variant: str = "max"
     # Shared secret required to access the dashboard UI and APIs. When unset
     # (default) the entire dashboard surface is disabled and returns 404, so
     # the receiver cannot leak beads data through the proxy by default.
@@ -104,7 +109,8 @@ class Settings:
                 os.environ.get("PROMPT_SCRIPT", str(_default_prompt_script()))
             ).resolve(),
             workspace=os.environ.get("ORCHESTRATOR_WORKSPACE", "/workspace"),
-            model=os.environ.get("OPENCODE_MODEL", "zai-coding-plan/glm-5"),
+            model=os.environ.get("OPENCODE_MODEL", "zai-coding-plan/glm-5.2"),
+            variant=os.environ.get("OPENCODE_VARIANT", "max"),
             agent=os.environ.get("OPENCODE_AGENT", "orchestrator"),
             max_payload_chars=int(
                 os.environ.get("WEBHOOK_MAX_PAYLOAD_CHARS", "120000")

@@ -65,6 +65,7 @@ def test_base_args_builds_correct_pwsh_args() -> None:
         workspace="/ws",
         model="m",
         agent="a",
+        variant="high",
     )
     args = _base_args(settings)
     assert "-ServerUrl" in args
@@ -75,6 +76,8 @@ def test_base_args_builds_correct_pwsh_args() -> None:
     assert "m" in args
     assert "-Agent" in args
     assert "a" in args
+    assert "-Variant" in args
+    assert "high" in args
 
 
 # ── _prompt_script_invocation ─────────────────────────────────────────────
