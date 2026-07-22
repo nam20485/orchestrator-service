@@ -86,11 +86,13 @@ class Settings:
     max_consecutive_errors: int = 5
     watchdog_debug: bool = False
     # Path to the opencode server's log file, shared via the opencode-logs
-    # volume (see compose.yaml). The watchdog checks this file's mtime as a
-    # secondary activity signal: if the client stdout is silent (blocked on a
-    # subagent delegation) but the server log is being actively written, the
-    # agent is working and the kill is withheld. Empty string disables the
-    # signal (falls back to client-only monitoring).
+    # volume (see compose.yaml). The watchdog treats it as a per-dispatch
+    # activity signal by tracking byte growth since the run started: if the
+    # client stdout is silent (blocked on a subagent delegation) but the server
+    # log keeps growing, the agent is working and the kill is withheld. A
+    # non-growing or pre-existing log does not reset the idle clock, so it
+    # cannot mask a stuck run the way a global mtime check would. Empty string
+    # disables the signal (falls back to client-only monitoring).
     server_log_path: str = "/home/app/.local/share/opencode/log/opencode.log"
     # Directory runner.py / beads_loop.py / dashboard.py use for per-run logs,
     # run manifests, and the bvr pages bundle. Defaults to the in-container path

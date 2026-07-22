@@ -98,6 +98,65 @@ class WatchdogSnapshot:
     total_lines: int
 
 
+# ── Server-log activity monitor (scoped to the current dispatch) ────────────
+
+
+class _ServerLogMonitor:
+    """Tracks server-log growth scoped to a single dispatch.
+
+    The opencode server log (``/home/app/.local/share/opencode/log/opencode.log``)
+    is a SINGLE shared file written by every concurrent dispatch attaching to
+    the same server. A bare ``st_mtime`` check is therefore a *global* signal:
+    one busy session keeps ``server_log_idle`` near zero for every other
+    session, masking a genuinely stuck run until the hard ceiling fires.
+
+    This monitor scopes the signal to the current dispatch by treating the log
+    as active ONLY while it is **actively growing** — i.e. new bytes were
+    appended since the previous poll, beyond the byte offset present at this
+    dispatch's start. A log that was last written before the dispatch (or that
+    stopped growing) does NOT reset the idle clock, so a stuck run whose own
+    server is silent is still killed on idle. Only true ongoing server writes
+    (the subagent-delegation case the signal exists for) withhold the kill.
+
+    Residual limitation: two dispatches running truly concurrently against one
+    server share one growing file, so one actively-writing session can still
+    briefly mask another. That window is bounded by the hard ceiling and by the
+    fact that no single session writes continuously forever; full per-session
+    isolation would require opencode to emit per-session log markers.
+    """
+
+    def __init__(self, path: str, start_time: float) -> None:
+        self._path: Path | None = Path(path) if path else None
+        # Baseline byte offset at dispatch start: pre-existing content does not
+        # count as activity for this run.
+        self._pos = self._size_or_zero()
+        self._last_growth = start_time
+
+    def _size_or_zero(self) -> int:
+        try:
+            return self._path.stat().st_size if self._path is not None else 0
+        except OSError:
+            return 0  # missing/unreadable — treat as empty baseline
+
+    def idle_secs(self, now: float) -> float | None:
+        """Seconds since the server log last grew, or ``None`` if disabled.
+
+        ``None`` (disabled path empty, or file missing/inaccessible) makes the
+        caller fall back to client-only monitoring. A finite value is the
+        time since the most recent byte growth beyond this dispatch's baseline.
+        """
+        if self._path is None:
+            return None
+        try:
+            size = self._path.stat().st_size
+        except OSError:
+            return None
+        if size > self._pos:
+            self._pos = size
+            self._last_growth = now
+        return now - self._last_growth
+
+
 class WatchdogState:
     """Thread-safe activity state updated by stream readers, read by watchdog.
 
@@ -170,8 +229,10 @@ class WatchdogConfig:
     sigterm_grace_secs: int = 10
     debug: bool = False
     # Path to the opencode server's log file (shared via the opencode-logs
-    # volume). The watchdog checks its mtime as a secondary activity signal.
-    # Empty string disables the signal (falls back to client-only monitoring).
+    # volume). The watchdog treats the log as a per-dispatch activity signal by
+    # tracking byte growth since the run started: ongoing appends (subagent
+    # delegation) withhold an idle kill, while a non-growing log falls back to
+    # client-only monitoring. Empty string disables the signal.
     server_log_path: str = "/home/app/.local/share/opencode/log/opencode.log"
 
     @classmethod
@@ -251,6 +312,12 @@ class IdleWatchdog:
         self._state = state
         self._config = config
         self._stderr_path = stderr_path
+        # Server-log growth monitor scoped to THIS dispatch (see
+        # _ServerLogMonitor). Baseline is captured at watchdog start so
+        # pre-existing log content can't mask a stuck run.
+        self._server_monitor = _ServerLogMonitor(
+            config.server_log_path, state.start_time
+        )
 
     def run(self) -> WatchdogResult:
         """Main watchdog loop. Blocks until the process exits or is killed.
@@ -291,24 +358,17 @@ class IdleWatchdog:
             snap = self._state.snapshot()
             line_idle = now - snap.last_line_time
 
-            # ── Server-log mtime activity signal ──────────────────────────
+            # ── Server-log growth activity signal (dispatch-scoped) ───────
             # The opencode server (running in a separate container) writes
             # structured log entries during agent/subagent execution. When the
             # orchestrator delegates to a subagent, the client stdout goes
             # silent (the client blocks waiting for the server-side subagent),
-            # but the server log is actively written. Checking the server log's
-            # mtime gives the watchdog a second activity signal that prevents
-            # false-positive idle kills during subagent delegation.
-            server_log_idle: float | None = None
-            if cfg.server_log_path:
-                _server_log = Path(cfg.server_log_path)
-                try:
-                    # stat().st_mtime is epoch time (time.time domain), not
-                    # monotonic — compute idle in that domain, not with `now`.
-                    _log_mtime = _server_log.stat().st_mtime
-                    server_log_idle = time.time() - _log_mtime
-                except OSError:
-                    server_log_idle = None  # file missing or inaccessible
+            # but the server log grows. Checking whether the log has grown
+            # since the last poll gives the watchdog a per-dispatch activity
+            # signal that prevents false-positive idle kills during subagent
+            # delegation — without the global-mtime masking problem (a busy
+            # unrelated session only counts while it is actively appending).
+            server_log_idle: float | None = self._server_monitor.idle_secs(now)
 
             # Effective idle = whichever signal is MORE RECENT (lower idle).
             # If either the client stdout OR the server log shows recent

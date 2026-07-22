@@ -23,6 +23,7 @@ from webhook_receiver.watchdog import (
     SignalKind,
     WatchdogConfig,
     WatchdogState,
+    _ServerLogMonitor,
     classify_line,
 )
 
@@ -407,15 +408,16 @@ class TestIdleWatchdogDiagnostics:
         assert "line three" in log_text
 
 
-# ── Server-log mtime activity signal ─────────────────────────────────────
+# ── Server-log growth activity signal (dispatch-scoped) ──────────────────
 
 
 class TestServerLogActivitySignal:
     """Tests for the server-log mtime secondary activity signal.
 
     When the opencode client stdout goes silent during subagent delegation,
-    the server log continues to be written. The watchdog checks the server
-    log's mtime as a secondary signal to avoid false-positive idle kills.
+    the server log continues to grow. The watchdog checks whether the log has
+    grown since the previous poll as a dispatch-scoped signal to avoid
+    false-positive idle kills.
     """
 
     @patch("webhook_receiver.watchdog.os.killpg")
@@ -424,13 +426,18 @@ class TestServerLogActivitySignal:
         self,
         mock_getpgid: MagicMock,
         mock_killpg: MagicMock,
-        tmp_path: Path,
     ) -> None:
-        """Server log recently written → kill withheld even if client is idle."""
-        server_log = tmp_path / "opencode.log"
-        server_log.write_text("recent server entry\n", encoding="utf-8")
+        """Server log actively growing → kill withheld even if client is idle.
 
-        proc = _mock_proc(returncode=0)  # exits on its own eventually
+        The growth signal is dispatch-scoped: a monitor reporting ongoing
+        growth (subagent delegation) resets effective_idle to ~0 so the idle
+        timeout does not fire, even with a long-silent client. Contrast with
+        test_server_log_stale_allows_kill where growth stops → kill fires.
+        """
+        proc = _mock_proc(returncode=None)
+        proc.returncode = 0
+        # First poll: process running (idle check runs). Second poll: exits.
+        proc.poll.side_effect = [None, 0]
         mock_getpgid.return_value = 12345
 
         state = WatchdogState(time.monotonic() - 1000)
@@ -440,16 +447,21 @@ class TestServerLogActivitySignal:
             idle_timeout_secs=1,  # would kill on client idle alone
             hard_ceiling_secs=None,
             poll_interval_secs=0,
-            server_log_path=str(server_log),
+            server_log_path="/dev/null",  # path present; monitor overridden
         )
         wd = IdleWatchdog(proc, state, cfg)
+        # Inject a monitor reporting continuous growth (active server writes).
+        monitor = MagicMock()
+        monitor.idle_secs.return_value = 0.0
+        wd._server_monitor = monitor
 
         result = wd.run()
 
-        # Server log mtime is recent → effective_idle is low → no kill.
-        # Process exits on its own.
+        # Growing server log → effective_idle ~0 < threshold → no idle kill.
+        # Process then exits on its own.
         assert result.killed is False
         assert result.reason == REASON_PROCESS_EXIT
+        mock_killpg.assert_not_called()
 
     @patch("webhook_receiver.watchdog.os.killpg")
     @patch("webhook_receiver.watchdog.os.getpgid")
@@ -549,3 +561,61 @@ class TestServerLogActivitySignal:
 
         assert result.killed is True
         assert result.reason == REASON_IDLE_TIMEOUT
+
+
+# ── _ServerLogMonitor: dispatch-scoped growth tracking ────────────────────
+
+
+class TestServerLogMonitor:
+    """Unit tests for the per-dispatch server-log growth monitor.
+
+    The monitor converts the shared server log into a dispatch-scoped activity
+    signal: the log is "active" only while new bytes are appended beyond the
+    baseline present at this dispatch's start. This prevents a globally busy
+    log (or a stale pre-dispatch log) from masking a genuinely stuck run.
+    """
+
+    def test_no_growth_accrues_idle(self, tmp_path: Path) -> None:
+        log = tmp_path / "opencode.log"
+        log.write_text("baseline\n", encoding="utf-8")
+        start = time.monotonic()
+        mon = _ServerLogMonitor(str(log), start)
+        # Same size on the next poll → no growth → idle accrues from start.
+        assert mon.idle_secs(start + 5) == 5
+        assert mon.idle_secs(start + 12) == 12
+
+    def test_growth_resets_idle(self, tmp_path: Path) -> None:
+        log = tmp_path / "opencode.log"
+        log.write_text("baseline\n", encoding="utf-8")
+        start = time.monotonic()
+        mon = _ServerLogMonitor(str(log), start)
+        assert mon.idle_secs(start + 5) == 5
+        # Append bytes (server activity, e.g. subagent delegation).
+        log.write_text("baseline\nnew server entry\n", encoding="utf-8")
+        assert mon.idle_secs(start + 10) == 0  # grew → reset
+        # No further growth → idle accrues from the last growth time.
+        assert mon.idle_secs(start + 25) == 15  # 25 - 10
+
+    def test_pre_existing_content_excluded(self, tmp_path: Path) -> None:
+        # Content present before the dispatch must NOT count as activity.
+        log = tmp_path / "opencode.log"
+        log.write_text("x" * 500, encoding="utf-8")
+        start = time.monotonic()
+        mon = _ServerLogMonitor(str(log), start)
+        assert mon.idle_secs(start + 3) == 3  # baseline excluded, no growth
+
+    def test_missing_file_returns_none(self, tmp_path: Path) -> None:
+        mon = _ServerLogMonitor(str(tmp_path / "nope.log"), time.monotonic())
+        assert mon.idle_secs(time.monotonic()) is None
+
+    def test_file_disappears_mid_run_returns_none(self, tmp_path: Path) -> None:
+        log = tmp_path / "opencode.log"
+        log.write_text("x", encoding="utf-8")
+        start = time.monotonic()
+        mon = _ServerLogMonitor(str(log), start)
+        log.unlink()  # file removed (e.g. log rotation) → fall back to client
+        assert mon.idle_secs(start + 1) is None
+
+    def test_empty_path_is_disabled(self) -> None:
+        mon = _ServerLogMonitor("", time.monotonic())
+        assert mon.idle_secs(time.monotonic()) is None
