@@ -7,6 +7,7 @@
 	"settings": {
 		"python.languageServer": "None",
 		"markdown.validate.enabled": true,
-		"python.analysis.typeCheckingMode": "off"
+		"python.analysis.typeCheckingMode": "off",
+		"python.defaultInterpreterPath": ".venv/bin/python"
 	}
 }
