@@ -121,6 +121,23 @@ def test_should_dispatch_allows_each_workflow_label() -> None:
         "orchestration:dispatch",
         "implementation:ready",
         "implementation:complete",
+        # gh-issue-tracking: dispatch-trigger prefix — every state label maps
+        # to a match clause in orchestration_prompt.jinja2.md.
+        "gh-issue-tracking:direct-body",
+        "gh-issue-tracking:init-success",
+    ):
+        allow, _ = filters.should_dispatch("issues", _labeled(label=label))
+        assert allow is True, label
+
+
+def test_should_dispatch_allows_gh_issue_tracking_prefix() -> None:
+    # The entire gh-issue-tracking: namespace is a dispatch-trigger space;
+    # future state-suffixed labels must dispatch without a code change.
+    for label in (
+        "gh-issue-tracking:direct-body",
+        "gh-issue-tracking:init-success",
+        "gh-issue-tracking:some-future-state",
+        "GH-ISSUE-TRACKING:Direct-Body",
     ):
         allow, _ = filters.should_dispatch("issues", _labeled(label=label))
         assert allow is True, label
