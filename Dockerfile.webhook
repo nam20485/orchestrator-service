@@ -96,6 +96,15 @@ RUN HOME=/home/app git config --global user.name "orchestrator-bot" \
 # Ensure the app user owns its home directory (installers wrote as root)
 RUN chown -R app:app /home/app
 
+# Pre-create the opencode XDG data dir so the opencode-logs named volume
+# (mounted at .../opencode/log by compose.yaml) doesn't create a root-owned
+# parent. Docker creates mount-point parents as root:root when the path is
+# absent from the image; the app user (gosu drop) then can't mkdir siblings
+# like repos/ (EACCES errno -13) when the opencode client initializes.
+RUN mkdir -p /home/app/.local/share/opencode/log \
+    && mkdir -p /home/app/.local/share/opencode/repos \
+    && chown -R app:app /home/app/.local/share/opencode
+
 # Beads ecosystem binaries (br + bvr) from the Rust builder stage. In
 # docker-publish.yml this stage is overridden with the published GHCR beads
 # image so Rust is compiled once.
