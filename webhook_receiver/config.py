@@ -85,6 +85,13 @@ class Settings:
     watchdog_poll_secs: int = 30
     max_consecutive_errors: int = 5
     watchdog_debug: bool = False
+    # Path to the opencode server's log file, shared via the opencode-logs
+    # volume (see compose.yaml). The watchdog checks this file's mtime as a
+    # secondary activity signal: if the client stdout is silent (blocked on a
+    # subagent delegation) but the server log is being actively written, the
+    # agent is working and the kill is withheld. Empty string disables the
+    # signal (falls back to client-only monitoring).
+    server_log_path: str = "/home/app/.local/share/opencode/log/opencode.log"
     # Directory runner.py / beads_loop.py / dashboard.py use for per-run logs,
     # run manifests, and the bvr pages bundle. Defaults to the in-container path
     # covered by the compose bind mount; tests override it with a tmp dir.
@@ -149,4 +156,8 @@ class Settings:
             .strip()
             .lower()
             in ("1", "true", "yes"),
+            server_log_path=os.environ.get(
+                "OPENCODE_SERVER_LOG_PATH",
+                "/home/app/.local/share/opencode/log/opencode.log",
+            ),
         )

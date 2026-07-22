@@ -8,10 +8,11 @@ Covers:
 """
 from __future__ import annotations
 
+import signal
 import subprocess
 import time
 from pathlib import Path
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from webhook_receiver.watchdog import (
     REASON_CONSECUTIVE_ERRORS,
@@ -212,12 +213,17 @@ class TestIdleWatchdogProcessExit:
 
 
 class TestIdleWatchdogIdleTimeout:
-    def test_idle_timeout_kills_process(self) -> None:
+    @patch("webhook_receiver.watchdog.os.killpg")
+    @patch("webhook_receiver.watchdog.os.getpgid")
+    def test_idle_timeout_kills_process(
+        self, mock_getpgid: MagicMock, mock_killpg: MagicMock
+    ) -> None:
         """When no lines arrive for IDLE_TIMEOUT_SECS, the watchdog kills."""
         proc = _mock_proc(returncode=None)
-        # After terminate(), poll() returns -15 (SIGTERM).
+        # After killpg(), poll() returns -15 (SIGTERM).
         proc.returncode = -15
         proc.poll.side_effect = [None, -15]
+        mock_getpgid.return_value = 12345
         state = WatchdogState(time.monotonic() - 1000)  # 1000s ago = already idle
         # Set last_line_time far in the past so line_idle > idle_timeout.
         state._last_line_time = time.monotonic() - 1000
@@ -225,6 +231,7 @@ class TestIdleWatchdogIdleTimeout:
             idle_timeout_secs=1,
             hard_ceiling_secs=None,
             poll_interval_secs=0,
+            server_log_path="",  # disable server-log signal
         )
         wd = IdleWatchdog(proc, state, cfg)
 
@@ -232,15 +239,20 @@ class TestIdleWatchdogIdleTimeout:
 
         assert result.killed is True
         assert result.reason == REASON_IDLE_TIMEOUT
-        proc.terminate.assert_called_once()
+        mock_killpg.assert_called_once_with(12345, signal.SIGTERM)
 
 
 class TestIdleWatchdogHardCeiling:
-    def test_hard_ceiling_kills_regardless_of_activity(self) -> None:
+    @patch("webhook_receiver.watchdog.os.killpg")
+    @patch("webhook_receiver.watchdog.os.getpgid")
+    def test_hard_ceiling_kills_regardless_of_activity(
+        self, mock_getpgid: MagicMock, mock_killpg: MagicMock
+    ) -> None:
         """Even with recent activity, the hard ceiling fires unconditionally."""
         proc = _mock_proc(returncode=None)
         proc.returncode = -15
         proc.poll.side_effect = [None, -15]
+        mock_getpgid.return_value = 12345
 
         state = WatchdogState(time.monotonic() - 100)
         state.record_line("recent line")  # not idle
@@ -259,11 +271,16 @@ class TestIdleWatchdogHardCeiling:
 
 
 class TestIdleWatchdogConsecutiveErrors:
-    def test_consecutive_errors_kill_process(self) -> None:
+    @patch("webhook_receiver.watchdog.os.killpg")
+    @patch("webhook_receiver.watchdog.os.getpgid")
+    def test_consecutive_errors_kill_process(
+        self, mock_getpgid: MagicMock, mock_killpg: MagicMock
+    ) -> None:
         """When MAX_CONSECUTIVE_ERRORS error lines arrive, the watchdog kills."""
         proc = _mock_proc(returncode=None)
         proc.returncode = -15
         proc.poll.side_effect = [None, -15]
+        mock_getpgid.return_value = 12345
 
         state = WatchdogState(time.monotonic())
         # Simulate 5 consecutive error lines.
@@ -313,10 +330,15 @@ class TestIdleWatchdogConsecutiveErrors:
 
 
 class TestIdleWatchdogTermination:
-    def test_sigterm_then_sigkill_on_timeout(self) -> None:
+    @patch("webhook_receiver.watchdog.os.killpg")
+    @patch("webhook_receiver.watchdog.os.getpgid")
+    def test_sigterm_then_sigkill_on_timeout(
+        self, mock_getpgid: MagicMock, mock_killpg: MagicMock
+    ) -> None:
         """When SIGTERM doesn't cause exit within grace, SIGKILL is sent."""
         proc = _mock_proc(returncode=None)
         proc.pid = 999
+        mock_getpgid.return_value = 999
 
         # poll() sequence: running, then after terminate → still running,
         # then after kill → -9.
@@ -334,18 +356,30 @@ class TestIdleWatchdogTermination:
             hard_ceiling_secs=None,
             poll_interval_secs=0,
             sigterm_grace_secs=0,
+            server_log_path="",  # disable server-log signal
         )
         wd = IdleWatchdog(proc, state, cfg)
 
         result = wd.run()
 
         assert result.killed is True
-        proc.terminate.assert_called_once()
-        proc.kill.assert_called_once()
+        # SIGTERM sent first, then SIGKILL after grace timeout.
+        calls = mock_killpg.call_args_list
+        assert len(calls) == 2
+        assert calls[0].args == (999, signal.SIGTERM)
+        assert calls[1].args == (999, signal.SIGKILL)
 
 
 class TestIdleWatchdogDiagnostics:
-    def test_stderr_dumped_on_kill(self, tmp_path: Path, caplog) -> None:
+    @patch("webhook_receiver.watchdog.os.killpg")
+    @patch("webhook_receiver.watchdog.os.getpgid")
+    def test_stderr_dumped_on_kill(
+        self,
+        mock_getpgid: MagicMock,
+        mock_killpg: MagicMock,
+        tmp_path: Path,
+        caplog,
+    ) -> None:
         """Pre-termination diagnostics dump recent stderr lines."""
         stderr_file = tmp_path / "test.stderr"
         stderr_file.write_text("line one\nline two\nline three\n", encoding="utf-8")
@@ -353,6 +387,7 @@ class TestIdleWatchdogDiagnostics:
         proc = _mock_proc(returncode=None)
         proc.returncode = -15
         proc.poll.side_effect = [None, -15]
+        mock_getpgid.return_value = 12345
 
         state = WatchdogState(time.monotonic() - 1000)
         state._last_line_time = time.monotonic() - 1000
@@ -360,6 +395,7 @@ class TestIdleWatchdogDiagnostics:
             idle_timeout_secs=1,
             hard_ceiling_secs=None,
             poll_interval_secs=0,
+            server_log_path="",  # disable server-log signal
         )
         wd = IdleWatchdog(proc, state, cfg, stderr_path=stderr_file)
 
@@ -369,3 +405,147 @@ class TestIdleWatchdogDiagnostics:
         # The diagnostics should include the recent stderr lines.
         log_text = " ".join(r.getMessage() for r in caplog.records)
         assert "line three" in log_text
+
+
+# ── Server-log mtime activity signal ─────────────────────────────────────
+
+
+class TestServerLogActivitySignal:
+    """Tests for the server-log mtime secondary activity signal.
+
+    When the opencode client stdout goes silent during subagent delegation,
+    the server log continues to be written. The watchdog checks the server
+    log's mtime as a secondary signal to avoid false-positive idle kills.
+    """
+
+    @patch("webhook_receiver.watchdog.os.killpg")
+    @patch("webhook_receiver.watchdog.os.getpgid")
+    def test_server_log_active_withholds_kill(
+        self,
+        mock_getpgid: MagicMock,
+        mock_killpg: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """Server log recently written → kill withheld even if client is idle."""
+        server_log = tmp_path / "opencode.log"
+        server_log.write_text("recent server entry\n", encoding="utf-8")
+
+        proc = _mock_proc(returncode=0)  # exits on its own eventually
+        mock_getpgid.return_value = 12345
+
+        state = WatchdogState(time.monotonic() - 1000)
+        state._last_line_time = time.monotonic() - 1000  # client idle 1000s
+
+        cfg = WatchdogConfig(
+            idle_timeout_secs=1,  # would kill on client idle alone
+            hard_ceiling_secs=None,
+            poll_interval_secs=0,
+            server_log_path=str(server_log),
+        )
+        wd = IdleWatchdog(proc, state, cfg)
+
+        result = wd.run()
+
+        # Server log mtime is recent → effective_idle is low → no kill.
+        # Process exits on its own.
+        assert result.killed is False
+        assert result.reason == REASON_PROCESS_EXIT
+
+    @patch("webhook_receiver.watchdog.os.killpg")
+    @patch("webhook_receiver.watchdog.os.getpgid")
+    def test_server_log_stale_allows_kill(
+        self,
+        mock_getpgid: MagicMock,
+        mock_killpg: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """Both client AND server log stale → kill fires."""
+        server_log = tmp_path / "opencode.log"
+        server_log.write_text("old server entry\n", encoding="utf-8")
+        # Set mtime far in the past.
+        import os
+
+        old_time = time.time() - 10000
+        os.utime(server_log, (old_time, old_time))
+
+        proc = _mock_proc(returncode=None)
+        proc.returncode = -15
+        proc.poll.side_effect = [None, -15]
+        mock_getpgid.return_value = 12345
+
+        state = WatchdogState(time.monotonic() - 1000)
+        state._last_line_time = time.monotonic() - 1000
+
+        cfg = WatchdogConfig(
+            idle_timeout_secs=1,
+            hard_ceiling_secs=None,
+            poll_interval_secs=0,
+            server_log_path=str(server_log),
+        )
+        wd = IdleWatchdog(proc, state, cfg)
+
+        result = wd.run()
+
+        assert result.killed is True
+        assert result.reason == REASON_IDLE_TIMEOUT
+
+    @patch("webhook_receiver.watchdog.os.killpg")
+    @patch("webhook_receiver.watchdog.os.getpgid")
+    def test_server_log_missing_falls_back_to_client(
+        self,
+        mock_getpgid: MagicMock,
+        mock_killpg: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """Server log file missing → falls back to client-only (current behavior)."""
+        proc = _mock_proc(returncode=None)
+        proc.returncode = -15
+        proc.poll.side_effect = [None, -15]
+        mock_getpgid.return_value = 12345
+
+        state = WatchdogState(time.monotonic() - 1000)
+        state._last_line_time = time.monotonic() - 1000
+
+        cfg = WatchdogConfig(
+            idle_timeout_secs=1,
+            hard_ceiling_secs=None,
+            poll_interval_secs=0,
+            server_log_path=str(tmp_path / "nonexistent.log"),
+        )
+        wd = IdleWatchdog(proc, state, cfg)
+
+        result = wd.run()
+
+        # File doesn't exist → server_log_idle is None → effective_idle = line_idle
+        # → kill fires as before.
+        assert result.killed is True
+        assert result.reason == REASON_IDLE_TIMEOUT
+
+    @patch("webhook_receiver.watchdog.os.killpg")
+    @patch("webhook_receiver.watchdog.os.getpgid")
+    def test_server_log_disabled_falls_back_to_client(
+        self,
+        mock_getpgid: MagicMock,
+        mock_killpg: MagicMock,
+    ) -> None:
+        """Empty server_log_path → signal disabled, client-only monitoring."""
+        proc = _mock_proc(returncode=None)
+        proc.returncode = -15
+        proc.poll.side_effect = [None, -15]
+        mock_getpgid.return_value = 12345
+
+        state = WatchdogState(time.monotonic() - 1000)
+        state._last_line_time = time.monotonic() - 1000
+
+        cfg = WatchdogConfig(
+            idle_timeout_secs=1,
+            hard_ceiling_secs=None,
+            poll_interval_secs=0,
+            server_log_path="",  # disabled
+        )
+        wd = IdleWatchdog(proc, state, cfg)
+
+        result = wd.run()
+
+        assert result.killed is True
+        assert result.reason == REASON_IDLE_TIMEOUT

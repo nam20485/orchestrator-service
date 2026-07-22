@@ -32,7 +32,9 @@ post-mortem diagnosis without requiring debug mode.
 from __future__ import annotations
 
 import logging
+import os
 import re
+import signal
 import subprocess
 import threading
 import time
@@ -167,6 +169,10 @@ class WatchdogConfig:
     max_consecutive_errors: int = 5
     sigterm_grace_secs: int = 10
     debug: bool = False
+    # Path to the opencode server's log file (shared via the opencode-logs
+    # volume). The watchdog checks its mtime as a secondary activity signal.
+    # Empty string disables the signal (falls back to client-only monitoring).
+    server_log_path: str = "/home/app/.local/share/opencode/log/opencode.log"
 
     @classmethod
     def from_settings(cls, settings: object) -> WatchdogConfig:
@@ -183,6 +189,11 @@ class WatchdogConfig:
             poll_interval_secs=getattr(settings, "watchdog_poll_secs", 30),
             max_consecutive_errors=getattr(settings, "max_consecutive_errors", 5),
             debug=getattr(settings, "watchdog_debug", False),
+            server_log_path=getattr(
+                settings,
+                "server_log_path",
+                "/home/app/.local/share/opencode/log/opencode.log",
+            ),
         )
 
 
@@ -280,6 +291,33 @@ class IdleWatchdog:
             snap = self._state.snapshot()
             line_idle = now - snap.last_line_time
 
+            # ── Server-log mtime activity signal ──────────────────────────
+            # The opencode server (running in a separate container) writes
+            # structured log entries during agent/subagent execution. When the
+            # orchestrator delegates to a subagent, the client stdout goes
+            # silent (the client blocks waiting for the server-side subagent),
+            # but the server log is actively written. Checking the server log's
+            # mtime gives the watchdog a second activity signal that prevents
+            # false-positive idle kills during subagent delegation.
+            server_log_idle: float | None = None
+            if cfg.server_log_path:
+                _server_log = Path(cfg.server_log_path)
+                try:
+                    # stat().st_mtime is epoch time (time.time domain), not
+                    # monotonic — compute idle in that domain, not with `now`.
+                    _log_mtime = _server_log.stat().st_mtime
+                    server_log_idle = time.time() - _log_mtime
+                except OSError:
+                    server_log_idle = None  # file missing or inaccessible
+
+            # Effective idle = whichever signal is MORE RECENT (lower idle).
+            # If either the client stdout OR the server log shows recent
+            # activity, the process is not idle.
+            if server_log_idle is not None:
+                effective_idle = min(line_idle, server_log_idle)
+            else:
+                effective_idle = line_idle
+
             # ── 1. Hard ceiling (unconditional) ────────────────────────────
             if cfg.hard_ceiling_secs is not None and elapsed >= cfg.hard_ceiling_secs:
                 logger.warning(
@@ -333,11 +371,17 @@ class IdleWatchdog:
                     )
 
             # ── 3. Idle timeout ───────────────────────────────────────────
-            if line_idle >= cfg.idle_timeout_secs:
+            # Uses effective_idle (min of client line_idle and server log
+            # mtime idle) so a subagent actively working on the server does
+            # not trigger a false-positive kill.
+            if effective_idle >= cfg.idle_timeout_secs:
                 logger.warning(
-                    "[watchdog] IDLE TIMEOUT line_idle=%ds threshold=%ds "
+                    "[watchdog] IDLE TIMEOUT line_idle=%ds server_log_idle=%s "
+                    "effective_idle=%ds threshold=%ds "
                     "elapsed=%ds lines=%d — terminating",
                     int(line_idle),
+                    f"{int(server_log_idle)}s" if server_log_idle is not None else "n/a",
+                    int(effective_idle),
                     cfg.idle_timeout_secs,
                     int(elapsed),
                     snap.total_lines,
@@ -360,15 +404,33 @@ class IdleWatchdog:
             # (so a slow-but-working run is visible), or on every poll when
             # debug mode is on.
             if line_idle >= 60 or cfg.debug:
+                _sl_idle_str = (
+                    f"{int(server_log_idle)}s" if server_log_idle is not None else "n/a"
+                )
+                # When the server log is active but the client is idle, note
+                # that a subagent is likely running (the server is doing work
+                # that the client can't stream).
+                if (
+                    server_log_idle is not None
+                    and server_log_idle < cfg.poll_interval_secs
+                    and line_idle >= cfg.poll_interval_secs
+                ):
+                    _note = " — server active (subagent likely running)"
+                else:
+                    _note = ""
                 logger.info(
-                    "[watchdog] elapsed=%ds line_idle=%ds errors=%d/%d "
-                    "lines=%d pid=%s",
+                    "[watchdog] elapsed=%ds line_idle=%ds server_log_idle=%s "
+                    "effective_idle=%ds errors=%d/%d "
+                    "lines=%d pid=%s%s",
                     int(elapsed),
                     int(line_idle),
+                    _sl_idle_str,
+                    int(effective_idle),
                     snap.consecutive_errors,
                     cfg.max_consecutive_errors,
                     snap.total_lines,
                     self._proc.pid,
+                    _note,
                 )
 
             # Sleep until the next poll. Use a short sleep so we catch a
@@ -384,28 +446,36 @@ class IdleWatchdog:
     # ── Termination and diagnostics ───────────────────────────────────────
 
     def _terminate(self, reason: str) -> int:
-        """SIGTERM → grace → SIGKILL escalation, returning the exit code.
+        """SIGTERM → grace → SIGKILL escalation on the entire process group.
 
-        Mirrors the old system's proven sequence: send SIGTERM, wait up to
-        ``sigterm_grace_secs`` for graceful exit, then SIGKILL if still alive.
+        The runner spawns opencode with ``start_new_session=True``, making the
+        child a session/process-group leader. Sending signals to the process
+        *group* (not just the direct child PID) ensures that grandchild
+        processes (e.g. ``gh`` CLI calls spawned by subagents) are also
+        terminated, preventing orphaned processes from continuing to mutate
+        GitHub state after the watchdog kill.
         """
         proc = self._proc
         try:
-            proc.terminate()  # SIGTERM
+            pgid = os.getpgid(proc.pid)
         except ProcessLookupError:
-            # Already gone — race with natural exit.
-            pass
+            pgid = proc.pid  # already gone — fall back to direct PID
+
+        try:
+            os.killpg(pgid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass  # already gone — race with natural exit
 
         try:
             proc.wait(timeout=self._config.sigterm_grace_secs)
         except subprocess.TimeoutExpired:
             logger.warning(
-                "[watchdog] process did not exit after SIGTERM "
+                "[watchdog] process group did not exit after SIGTERM "
                 "(grace=%ds), sending SIGKILL",
                 self._config.sigterm_grace_secs,
             )
             try:
-                proc.kill()  # SIGKILL
+                os.killpg(pgid, signal.SIGKILL)
             except ProcessLookupError:
                 pass
             proc.wait()
