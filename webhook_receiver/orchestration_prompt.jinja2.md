@@ -295,6 +295,64 @@ case (type = issues &&
             - leave the issue open.
        }
 
+case (type = issues &&
+       action = labeled &&
+       labels contains: "gh-issue-tracking:direct-body")
+       {
+           ## Direct-body dispatch — triggered by the gh-issue-tracking:direct-body label.
+           ## Unlike orchestration:dispatch, NO workflow name is parsed and NO arguments
+           ## are extracted. The ENTIRE issue body is passed VERBATIM as a prompt, so an
+           ## issue carrying arbitrary commands/instructions can be dispatched by simply
+           ## labeling it. Nothing in the body is interpreted as workflow syntax.
+           - postStatusUpdate("🤖 Orchestrator matched `gh-issue-tracking:direct-body` clause. Running the issue body directly as a prompt...")
+           ## Link the issue to the project board early (best-effort) so it is tracked
+           ## even if the run fails mid-way (prevents orphaned issues). Discover the
+           ## project via `gh project list --owner <owner> --limit 5` and
+           ## `gh project item-add <num> --owner <owner> --url <issue-url>`. Skip
+           ## silently if no project is found or the add fails — this must not block the run.
+           - $body = the issue body from EVENT_DATA (e.g. `event.issue.body`).
+           - if $body is null or empty:
+             - postStatusUpdate("❌ Issue body is empty — nothing to run.")
+             - comment on the issue with an error explaining the body was empty, then skip to ##Final.
+            - postStatusUpdate("🤖 Running issue body directly as the prompt...")
+            ## Pass the body through UNCHANGED — it IS the prompt. Do NOT parse a workflow
+            ## name and do NOT wrap it in `$workflow_name = ...` syntax; just dispatch the
+            ## slash-commands or arbitrary instructions it contains, exactly as written.
+            - Run the issue body verbatim as the prompt:
+                $body
+            - if the body execution succeeds:
+              - postStatusUpdate("✅ Direct-body execution completed.")
+             ## PUBLISH & VERIFY — do NOT post "finished" or close until any work is
+             ## reachable on the remote. Local commits that are never pushed trap the
+             ## work inside the container. Mirror the orchestration:dispatch gate.
+             - Determine the working branch: `git rev-parse --abbrev-ref HEAD` in the project workspace.
+             - If the branch is the default branch (`main` or `master`): SKIP publish (never push to the default branch). Log a warning and proceed straight to the close step.
+             - Else if there is no `origin` remote (`git remote get-url origin` fails): SKIP publish. Log a warning that no remote is configured and proceed to the close step.
+             - Else:
+               - If `origin/<branch>` is absent OR `git log origin/<branch>..HEAD` is non-empty (there are unpushed commits): run `git push -u origin <branch>`.
+               - If push fails: postStatusUpdate("❌ Direct-body succeeded locally but `git push` failed. The work is not on the remote. Leaving the issue open for retry."), then leave the issue open and skip to ##Final.
+               - Verify a PR exists: `gh pr list --head <branch> --json number`.
+                 - If no PR exists: `gh pr create --head <branch> --title "direct-body: <summary>" --body "<derived from the issue>"`.
+                 - If PR creation fails: postStatusUpdate("❌ Branch pushed but `gh pr create` failed. Leaving the issue open for retry."), then leave the issue open and skip to ##Final.
+             - close the issue with a final postStatusUpdate("🏁 Direct-body dispatch complete — finished with no errors.") then close it.
+            - if the body execution fails:
+              - postStatusUpdate("❌ Direct-body execution failed. See details below:\n{summary of failure reason and any potential next steps}")
+             - leave the issue open.
+       }
+
+case (type = issues &&
+        action = labeled &&
+        labels contains: "gh-issue-tracking:init-success")
+        {
+          ## /gh-issue-tracking-init skill completed successfully — begin epic creation loop.
+          ## Label-driven: matches on `gh-issue-tracking:init-success` regardless of title format.
+          ## Human or delegating agent applies this label when the plan is reviewed and ready.
+
+          - postStatusUpdate("🤖 Orchestrator matched `gh-issue-tracking:init-success` clause. Scanning for next unimplemented story issue item...")
+
+          - postStatusUpdate("🤖 Orchestrator `gh-issue-tracking:init-success` clause. Finished (no implementation yet.)")
+        }
+
 case (default)
       {
         - postStatusUpdate("⚠️ Orchestrator: no clause matched for this event. Fell through to `(default)`. Event details printed to workflow log.")
