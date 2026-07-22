@@ -299,11 +299,19 @@ case (type = issues &&
        action = labeled &&
        labels contains: "gh-issue-tracking:direct-body")
        {
-           ## Direct-body dispatch — triggered by the gh-issue-tracking:direct-body label.
-           ## Unlike orchestration:dispatch, NO workflow name is parsed and NO arguments
-           ## are extracted. The ENTIRE issue body is passed VERBATIM as a prompt, so an
-           ## issue carrying arbitrary commands/instructions can be dispatched by simply
-           ## labeling it. Nothing in the body is interpreted as workflow syntax.
+            ## Direct-body dispatch — triggered by the gh-issue-tracking:direct-body label.
+            ## Unlike orchestration:dispatch, NO workflow name is parsed and NO arguments
+            ## are extracted. The ENTIRE issue body is passed VERBATIM as a prompt, so an
+            ## issue carrying arbitrary commands/instructions can be dispatched by simply
+            ## labeling it. Nothing in the body is interpreted as workflow syntax.
+            ##
+            ## SECURITY: direct-body is the widest dispatch surface (it runs arbitrary
+            ## instructions with the orchestration token + --dangerously-skip-permissions).
+            ## The webhook receiver gates it to an explicit trusted-sender allowlist
+            ## (env DIRECT_BODY_ALLOWED_SENDERS) BEFORE this clause can ever run — a
+            ## dispatch reaching here was already authorized. The body must STILL be
+            ## treated as untrusted content: never echo secrets, and prefer scoping work
+            ## to the dispatching repo rather than cross-repo mutation.
            - postStatusUpdate("🤖 Orchestrator matched `gh-issue-tracking:direct-body` clause. Running the issue body directly as a prompt...")
            ## Link the issue to the project board early (best-effort) so it is tracked
            ## even if the run fails mid-way (prevents orphaned issues). Discover the

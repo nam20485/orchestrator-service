@@ -111,7 +111,10 @@ def test_should_dispatch_rejects_non_workflow_labels() -> None:
         assert "label" in reason or "workflow" in reason
 
 
-def test_should_dispatch_allows_each_workflow_label() -> None:
+def test_should_dispatch_allows_each_workflow_label(monkeypatch) -> None:
+    # direct-body is gated to a trusted-sender allowlist; authorize the
+    # default sender so it passes here. Other labels are unrestricted.
+    monkeypatch.setenv("DIRECT_BODY_ALLOWED_SENDERS", "nam20485")
     for label in (
         "orchestration:plan-approved",
         "orchestration:epic-ready",
@@ -130,9 +133,11 @@ def test_should_dispatch_allows_each_workflow_label() -> None:
         assert allow is True, label
 
 
-def test_should_dispatch_allows_gh_issue_tracking_prefix() -> None:
+def test_should_dispatch_allows_gh_issue_tracking_prefix(monkeypatch) -> None:
     # The entire gh-issue-tracking: namespace is a dispatch-trigger space;
     # future state-suffixed labels must dispatch without a code change.
+    # direct-body still requires the trusted-sender allowlist (set below).
+    monkeypatch.setenv("DIRECT_BODY_ALLOWED_SENDERS", "nam20485")
     for label in (
         "gh-issue-tracking:direct-body",
         "gh-issue-tracking:init-success",
@@ -141,6 +146,48 @@ def test_should_dispatch_allows_gh_issue_tracking_prefix() -> None:
     ):
         allow, _ = filters.should_dispatch("issues", _labeled(label=label))
         assert allow is True, label
+
+
+# ── direct-body trusted-sender allowlist (security gate) ──────────────────
+
+
+def test_direct_body_rejected_by_default(monkeypatch) -> None:
+    """Fail-closed: with no allowlist configured, direct-body never dispatches."""
+    monkeypatch.delenv("DIRECT_BODY_ALLOWED_SENDERS", raising=False)
+    allow, reason = filters.should_dispatch(
+        "issues", _labeled(label="gh-issue-tracking:direct-body")
+    )
+    assert allow is False
+    assert "DIRECT_BODY_ALLOWED_SENDERS" in reason
+
+
+def test_direct_body_rejected_for_unlisted_sender(monkeypatch) -> None:
+    """An allowlist that excludes the sender blocks the dispatch."""
+    monkeypatch.setenv("DIRECT_BODY_ALLOWED_SENDERS", "trusted-admin")
+    allow, reason = filters.should_dispatch(
+        "issues",
+        _labeled(label="gh-issue-tracking:direct-body", sender="attacker"),
+    )
+    assert allow is False
+    assert "not permitted" in reason
+
+
+def test_direct_body_allowed_for_listed_sender(monkeypatch) -> None:
+    monkeypatch.setenv("DIRECT_BODY_ALLOWED_SENDERS", "trusted-admin, nam20485")
+    allow, _ = filters.should_dispatch(
+        "issues",
+        _labeled(label="gh-issue-tracking:direct-body", sender="nam20485"),
+    )
+    assert allow is True
+
+
+def test_direct_body_allowlist_is_case_insensitive(monkeypatch) -> None:
+    monkeypatch.setenv("DIRECT_BODY_ALLOWED_SENDERS", "Nam20485")
+    allow, _ = filters.should_dispatch(
+        "issues",
+        _labeled(label="GH-ISSUE-TRACKING:Direct-Body", sender="nam20485"),
+    )
+    assert allow is True
 
 
 def test_should_dispatch_label_is_case_insensitive() -> None:
