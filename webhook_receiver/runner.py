@@ -236,6 +236,8 @@ def _base_args(settings: Settings) -> list[str]:
         settings.model,
         "-Agent",
         settings.agent,
+        "-Variant",
+        settings.variant,
     ]
 
 

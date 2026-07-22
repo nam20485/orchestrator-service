@@ -10,10 +10,13 @@ param (
     $Workspace = "/workspace",
     [Parameter()]
     [String]
-    $Model = "zai-coding-plan/glm-5",
+    $Model = "zai-coding-plan/glm-5.2",
     [Parameter()]
     [String]
     $Agent = "orchestrator",
+    [Parameter()]
+    [String]
+    $Variant = "",
     [Parameter()]
     [String]
     $Format = "default",
@@ -71,14 +74,20 @@ $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $hostWorkspaceDir = Get-WorkspaceDirFromEnvOrDotEnv
 $Workspace = Resolve-ProjectWorkspace -Workspace $Workspace -Project $Project -HostWorkspaceDir $hostWorkspaceDir
 
-opencode run `
-    --attach $ServerUrl `
-    --dir $Workspace `
-    --model $Model `
-    --agent $Agent `
-    --thinking $Thinking `
-    --dangerously-skip-permissions $DangerouslySkipPermissions `
-    --format $Format `
-    --print-logs $PrintLogs `
-    --log-level $LogLevel `
-    $Prompt
+$runArgs = @(
+    "run",
+    "--attach", $ServerUrl,
+    "--dir",    $Workspace,
+    "--model",  $Model,
+    "--agent",  $Agent,
+    "--thinking", $Thinking,
+    "--dangerously-skip-permissions", $DangerouslySkipPermissions,
+    "--format", $Format,
+    "--print-logs", $PrintLogs,
+    "--log-level", $LogLevel
+)
+if ($Variant) {
+    $runArgs += @("--variant", $Variant)
+}
+$runArgs += $Prompt
+opencode @runArgs
