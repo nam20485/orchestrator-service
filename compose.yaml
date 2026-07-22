@@ -48,6 +48,21 @@ services:
       # stuck tool from stalling the pipeline indefinitely (e.g. a subagent
       # deadlocked on an unanswerable external_directory ask). 2700s = 45 min.
       - DISPATCH_TIMEOUT_SECS=${DISPATCH_TIMEOUT_SECS:-2700}
+      # ── Idle watchdog ───────────────────────────────────────────────────
+      # The watchdog monitors dispatched runs for activity and kills them on
+      # idle, consecutive errors, or hard ceiling. See webhook_receiver/watchdog.py.
+      # IDLE_TIMEOUT_SECS: kill after no stdout/stderr output for this long.
+      - IDLE_TIMEOUT_SECS=${IDLE_TIMEOUT_SECS:-900}
+      # ERROR_GRACE_SECS: grace window for consecutive-error bursts.
+      - ERROR_GRACE_SECS=${ERROR_GRACE_SECS:-300}
+      # HARD_CEILING_SECS: absolute maximum runtime (falls back to DISPATCH_TIMEOUT_SECS).
+      - HARD_CEILING_SECS=${HARD_CEILING_SECS:-5400}
+      # WATCHDOG_POLL_SECS: watchdog polling interval.
+      - WATCHDOG_POLL_SECS=${WATCHDOG_POLL_SECS:-30}
+      # MAX_CONSECUTIVE_ERRORS: abort after N consecutive error lines.
+      - MAX_CONSECUTIVE_ERRORS=${MAX_CONSECUTIVE_ERRORS:-5}
+      # WATCHDOG_DEBUG: emit heartbeats even when process is active.
+      - WATCHDOG_DEBUG=${WATCHDOG_DEBUG:-false}
       - DASHBOARD_TOKEN=${DASHBOARD_TOKEN:-}
     depends_on:
       - orchestratorservice
