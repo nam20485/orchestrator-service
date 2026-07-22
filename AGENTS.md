@@ -199,6 +199,7 @@ Use orchestration agents to **decompose and delegate** work instead of implement
 - Always make the smallest, most surgical change possible.
 - Only make changes that are necessary to fix the issue at hand.
 - Ignore areas not relevant to the current task.
+- **Bash tool: never use heredocs (`<<'EOF'`)** — the tool-parameter JSON serializer cannot handle literal `<` characters. For multi-line commit messages or any multi-line string, use a plain double-quoted string with embedded newlines: `git commit -m "first line\n\nsecond line"`. For multi-line file writes, use the `write` tool instead.
 
 ## Investigation
 
