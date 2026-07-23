@@ -1,6 +1,6 @@
 # LLM Client Subagents
 
-This project uses a shared set of 11 specialist subagents for targeted delegation and automation-first workflows. The same agent names and roles are deployed across all compatible LLM coding clients.
+This project uses a shared set of 9 specialist subagents for targeted delegation and automation-first workflows. The same agent names and roles are deployed across all compatible LLM coding clients.
 
 ## Source and Deployment
 
@@ -44,8 +44,6 @@ Agent names and roles are consistent across all clients. Each client resolves ag
 ### Specialized
 
 - github-expert — GitHub platform features, APIs, and integrations.
-- security-expert — Threat modeling, secrets hygiene, dependency risk.
-- debugger — Repro steps, minimal failing tests, fix validation.
 - documentation-expert — Writes developer and user docs, quickstarts, and runbooks.
 - odbplusplus-expert — ODB++ specification and OdbDesign codebase specialist.
 
