@@ -17,14 +17,12 @@
     // default "max"); if so, subagents simply run at "max" — acceptable.
     "developer":                 { "model": "zai-coding-plan/glm-5.2", "variant": "high" },
     "code-reviewer":             { "model": "zai-coding-plan/glm-5.2", "variant": "high" },
-    "debugger":                  { "model": "zai-coding-plan/glm-5.2", "variant": "high" },
     "documentation-expert":      { "model": "zai-coding-plan/glm-5.2", "variant": "high" },
     "github-expert":             { "model": "zai-coding-plan/glm-5.2", "variant": "high" },
     "odbplusplus-expert":        { "model": "zai-coding-plan/glm-5.2", "variant": "high" },
     "planner":                   { "model": "zai-coding-plan/glm-5.2", "variant": "high" },
     "qa-test-engineer":          { "model": "zai-coding-plan/glm-5.2", "variant": "high" },
-    "researcher":                { "model": "zai-coding-plan/glm-5.2", "variant": "high" },
-    "security-expert":           { "model": "zai-coding-plan/glm-5.2", "variant": "high" }
+    "researcher":                { "model": "zai-coding-plan/glm-5.2", "variant": "high" }
   },
   "mcp": {
     "sequential-thinking": {
