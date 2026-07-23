@@ -16,9 +16,10 @@ tools:
   webfetch: true
 permission:
   bash: deny
-  # Headless: allow scratch under /tmp (body files, driver scripts); not
-  # broad '*' — other external paths stay at the opencode default (ask).
+  # Headless fail-fast: deny external dirs except /tmp scratch (v1.18.4
+  # evaluate uses findLast → specific /tmp/** allow overrides the *:deny).
   external_directory:
+    "*": deny
     "/tmp/**": allow
 ---
 
