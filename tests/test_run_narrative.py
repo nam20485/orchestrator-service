@@ -65,14 +65,14 @@ _MANIFEST_ZERO_WORK = {
 
 
 def test_narrative_has_expected_top_level_keys() -> None:
-    result = parse_narrative(_SAMPLE_STDERR, "", _MANIFEST_COMPLETED)
+    result = parse_narrative(_SAMPLE_STDERR, _MANIFEST_COMPLETED)
     assert "summary" in result
     assert "timeline" in result
     assert "stats" in result
 
 
 def test_summary_completed_status() -> None:
-    result = parse_narrative(_SAMPLE_STDERR, "", _MANIFEST_COMPLETED)
+    result = parse_narrative(_SAMPLE_STDERR, _MANIFEST_COMPLETED)
     s = result["summary"]
     assert s["status"] == "completed"
     assert s["exit_code"] == 0
@@ -81,25 +81,25 @@ def test_summary_completed_status() -> None:
 
 
 def test_summary_failed_status() -> None:
-    result = parse_narrative("", "", _MANIFEST_FAILED)
+    result = parse_narrative("", _MANIFEST_FAILED)
     assert result["summary"]["status"] == "failed"
     assert "Failed" in result["summary"]["exit_message"]
 
 
 def test_summary_running_status() -> None:
-    result = parse_narrative("", "", _MANIFEST_RUNNING)
+    result = parse_narrative("", _MANIFEST_RUNNING)
     assert result["summary"]["status"] == "running"
     assert "in progress" in result["summary"]["exit_message"].lower()
 
 
 def test_summary_timeout_status() -> None:
-    result = parse_narrative("", "", _MANIFEST_TIMEOUT)
+    result = parse_narrative("", _MANIFEST_TIMEOUT)
     assert result["summary"]["status"] == "timeout"
     assert "Watchdog" in result["summary"]["exit_message"]
 
 
 def test_summary_zero_work_status() -> None:
-    result = parse_narrative("", "", _MANIFEST_ZERO_WORK)
+    result = parse_narrative("", _MANIFEST_ZERO_WORK)
     assert result["summary"]["status"] == "zero_work"
     assert "no execution tools" in result["summary"]["exit_message"].lower()
 
@@ -108,7 +108,7 @@ def test_summary_zero_work_status() -> None:
 
 
 def test_timeline_groups_consecutive_reads() -> None:
-    result = parse_narrative(_SAMPLE_STDERR, "", _MANIFEST_COMPLETED)
+    result = parse_narrative(_SAMPLE_STDERR, _MANIFEST_COMPLETED)
     tl = result["timeline"]
     # Find the grouped read entry
     read_entries = [e for e in tl if e["kind"] == "read"]
@@ -119,7 +119,7 @@ def test_timeline_groups_consecutive_reads() -> None:
 
 
 def test_timeline_preserves_delegations() -> None:
-    result = parse_narrative(_SAMPLE_STDERR, "", _MANIFEST_COMPLETED)
+    result = parse_narrative(_SAMPLE_STDERR, _MANIFEST_COMPLETED)
     tl = result["timeline"]
     delegations = [e for e in tl if e["kind"] == "delegation"]
     assert len(delegations) == 1
@@ -127,7 +127,7 @@ def test_timeline_preserves_delegations() -> None:
 
 
 def test_timeline_includes_errors_and_watchdog() -> None:
-    result = parse_narrative(_SAMPLE_STDERR, "", _MANIFEST_COMPLETED)
+    result = parse_narrative(_SAMPLE_STDERR, _MANIFEST_COMPLETED)
     tl = result["timeline"]
     kinds = {e["kind"] for e in tl}
     assert "error" in kinds
@@ -138,7 +138,7 @@ def test_timeline_includes_errors_and_watchdog() -> None:
 
 
 def test_stats_counts_match_events() -> None:
-    result = parse_narrative(_SAMPLE_STDERR, "", _MANIFEST_COMPLETED)
+    result = parse_narrative(_SAMPLE_STDERR, _MANIFEST_COMPLETED)
     stats = result["stats"]
     assert stats["files_read"] == 3
     assert stats["delegations"] == 1
@@ -152,12 +152,12 @@ def test_stats_counts_match_events() -> None:
 
 
 def test_empty_stderr() -> None:
-    result = parse_narrative("", "", _MANIFEST_COMPLETED)
+    result = parse_narrative("", _MANIFEST_COMPLETED)
     assert result["timeline"] == []
     assert result["stats"]["total_events"] == 0
 
 
 def test_no_manifest_fields() -> None:
-    result = parse_narrative("", "", {})
+    result = parse_narrative("", {})
     assert result["summary"]["status"] == "running"
     assert result["summary"]["duration_s"] is None

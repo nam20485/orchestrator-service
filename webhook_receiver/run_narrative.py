@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import re
 from datetime import datetime
 from typing import Any
 
@@ -30,7 +29,6 @@ _KILL_REASON_MESSAGE: dict[str, str] = {
 }
 
 # Exit-code → human readable note for non-watchdog failures.
-_EXIT_RE = re.compile(r"exited with code (\d+)", re.IGNORECASE)
 
 
 def _parse_iso(ts: str | None) -> datetime | None:
@@ -99,7 +97,6 @@ _GROUPABLE: set[str] = {"read", "glob", "webfetch"}
 
 def _build_timeline(
     events: list[dict[str, Any]],
-    started_at: str | None,
     duration_s: float | None,
 ) -> list[dict[str, Any]]:
     """Convert parsed glyph events into a narrative timeline.
@@ -249,7 +246,6 @@ def _build_stats(events: list[dict[str, Any]]) -> dict[str, Any]:
 
 def parse_narrative(
     stderr: str,
-    stdout: str,
     manifest: dict[str, Any],
 ) -> dict[str, Any]:
     """Synthesize a human-readable narrative from a run's captured logs.
@@ -260,9 +256,6 @@ def parse_narrative(
     * ``summary`` — completion state, duration, exit message
     * ``timeline`` — grouped, summarized event entries with approximate timing
     * ``stats`` — per-kind event counts
-
-    *stdout* is currently unused but accepted for future correlation (e.g.
-    detecting a final status line the agent wrote to stdout rather than stderr).
     """
     events = parse_events(stderr)
 
@@ -272,7 +265,7 @@ def parse_narrative(
     )
     status, exit_message = _determine_status(manifest)
 
-    raw_timeline = _build_timeline(events, manifest.get("started_at"), dur)
+    raw_timeline = _build_timeline(events, dur)
     timeline = _group_timeline(raw_timeline)
     stats = _build_stats(events)
 

@@ -839,19 +839,17 @@ def _run_narrative_for(log_dir: Path, stem: str) -> dict[str, Any]:
     """Blocking worker for the ``/runs/{stem}/narrative`` endpoint.
 
     Loads the run manifest + captured stderr/stdout, then synthesizes the
-    narrative via :func:`run_narrative.parse_narrative`. Uses a generous tail
-    so the full transcript is available for synthesis (the glyph parser only
-    keeps high-signal lines, so even a multi-MB ``.stderr`` is handled cheaply).
-    Cached by stem only so a re-parse of a growing transcript replaces the
-    prior entry; the 5s TTL bounds staleness between polls.
+    narrative via :func:`run_narrative.parse_narrative`. The file I/O is
+    inside the cached factory so the 5s TTL suppresses disk reads as well
+    as parsing — important for multi-MB ``.stderr`` transcripts polled every
+    5s. Cached by stem only so a re-parse of a growing transcript replaces
+    the prior entry.
     """
-    manifest = _load_single_manifest(log_dir, stem)
-    logs = _read_run_logs(log_dir, stem, tail=10000)
-
     def _build() -> dict[str, Any]:
+        manifest = _load_single_manifest(log_dir, stem)
+        logs = _read_run_logs(log_dir, stem, tail=10000)
         return parse_narrative(
             stderr=logs["stderr"],
-            stdout=logs["stdout"],
             manifest=manifest,
         )
 
