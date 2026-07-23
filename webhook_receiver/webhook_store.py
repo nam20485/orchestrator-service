@@ -43,6 +43,13 @@ class WebhookStore:
         self._lock = threading.Lock()
         self._path = log_dir / "webhooks.json"
         self._load()
+        # On startup, enforce both the count cap and time-based retention
+        # so a long-lived store file doesn't grow unbounded across restarts.
+        # No lock needed: constructor runs before any other thread can access.
+        self._enforce_cap()
+        if self._events:
+            self._persist()
+        self.cleanup_old()
 
     # ── public API ────────────────────────────────────────────────────────
 
@@ -71,7 +78,7 @@ class WebhookStore:
         """Return webhook events newest-first by ``received_ts``."""
         with self._lock:
             events = sorted(
-                self._events.values(),
+                (dict(e) for e in self._events.values()),
                 key=lambda e: e.get("received_ts", 0),
                 reverse=True,
             )

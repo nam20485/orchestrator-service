@@ -174,7 +174,9 @@ def _safe_dispatch(
     dispatch_ctx = _dispatch_context_from_payload(payload)
     prompt_stem = dispatch_to_opencode(settings, prompt, store, dispatch_ctx)
     if webhook_store and delivery_id and isinstance(prompt_stem, str):
-        webhook_store.record(delivery_id, prompt_stem=prompt_stem)
+        webhook_store.record(
+            delivery_id, decision="allowed", prompt_stem=prompt_stem
+        )
 
 
 def _dispatch_context_from_payload(
