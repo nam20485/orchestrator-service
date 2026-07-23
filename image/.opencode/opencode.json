@@ -24,8 +24,7 @@
     "planner":                   { "model": "zai-coding-plan/glm-5.2", "variant": "high" },
     "qa-test-engineer":          { "model": "zai-coding-plan/glm-5.2", "variant": "high" },
     "researcher":                { "model": "zai-coding-plan/glm-5.2", "variant": "high" },
-    "security-expert":           { "model": "zai-coding-plan/glm-5.2", "variant": "high" },
-    "agent-instructions-expert": { "model": "zai-coding-plan/glm-5.2", "variant": "high" }
+    "security-expert":           { "model": "zai-coding-plan/glm-5.2", "variant": "high" }
   },
   "mcp": {
     "sequential-thinking": {
@@ -75,11 +74,16 @@
     },
   },
   "permission": {
+    // NOTE: this block governs ONLY the top-level orchestrator session's own
+    // external_directory — and is bypassed entirely because the orchestrator
+    // runs with --dangerously-skip-permissions. It does NOT reach subagents:
+    // subagent external_directory is evaluated per-agent (tools.ts merges
+    // agent.permission + a parent-session-derived ruleset; the parent session
+    // is empty under skip-permissions, so only the agent frontmatter applies).
+    // The real gate for headless subagent deadlocks is external_directory:allow
+    // in each image/.opencode/agents/*.md. (opencode's glob matcher maps `*`
+    // -> `.*` and crosses `/`; there is no `**` distinction.)
     "external_directory": {
-      // Recursive glob required: subagents write temp artifacts under
-      // /tmp/kilo/<repo>/… (multi-segment). A bare `/tmp/*` (single segment)
-      // did NOT match, so opencode defaulted to `ask` and deadlocked headless
-      // runs with no human to approve the prompt. `**` matches at any depth.
       "*": "deny",
       "/tmp/**": "allow"
     },

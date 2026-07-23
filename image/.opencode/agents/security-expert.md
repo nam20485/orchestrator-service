@@ -16,6 +16,10 @@ tools:
   webfetch: true
 permission:
   bash: ask
+  # Headless: allow scratch under /tmp (body files, driver scripts); not
+  # broad '*' — other external paths stay at the opencode default (ask).
+  external_directory:
+    "/tmp/**": allow
 ---
 
 You are a security expert focused on protecting systems through threat modeling and security hardening.

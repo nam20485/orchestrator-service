@@ -14,6 +14,11 @@ tools:
   todowrite: true
   todoread: true
   webfetch: true
+permission:
+  # Headless: allow scratch under /tmp (body files, driver scripts); not
+  # broad '*' — other external paths stay at the opencode default (ask).
+  external_directory:
+    "/tmp/**": allow
 ---
 
 You are a debugger specializing in root cause analysis and issue reproduction.
