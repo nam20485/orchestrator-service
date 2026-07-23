@@ -15,6 +15,7 @@ from webhook_receiver.runner import (
     _base_args,
     _dispatch_issue_closed,
     _dispatch_slug,
+    _format_log_line,
     _is_planning_tool,
     _parse_workflow_name,
     _prompt_script_invocation,
@@ -113,6 +114,53 @@ def test_prompt_script_invocation_carries_worktree_workspace(tmp_path: Path) -> 
     cmd = _prompt_script_invocation(settings, tmp_path / "prompt.md")
     assert "-Workspace" in cmd
     assert cmd[cmd.index("-Workspace") + 1] == worktree
+
+
+# ── _format_log_line ──────────────────────────────────────────────────────
+
+
+def test_format_log_line_groups_envelope_with_run() -> None:
+    line = (
+        "timestamp=2026-07-23T02:17:55.898Z level=INFO run=2127ad56 "
+        'message="llm runtime selected" llm.runtime=ai-sdk'
+    )
+    assert _format_log_line(line) == (
+        "[timestamp=2026-07-23T02:17:55.898Z level=INFO run=2127ad56] "
+        'message="llm runtime selected" llm.runtime=ai-sdk'
+    )
+
+
+def test_format_log_line_groups_envelope_bare_message() -> None:
+    line = (
+        "timestamp=2026-07-23T02:18:11.428Z level=INFO run=2127ad56 "
+        "message=evaluated permission=todowrite pattern=*"
+    )
+    assert _format_log_line(line) == (
+        "[timestamp=2026-07-23T02:18:11.428Z level=INFO run=2127ad56] "
+        "message=evaluated permission=todowrite pattern=*"
+    )
+
+
+def test_format_log_line_without_run() -> None:
+    line = "timestamp=2026-07-23T02:00:00Z level=ERROR message=\"stream error\""
+    assert _format_log_line(line) == (
+        "[timestamp=2026-07-23T02:00:00Z level=ERROR] "
+        'message="stream error"'
+    )
+
+
+def test_format_log_line_envelope_only() -> None:
+    line = "timestamp=2026-07-23T02:00:00Z level=INFO run=abc123"
+    assert _format_log_line(line) == (
+        "[timestamp=2026-07-23T02:00:00Z level=INFO run=abc123]"
+    )
+
+
+def test_format_log_line_non_slog_passthrough() -> None:
+    assert _format_log_line("line one") == "line one"
+    assert _format_log_line("normal log line") == "normal log line"
+    assert _format_log_line("") == ""
+    assert _format_log_line("⚙ bash") == "⚙ bash"
 
 
 # ── _stream_to_logger_and_file ────────────────────────────────────────────

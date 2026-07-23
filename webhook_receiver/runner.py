@@ -256,6 +256,38 @@ def _prompt_script_invocation(settings: Settings, prompt_path: Path) -> list[str
     ]
 
 
+# ── Container-log formatting ───────────────────────────────────────────────
+# The opencode server emits slog text-handler lines like:
+#   timestamp=2026-07-23T02:17:55.898Z level=INFO run=2127ad56 message=…
+# For visual scanning in docker logs the common envelope (timestamp/level/run)
+# is grouped into brackets so the variable payload that follows stands out:
+#   [timestamp=… level=INFO run=…] message=… key=value …
+# Non-slog lines (glyphs, Python logger output, etc.) pass through unchanged.
+# The trace file always receives the raw line; only the container logger is
+# reformatted — filters and the watchdog must see the original text.
+_SLOG_ENVELOPE_RE = re.compile(
+    r"^(timestamp=\S+)\s+(level=\S+)(?:\s+(run=\S+))?(?:\s+(.*))?$"
+)
+
+
+def _format_log_line(line: str) -> str:
+    """Group the slog envelope (timestamp/level/run) into brackets.
+
+    See ``_SLOG_ENVELOPE_RE`` for the matched pattern. Non-slog lines return
+    unchanged.
+    """
+    m = _SLOG_ENVELOPE_RE.match(line)
+    if not m:
+        return line
+    parts = [m.group(1), m.group(2)]
+    if m.group(3):
+        parts.append(m.group(3))
+    rest = m.group(4) or ""
+    if rest:
+        return f"[{' '.join(parts)}] {rest}"
+    return f"[{' '.join(parts)}]"
+
+
 def _stream_to_logger_and_file(
     pipe, file_handle, label: str, state: WatchdogState | None = None
 ) -> None:
@@ -275,7 +307,9 @@ def _stream_to_logger_and_file(
             if state is not None:
                 state.record_line(line)
             if not should_filter(line):
-                logger.info("[%s] %s", label, line.rstrip())
+                logger.info(
+                    "[%s] %s", label, _format_log_line(line.rstrip())
+                )
     except ValueError:
         pass  # pipe closed
 
@@ -683,8 +717,12 @@ def dispatch_to_opencode(
     prompt: str,
     event_store: EventStore | None = None,
     dispatch_ctx: DispatchContext | None = None,
-) -> None:
-    """Run the prompt script in the background (non-blocking for the HTTP handler)."""
+) -> str:
+    """Run the prompt script in the background (non-blocking for the HTTP handler).
+
+    Returns the prompt file stem (``<slug>-<rand>``) so callers can correlate
+    the dispatch with run logs and the webhooks trace page.
+    """
     log_dir = settings.log_dir
     log_dir.mkdir(parents=True, exist_ok=True)
 
@@ -802,3 +840,5 @@ def dispatch_to_opencode(
         )
 
     threading.Thread(target=_watch, daemon=True).start()
+
+    return prompt_path.stem
