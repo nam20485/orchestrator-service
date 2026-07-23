@@ -17,6 +17,10 @@ tools:
 permission:
   edit: deny
   bash: ask
+  # Headless: allow scratch under /tmp (body files, driver scripts); not
+  # broad '*' — other external paths stay at the opencode default (ask).
+  external_directory:
+    "/tmp/**": allow
 ---
 
 You are a code reviewer focused on ensuring quality, security, and maintainability standards.
