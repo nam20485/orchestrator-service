@@ -105,4 +105,3 @@ traces/gap-miner-v2-delta48-373i6gxj.stdout
 traces/golden-path-foxtrot54.log.txt
 # stray host downloads unrelated to the project
 amdgpu-install_*.deb
-plan_docs/kilo-code-ripgrep-error-diagnosis.md
