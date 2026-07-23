@@ -242,6 +242,11 @@
 
 <div class="topbar">
   <h1>Orchestration Dashboard</h1>
+  <div style="display:flex;gap:0.75rem;align-items:center;">
+    <a href="/dashboard/runs" style="font-size:0.85rem;color:var(--accent);text-decoration:none;">Runs</a>
+    <a href="/dashboard/events" style="font-size:0.85rem;color:var(--accent);text-decoration:none;">Events</a>
+    <a href="/dashboard/webhooks" style="font-size:0.85rem;color:var(--accent);text-decoration:none;">Webhooks</a>
+  </div>
   <div class="right">
     <span><span id="loopDot" class="loop-dot stopped"></span><span id="loopText">Loop: stopped</span></span>
     <span id="sseStatus" class="sse-status disconnected">SSE: disconnected</span>

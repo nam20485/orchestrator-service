@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Webhook Events — Orchestration Dashboard</title>
+  <style>
+    :root {
+      --bg: #0f1419; --surface: #1a2332; --surface2: #1e293b; --border: #2d3a4d;
+      --text: #e6edf3; --muted: #8b949e; --accent: #388bfd;
+      --ok: #3fb950; --err: #f85149; --warn: #f0c14b;
+      --mono: ui-monospace, "Cascadia Code", "SF Mono", monospace;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: system-ui, -apple-system, sans-serif;
+      background: var(--bg); color: var(--text); line-height: 1.5; }
+    .topbar { background: var(--surface); border-bottom: 1px solid var(--border);
+      padding: 0.75rem 1.5rem; display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; }
+    .topbar h1 { font-size: 1.1rem; margin: 0; }
+    .topbar a.back, .topbar a.nav { font-size: 0.85rem; color: var(--accent); text-decoration: none; white-space: nowrap; }
+    .topbar a.back:hover, .topbar a.nav:hover { text-decoration: underline; }
+    .topbar .nav-group { display: flex; gap: 0.75rem; margin-left: auto; }
+    .container { max-width: 1400px; margin: 0 auto; padding: 1.5rem; }
+    .toolbar { display: flex; gap: 0.75rem; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; }
+    .toolbar select, .toolbar input { background: var(--surface2); color: var(--text); border: 1px solid var(--border);
+      border-radius: 4px; padding: 0.3rem 0.5rem; font-size: 0.82rem; }
+    .toolbar input { flex: 1; min-width: 180px; }
+    .toolbar .refresh { background: var(--accent); color: #fff; border: none; border-radius: 4px;
+      padding: 0.3rem 0.75rem; font-size: 0.8rem; cursor: pointer; }
+    .toolbar .refresh:hover { filter: brightness(1.1); }
+    .toolbar .info { font-size: 0.78rem; color: var(--muted); margin-left: auto; }
+    table { width: 100%; border-collapse: collapse; background: var(--surface);
+      border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+    th, td { padding: 0.5rem 0.75rem; text-align: left; border-bottom: 1px solid var(--border);
+      font-size: 0.82rem; vertical-align: top; }
+    th { color: var(--muted); font-weight: 600; font-size: 0.75rem; text-transform: uppercase;
+      letter-spacing: 0.03em; background: var(--surface2); position: sticky; top: 0; }
+    tr:last-child td { border-bottom: none; }
+    tbody tr { cursor: pointer; transition: background 0.1s; }
+    tbody tr:hover { background: var(--surface2); }
+    tbody tr.expanded { background: var(--surface2); }
+    td.mono { font-family: var(--mono); font-size: 0.76rem; }
+    .badge { display: inline-block; padding: 0.1rem 0.5rem; border-radius: 4px; font-size: 0.7rem;
+      font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; white-space: nowrap; }
+    .badge.allowed { background: rgba(63,185,80,0.15); color: var(--ok); }
+    .badge.denied { background: rgba(248,81,73,0.15); color: var(--err); }
+    .badge.pending { background: rgba(139,148,158,0.14); color: var(--muted); }
+    a.run-link { color: var(--accent); text-decoration: none; font-family: var(--mono); font-size: 0.74rem; }
+    a.run-link:hover { text-decoration: underline; }
+    .detail-row { display: none; }
+    .detail-row.open { display: table-row; }
+    .detail-cell { padding: 0.75rem 1rem; background: #0d1117; }
+    .detail-cell pre { margin: 0; font-family: var(--mono); font-size: 0.74rem;
+      color: #adbac7; white-space: pre-wrap; word-break: break-all; }
+    .detail-cell .reason-block { margin-top: 0.4rem; font-size: 0.78rem; color: var(--muted); }
+    .empty { color: var(--muted); padding: 2rem; text-align: center; font-size: 0.9rem; }
+  </style>
+</head>
+<body>
+  <div class="topbar">
+    <a class="back" href="/dashboard">&larr; Dashboard</a>
+    <h1>Webhook Events</h1>
+    <div class="nav-group">
+      <a class="nav" href="/dashboard/runs">Runs</a>
+      <a class="nav" href="/dashboard/events">Events</a>
+      <a class="nav" href="/dashboard/webhooks">Webhooks</a>
+    </div>
+  </div>
+  <div class="container">
+    <div class="toolbar">
+      <select id="filterStatus">
+        <option value="">All</option>
+        <option value="allowed">Allowed</option>
+        <option value="denied">Denied</option>
+        <option value="pending">Pending</option>
+      </select>
+      <input id="searchBox" type="text" placeholder="Filter by repo, sender, delivery ID…" />
+      <button class="refresh" id="refreshBtn">Refresh</button>
+      <span class="info" id="info"></span>
+    </div>
+    <div id="tableWrap"><div class="empty">Loading…</div></div>
+  </div>
+<script>
+const API = '/api/dashboard';
+let allEvents = [];
+let expandedRow = null;
+
+function esc(s){const d=document.createElement('div');d.textContent=s==null?'':String(s);return d.innerHTML;}
+function fmtTs(t){ if(!t) return '—'; const d=new Date(t*1000); return d.toISOString().substr(11,8); }
+
+function badgeFor(decision){
+  const cls = decision === 'allowed' ? 'allowed' : decision === 'denied' ? 'denied' : 'pending';
+  return `<span class="badge ${cls}">${esc(decision || 'pending')}</span>`;
+}
+
+function runLink(ev){
+  if(!ev.prompt_stem) return '—';
+  return `<a class="run-link" href="/dashboard/runs/${encodeURIComponent(ev.prompt_stem)}">${esc(ev.prompt_stem.substr(0, 30))}…</a>`;
+}
+
+function filterEvents(){
+  const status = document.getElementById('filterStatus').value;
+  const q = document.getElementById('searchBox').value.toLowerCase().trim();
+  return allEvents.filter(ev => {
+    if(status && ev.decision !== status) return false;
+    if(q){
+      const hay = [ev.delivery_id, ev.repo, ev.sender, ev.label, ev.action, ev.event]
+        .filter(Boolean).join(' ').toLowerCase();
+      if(!hay.includes(q)) return false;
+    }
+    return true;
+  });
+}
+
+function renderTable(){
+  const wrap = document.getElementById('tableWrap');
+  const events = filterEvents();
+  const info = document.getElementById('info');
+  info.textContent = `${events.length} event${events.length !== 1 ? 's' : ''}`;
+  expandedRow = null;
+
+  if(!events.length){
+    wrap.innerHTML = '<div class="empty">No webhook events found.</div>';
+    return;
+  }
+
+  let rows = '';
+  for(let i = 0; i < events.length; i++){
+    const ev = events[i];
+    rows += `<tr class="event-row" data-idx="${i}">
+      <td class="mono">${fmtTs(ev.received_ts)}</td>
+      <td class="mono">${esc((ev.delivery_id||'').substr(0,12))}</td>
+      <td>${esc(ev.event||'')}<span class="mono" style="color:var(--muted);font-size:0.7rem">.${esc(ev.action||'')}</span></td>
+      <td class="mono">${esc(ev.repo||'—')}</td>
+      <td class="mono">${esc(ev.sender||'—')}</td>
+      <td class="mono">${esc(ev.label||'—')}</td>
+      <td>${badgeFor(ev.decision)}</td>
+      <td>${runLink(ev)}</td>
+    </tr>`;
+    // Expandable detail row
+    const detailParts = [];
+    if(ev.reason && ev.decision !== 'allowed') detailParts.push(`<div class="reason-block">Reason: <code>${esc(ev.reason)}</code></div>`);
+    detailParts.push(`<pre>${esc(JSON.stringify(ev, null, 2))}</pre>`);
+    rows += `<tr class="detail-row" data-detail-idx="${i}"><td class="detail-cell" colspan="8">${detailParts.join('')}</td></tr>`;
+  }
+
+  wrap.innerHTML = `<table><thead><tr>
+    <th>Time</th><th>Delivery ID</th><th>Event</th><th>Repo</th><th>Sender</th><th>Label</th><th>Decision</th><th>Run</th>
+  </tr></thead><tbody>${rows}</tbody></table>`;
+
+  // Bind row click to toggle detail
+  wrap.querySelectorAll('.event-row').forEach(row => {
+    row.addEventListener('click', () => {
+      const idx = row.dataset.idx;
+      const detailRow = wrap.querySelector(`.detail-row[data-detail-idx="${idx}"]`);
+      if(expandedRow && expandedRow !== row){
+        expandedRow.classList.remove('expanded');
+        const oldIdx = expandedRow.dataset.idx;
+        const oldDetail = wrap.querySelector(`.detail-row[data-detail-idx="${oldIdx}"]`);
+        if(oldDetail) oldDetail.classList.remove('open');
+      }
+      if(detailRow){
+        const open = detailRow.classList.toggle('open');
+        row.classList.toggle('expanded', open);
+        if(open) expandedRow = row; else expandedRow = null;
+      }
+    });
+  });
+}
+
+async function load(){
+  const wrap = document.getElementById('tableWrap');
+  try{
+    const r = await fetch(`${API}/webhooks?limit=500`);
+    if(!r.ok) throw new Error('status ' + r.status);
+    allEvents = await r.json();
+    renderTable();
+  }catch(e){
+    wrap.innerHTML = '<div class="empty">Failed to load webhook events.</div>';
+  }
+}
+
+document.getElementById('filterStatus').addEventListener('change', renderTable);
+document.getElementById('searchBox').addEventListener('input', renderTable);
+document.getElementById('refreshBtn').addEventListener('click', load);
+
+load();
+// Auto-refresh every 10s
+setInterval(load, 10000);
+</script>
+</body>
+</html>

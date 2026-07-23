@@ -27,20 +27,74 @@
     .kv .mono, .mono { font-family: var(--mono); }
     .badge { display: inline-block; padding: 0.1rem 0.5rem; border-radius: 4px; font-size: 0.7rem;
       font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; }
-    .badge.completed { background: rgba(63,185,80,0.15); color: var(--ok); }
-    .badge.failed { background: rgba(248,81,73,0.15); color: var(--err); }
-    .badge.zero_work { background: rgba(240,193,75,0.15); color: var(--warn); }
-    .badge.incomplete { background: rgba(240,193,75,0.15); color: var(--warn); }
-    .badge.running { background: rgba(56,139,253,0.15); color: var(--accent); }
-    .log-tabs { display: flex; gap: 0; }
-    .log-tab { padding: 0.35rem 0.9rem; background: var(--surface); border: 1px solid var(--border);
+    .badge.completed, .badge.success { background: rgba(63,185,80,0.15); color: var(--ok); }
+    .badge.failed, .badge.error { background: rgba(248,81,73,0.15); color: var(--err); }
+    .badge.zero_work, .badge.incomplete, .badge.timeout { background: rgba(240,193,75,0.15); color: var(--warn); }
+    .badge.running { background: rgba(56,139,253,0.15); color: var(--accent); animation: pulse 2s infinite; }
+    @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.6; } }
+    /* ── tabs ── */
+    .tabs { display: flex; gap: 0; }
+    .tab { padding: 0.35rem 0.9rem; background: var(--surface); border: 1px solid var(--border);
       border-bottom: none; border-radius: 4px 4px 0 0; cursor: pointer; font-size: 0.8rem; color: var(--muted); }
-    .log-tab.active { color: var(--text); border-color: var(--accent); }
+    .tab.active { color: var(--text); border-color: var(--accent); }
+    .tab-content { display: none; }
+    .tab-content.active { display: block; }
+    /* ── raw log viewer ── */
     .log-box { background: #0d1117; border: 1px solid var(--border); border-radius: 0 4px 4px 4px;
       padding: 0.75rem; font-family: var(--mono); font-size: 0.78rem;
       height: calc(100vh - 340px); min-height: 240px; overflow-y: auto;
       white-space: pre-wrap; word-break: break-all; color: #adbac7; }
     .log-box.empty { color: var(--muted); }
+    /* ── narrative view ── */
+    .narrative { display: flex; flex-direction: column; gap: 1.25rem; }
+    .summary-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+      padding: 1rem 1.25rem; }
+    .summary-card .exit-msg { font-size: 0.95rem; margin-top: 0.4rem; }
+    .summary-card .exit-msg.ok { color: var(--ok); }
+    .summary-card .exit-msg.err { color: var(--err); }
+    .summary-card .exit-msg.warn { color: var(--warn); }
+    .summary-card .exit-msg.running { color: var(--accent); }
+    .stat-row { display: flex; gap: 0.6rem; flex-wrap: wrap; }
+    .stat-chip { background: var(--surface); border: 1px solid var(--border); border-radius: 6px;
+      padding: 0.4rem 0.75rem; font-size: 0.78rem; display: flex; align-items: center; gap: 0.35rem; }
+    .stat-chip .num { font-weight: 700; font-size: 0.95rem; }
+    .stat-chip .lbl { color: var(--muted); }
+    .stat-chip.err .num { color: var(--err); }
+    .stat-chip.err { border-color: rgba(248,81,73,0.3); }
+    /* ── timeline ── */
+    .timeline-box { background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+      overflow: hidden; }
+    .timeline-box > h3 { margin: 0; padding: 0.5rem 0.75rem; font-size: 0.78rem; color: var(--muted);
+      text-transform: uppercase; letter-spacing: 0.04em; border-bottom: 1px solid var(--border); }
+    .timeline { max-height: calc(100vh - 480px); min-height: 200px; overflow-y: auto; }
+    .tl-entry { display: flex; gap: 0.5rem; padding: 0.4rem 0.75rem; border-bottom: 1px solid rgba(45,58,77,0.4);
+      border-left: 3px solid transparent; align-items: baseline; }
+    .tl-entry:hover { background: var(--surface2); }
+    .tl-entry:last-child { border-bottom: none; }
+    .tl-entry .offset { color: var(--muted); font-family: var(--mono); font-size: 0.68rem; min-width: 3.5rem; text-align: right; }
+    .tl-entry .kind { display: inline-block; min-width: 5rem; text-align: center; padding: 0.05rem 0.3rem;
+      border-radius: 3px; font-size: 0.64rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; }
+    .tl-entry .agent { color: var(--accent); font-size: 0.72rem; }
+    .tl-entry .summary { color: var(--text); flex: 1; word-break: break-word; font-size: 0.8rem; }
+    /* kind colors */
+    .tl-entry.delegation { border-left-color: var(--accent); }
+    .tl-entry.delegation_done { border-left-color: var(--ok); }
+    .tl-entry.error, .tl-entry.exit { border-left-color: var(--err); }
+    .tl-entry.watchdog { border-left-color: var(--warn); }
+    .tl-entry.read, .tl-entry.glob, .tl-entry.webfetch, .tl-entry.tool { border-left-color: var(--muted); }
+    .tl-entry.write { border-left-color: #db6d28; }
+    .k-delegation, .k-model { background: rgba(56,139,253,0.16); color: var(--accent); }
+    .k-delegation_done { background: rgba(63,185,80,0.16); color: var(--ok); }
+    .k-error, .k-exit { background: rgba(248,81,73,0.16); color: var(--err); }
+    .k-checklist, .k-watchdog { background: rgba(240,193,75,0.16); color: var(--warn); }
+    .k-tool, .k-read, .k-glob, .k-webfetch { background: rgba(139,148,158,0.14); color: var(--muted); }
+    .k-write { background: rgba(219,109,40,0.16); color: #db6d28; }
+    .expandable { cursor: pointer; }
+    .expandable .items { display: none; padding: 0.3rem 0 0.3rem 1rem; font-size: 0.72rem;
+      color: var(--muted); font-family: var(--mono); }
+    .expandable.open .items { display: block; }
+    .expandable .toggle { color: var(--accent); font-size: 0.68rem; margin-left: 0.4rem; }
+    /* ── controls ── */
     .controls { display: flex; align-items: center; gap: 0.75rem; margin-top: 0.6rem; font-size: 0.8rem; color: var(--muted); }
     button { background: var(--accent); color: #fff; border: none; border-radius: 4px;
       padding: 0.3rem 0.75rem; font-size: 0.8rem; cursor: pointer; }
@@ -57,12 +111,27 @@
     <div class="head-card">
       <div class="kv" id="kv">Loading…</div>
     </div>
-    <div class="log-tabs">
-      <div class="log-tab active" id="tabStderr" data-log-tab="stderr">stderr</div>
-      <div class="log-tab" id="tabStdout" data-log-tab="stdout">stdout</div>
-      <div class="log-tab" id="tabPrompt" data-log-tab="prompt">prompt</div>
+    <div class="tabs">
+      <div class="tab active" id="tabNarrative" data-tab="narrative">Narrative</div>
+      <div class="tab" id="tabStderr" data-tab="stderr">stderr</div>
+      <div class="tab" id="tabStdout" data-tab="stdout">stdout</div>
+      <div class="tab" id="tabPrompt" data-tab="prompt">prompt</div>
     </div>
-    <div class="log-box empty" id="logBox">Loading logs…</div>
+    <!-- Narrative tab content -->
+    <div class="tab-content active" id="contentNarrative">
+      <div class="narrative" id="narrativeView">
+        <div class="summary-card" id="narrativeSummary">Loading…</div>
+        <div class="stat-row" id="narrativeStats"></div>
+        <div class="timeline-box" id="narrativeTimelineWrap" style="display:none">
+          <h3>Timeline</h3>
+          <div class="timeline" id="narrativeTimeline"></div>
+        </div>
+      </div>
+    </div>
+    <!-- Raw log tab content -->
+    <div class="tab-content" id="contentRaw">
+      <div class="log-box empty" id="logBox">Loading logs…</div>
+    </div>
     <div class="controls">
       <button class="secondary" id="refreshBtn">Refresh now</button>
       <span id="lastRefresh"></span>
@@ -71,11 +140,16 @@
 <script>
 const API = '/api/dashboard';
 const STEM = decodeURIComponent((window.location.pathname.split('/dashboard/runs/')[1] || '').replace(/\/+$/,''));
-let currentTab = 'stderr';
-let cache = {prompt:'',stdout:'',stderr:''};
+let currentTab = 'narrative';
+let rawCache = {prompt:'',stdout:'',stderr:''};
+let narrativeCache = null;
+let pollTimer = null;
 
 function esc(s){const d=document.createElement('div');d.textContent=s==null?'':String(s);return d.innerHTML;}
+function fmtOffset(s){ if(s==null) return ''; const m=Math.floor(s/60); const sec=Math.floor(s%60); return '+'+m+':'+(sec<10?'0':'')+sec; }
+function kindClass(k){ return 'k-' + (k||'tool'); }
 
+// ── manifest (head card) ──
 async function loadManifest(){
   try {
     const r = await fetch(`${API}/runs`);
@@ -98,13 +172,90 @@ async function loadManifest(){
   }
 }
 
+// ── narrative view ──
+async function loadNarrative(){
+  try {
+    const r = await fetch(`${API}/runs/${encodeURIComponent(STEM)}/narrative`);
+    if (!r.ok) throw new Error('status ' + r.status);
+    narrativeCache = await r.json();
+    renderNarrative();
+  } catch(e){
+    document.getElementById('narrativeSummary').textContent = 'Failed to load narrative.';
+    document.getElementById('narrativeStats').innerHTML = '';
+    document.getElementById('narrativeTimelineWrap').style.display = 'none';
+  }
+}
+
+function renderNarrative(){
+  if(!narrativeCache) return;
+  const s = narrativeCache.summary || {};
+  const stats = narrativeCache.stats || {};
+  const timeline = narrativeCache.timeline || [];
+
+  // Summary card
+  const statusCls = s.status === 'completed' ? 'ok'
+    : (s.status === 'failed' || s.status === 'error') ? 'err'
+    : s.status === 'running' ? 'running' : 'warn';
+  const durStr = s.duration_s != null ? `${s.duration_s}s` : '—';
+  const summaryEl = document.getElementById('narrativeSummary');
+  let parts = [];
+  parts.push(`<span class="badge ${esc(statusCls)}">${esc(s.status || 'unknown')}</span>`);
+  parts.push(`<span style="margin-left:0.6rem;color:var(--muted)">Duration: <b style="color:var(--text)">${esc(durStr)}</b></span>`);
+  if(s.exit_code != null) parts.push(`<span style="color:var(--muted)">Exit: <b class="mono" style="color:var(--text)">${esc(s.exit_code)}</b></span>`);
+  if(s.started_at) parts.push(`<span style="color:var(--muted)">Started: <b class="mono" style="color:var(--text)">${esc(s.started_at)}</b></span>`);
+  if(s.ended_at) parts.push(`<span style="color:var(--muted)">Ended: <b class="mono" style="color:var(--text)">${esc(s.ended_at)}</b></span>`);
+  parts.push(`<div class="exit-msg ${esc(statusCls)}">${esc(s.exit_message || '')}</div>`);
+  summaryEl.innerHTML = parts.join('');
+
+  // Stats row
+  const statItems = [
+    {num: stats.total_events, lbl: 'events'},
+    {num: stats.delegations, lbl: 'delegations'},
+    {num: stats.tool_calls, lbl: 'tool calls'},
+    {num: stats.files_read, lbl: 'reads'},
+    {num: stats.files_written, lbl: 'writes'},
+    {num: stats.webfetches, lbl: 'fetches'},
+    {num: stats.errors, lbl: 'errors', err: true},
+    {num: stats.watchdog, lbl: 'watchdog', err: stats.watchdog > 0},
+  ];
+  document.getElementById('narrativeStats').innerHTML = statItems.map(si =>
+    `<div class="stat-chip${si.err ? ' err' : ''}"><span class="num">${esc(si.num)}</span><span class="lbl">${esc(si.lbl)}</span></div>`
+  ).join('');
+
+  // Timeline
+  const tlWrap = document.getElementById('narrativeTimelineWrap');
+  const tlEl = document.getElementById('narrativeTimeline');
+  if(!timeline.length){
+    tlWrap.style.display = 'none';
+    return;
+  }
+  tlWrap.style.display = 'block';
+  let html = '';
+  for(const e of timeline){
+    const agent = e.agent ? `<span class="agent">→ ${esc(e.agent)}</span>` : '';
+    const items = e.items ? `<span class="toggle">[${e.items.length} items ▾]</span><div class="items">${e.items.map(esc).join('<br>')}</div>` : '';
+    const expandable = e.items ? ' expandable' : '';
+    html += `<div class="tl-entry ${esc(e.kind)}${expandable}" data-summary="${esc(e.summary||'')}">` +
+      `<span class="offset">${fmtOffset(e.offset_s)}</span>` +
+      `<span class="kind ${kindClass(e.kind)}">${esc(e.kind)}</span>${agent}` +
+      `<span class="summary">${esc(e.summary || e.detail || '')}${items}</span>` +
+      `</div>`;
+  }
+  tlEl.innerHTML = html;
+  // Bind expand toggle for grouped entries
+  tlEl.querySelectorAll('.expandable').forEach(el => {
+    el.addEventListener('click', () => el.classList.toggle('open'));
+  });
+}
+
+// ── raw log view ──
 async function loadLog(){
   const box = document.getElementById('logBox');
   try {
     const r = await fetch(`${API}/runs/${encodeURIComponent(STEM)}/logs?tail=1000`);
     if (!r.ok) throw new Error('status ' + r.status);
-    cache = await r.json();
-    render();
+    rawCache = await r.json();
+    renderRawLog();
     document.getElementById('lastRefresh').textContent = 'updated ' + new Date().toLocaleTimeString();
   } catch (e){
     box.textContent = 'Failed to load logs.';
@@ -112,27 +263,40 @@ async function loadLog(){
   }
 }
 
-function render(){
+function renderRawLog(){
+  if(currentTab === 'narrative') return;
   const box = document.getElementById('logBox');
-  const content = cache[currentTab] || '';
+  const content = rawCache[currentTab] || '';
   box.textContent = content || '(empty)';
   box.className = 'log-box' + (content ? '' : ' empty');
 }
 
+// ── tab switching ──
 function switchTab(tab){
   currentTab = tab;
-  ['Stderr','Stdout','Prompt'].forEach(t => {
-    document.getElementById('tab'+t).classList.toggle('active', tab === t.toLowerCase());
-  });
-  render();
+  document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === tab));
+  const isNarrative = tab === 'narrative';
+  document.getElementById('contentNarrative').classList.toggle('active', isNarrative);
+  document.getElementById('contentRaw').classList.toggle('active', !isNarrative);
+  if(!isNarrative) renderRawLog();
 }
+
+document.getElementById('tabNarrative').addEventListener('click', () => switchTab('narrative'));
 document.getElementById('tabStderr').addEventListener('click', () => switchTab('stderr'));
 document.getElementById('tabStdout').addEventListener('click', () => switchTab('stdout'));
 document.getElementById('tabPrompt').addEventListener('click', () => switchTab('prompt'));
-document.getElementById('refreshBtn').addEventListener('click', () => { loadManifest(); loadLog(); });
+document.getElementById('refreshBtn').addEventListener('click', () => { loadManifest(); loadLog(); loadNarrative(); });
 
+// Initial load
 loadManifest();
 loadLog();
+loadNarrative();
+// Auto-refresh every 5s while run is active
+pollTimer = setInterval(() => {
+  loadManifest();
+  loadNarrative();
+  if(currentTab !== 'narrative') loadLog();
+}, 5000);
 </script>
 </body>
 </html>

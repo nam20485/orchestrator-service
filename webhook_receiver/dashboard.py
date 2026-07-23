@@ -17,7 +17,9 @@ from webhook_receiver.auth import make_dashboard_token_dep, persist_token_cookie
 from webhook_receiver.beads_loop import BeadsLoop
 from webhook_receiver.config import default_log_dir
 from webhook_receiver.event_store import EventStore
+from webhook_receiver.run_narrative import parse_narrative
 from webhook_receiver.run_stream import parse_events
+from webhook_receiver.webhook_store import WebhookStore
 from webhook_receiver.workspace import (
     discover_projects,
     project_workspace_path,
@@ -359,6 +361,7 @@ def create_dashboard_router(
     beads_loop: BeadsLoop | None = None,
     dashboard_token: str | None = None,
     log_dir: Path | None = None,
+    webhook_store: WebhookStore | None = None,
 ) -> APIRouter:
     auth = _make_dashboard_auth(dashboard_token)
     router = APIRouter(
@@ -640,6 +643,32 @@ def create_dashboard_router(
             raise HTTPException(status_code=400, detail="Invalid run stem")
         return await asyncio.to_thread(_run_events_for, runs_log_dir, stem)
 
+    # ── webhook events (persistent) ──────────────────────────────────────────
+
+    @router.get("/webhooks")
+    async def list_webhooks(limit: int = 500) -> list[dict[str, Any]]:
+        if not webhook_store:
+            return []
+        return webhook_store.list_events(limit=limit)
+
+    @router.get("/webhooks/{delivery_id}")
+    async def webhook_detail(delivery_id: str) -> dict[str, Any]:
+        if not webhook_store:
+            raise HTTPException(status_code=404, detail="Webhook store disabled")
+        ev = webhook_store.get(delivery_id)
+        if ev is None:
+            raise HTTPException(status_code=404, detail="Webhook not found")
+        return ev
+
+    # ── run narrative (synthesized timeline) ───────────────────────────────
+
+    @router.get("/runs/{stem}/narrative")
+    async def run_narrative(stem: str) -> dict[str, Any]:
+        """Synthesized narrative view of a dispatch run's timeline + status."""
+        if not _valid_run_stem(stem):
+            raise HTTPException(status_code=400, detail="Invalid run stem")
+        return await asyncio.to_thread(_run_narrative_for, runs_log_dir, stem)
+
     return router
 
 
@@ -793,6 +822,42 @@ def _run_events_for(log_dir: Path, stem: str | None) -> dict[str, Any]:
     return {"stem": target, "runs": runs, "events": events, "available": available}
 
 
+def _load_single_manifest(log_dir: Path, stem: str) -> dict[str, Any]:
+    """Read the ``<stem>.manifest.json`` sidecar for one dispatch run."""
+    path = log_dir / f"{stem}.manifest.json"
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    data.setdefault("stem", stem)
+    return data
+
+
+def _run_narrative_for(log_dir: Path, stem: str) -> dict[str, Any]:
+    """Blocking worker for the ``/runs/{stem}/narrative`` endpoint.
+
+    Loads the run manifest + captured stderr/stdout, then synthesizes the
+    narrative via :func:`run_narrative.parse_narrative`. Uses a generous tail
+    so the full transcript is available for synthesis (the glyph parser only
+    keeps high-signal lines, so even a multi-MB ``.stderr`` is handled cheaply).
+    Cached by stem only so a re-parse of a growing transcript replaces the
+    prior entry; the 5s TTL bounds staleness between polls.
+    """
+    manifest = _load_single_manifest(log_dir, stem)
+    logs = _read_run_logs(log_dir, stem, tail=10000)
+
+    def _build() -> dict[str, Any]:
+        return parse_narrative(
+            stderr=logs["stderr"],
+            stdout=logs["stdout"],
+            manifest=manifest,
+        )
+
+    return _cached(f"run_narrative:{stem}", _build)
+
+
 def create_dashboard_page_router(dashboard_token: str | None = None) -> APIRouter:
     auth = _make_dashboard_auth(dashboard_token)
     router = APIRouter(tags=["dashboard"], dependencies=[Depends(auth)])
@@ -820,6 +885,10 @@ def create_dashboard_page_router(dashboard_token: str | None = None) -> APIRoute
     @router.get("/dashboard/events")
     async def events_page(request: Request) -> HTMLResponse:
         return _serve_html(request, "events.html", dashboard_token)
+
+    @router.get("/dashboard/webhooks")
+    async def webhooks_page(request: Request) -> HTMLResponse:
+        return _serve_html(request, "webhooks.html", dashboard_token)
 
     return router
 
