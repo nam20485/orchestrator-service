@@ -7,95 +7,74 @@ scope: repository
 <instructions>
   <purpose>
     <summary>
-      GitHub Actions-based AI orchestration system. On GitHub events (currently: issues labeled,
-      workflow_dispatch), the `orchestrator-agent` workflow assembles a structured prompt containing
-      the event type, actor, metadata, and raw event payload. It then spins up a prebuilt devcontainer
-      and runs `opencode --agent orchestrator`, which analyzes the prompt against a set of matching
-      cases and delegates the appropriate work to specialist sub-agents in `.opencode/agents/`.
+      Dockerized opencode orchestration RUNTIME. A docker-compose stack runs `opencode serve` (:4099),
+      a Python `webhook_receiver` (FastAPI, :8080), and a Caddy reverse proxy (:80). GitHub webhooks
+      from downstream app-instance repos deliver `issues:labeled` events; the receiver matches the
+      label, renders a prompt, and dispatches a NON-INTERACTIVE `opencode run --attach` against the
+      instance workspace. The orchestrator agent analyzes the prompt against match-clauses and
+      delegates work to specialist subagents in `.opencode/agents/`. This repo builds its OWN GHCR
+      images from `Dockerfile` + `image/` (no external prebuild/devcontainer, no GitHub-Actions dispatch).
     </summary>
   </purpose>
 
-  <template_usage>
+  <multi_repo_system>
     <summary>
-      This repository is a **GitHub template repo** (`<org>/orchestrator-service`).
-      New project repositories are created from it using automation scripts in the
-      `<org>/orchestrator-launch` repo. The scripts clone this template, seed plan docs,
-      replace template placeholders, and push — producing a ready-to-go AI-orchestrated repo.
+      This repo is one node in a software factory. Cross-system coupling is via GitHub ISSUES AS A
+      MESSAGE BUS (no in-repo GitHub Actions drive dispatch).
     </summary>
-
-    <template-clone-instances>
-      Once the template has been cloned into a new instance, this file must be updated to match the new repo's specifics (e.g., name, links, instructions). 
-    </template-clone-instances>
-
-    <creation_workflow>
-      <step>1. Run `./scripts/create-repo-from-slug.ps1 -Slug &lt;project-slug&gt; -Yes` from the `orchestrator-launch` repo.</step>
-      <step>2. That delegates to `./scripts/create-repo-with-plan-docs.ps1` which:
-        - Creates a new GitHub repo from this template via `gh repo create --template <org>/orchestrator-service`
-        - Generates a random suffix for the repo name (e.g., `project-slug-bravo84`)
-        - Creates repo secrets (`ZHIPU_API_KEY`, `KIMI_CODE_ORCHESTRATOR_AGENT_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, `GH_ORCHESTRATION_AGENT_TOKEN`)
-        - Clones the new repo locally
-        - Copies plan docs from `./plan_docs/&lt;slug&gt;/` into the clone's `plan_docs/` directory
-        - Replaces all template placeholders (`orchestrator-service` → new repo name, `<org>` → new owner)
-        - Commits and pushes the seeded repo
-      </step>
-      <step>3. On push, the clone's `validate` workflow runs CI (lint, scan, tests). The prebuilt devcontainer image is sourced from the external `<org>/orchestrator-service-prebuild` repo — no `publish-docker` or `prebuild-devcontainer` workflows exist in this template repo.</step>
-    </creation_workflow>
-
-    <template_design_constraints>
-      <rule>Template placeholders (`orchestrator-service`, `<org>`) in file contents and paths are replaced by the creation script. Keep them consistent.</rule>
-      <rule>The `plan_docs/` directory contains external-generated documents seeded at clone time. Exclude it from strict linting (markdown lint, etc.).</rule>
-      <rule>The consumer `.devcontainer/devcontainer.json` references the prebuilt GHCR image from `<org>/orchestrator-service-prebuild`. The Dockerfile and prebuild pipeline live in that external repo, not here.</rule>
-    </template_design_constraints>
-
-    <automation_scripts>
-      <entry><repo>&lt;org&gt;/orchestrator-launch</repo><path>scripts/create-repo-from-slug.ps1</path><description>Entry point — takes a slug, resolves plan docs dir, delegates to create-repo-with-plan-docs.ps1</description></entry>
-      <entry><repo>&lt;org&gt;/orchestrator-launch</repo><path>scripts/create-repo-with-plan-docs.ps1</path><description>Full pipeline: repo create, clone, seed docs, placeholder replace, commit, push</description></entry>
-    </automation_scripts>
-  </template_usage>
+    <repos>
+      <repo>**Template** `intel-agency/agent-context` — the GitHub template each app instance is cloned from. Carries its own `.opencode/agents` + `.agents` (memory/rules/`gh-issue-tracking-init` skill) for LOCAL interactive use; contains NO workflows/devcontainer/webhook code/`plan_docs`.</repo>
+      <repo>**Factory** `nam20485/workflow-launch2` — entry `scripts/create-repo-agent-context.ps1` clones the template, seeds `plan_docs/<slug>/`, Class-2 cleanup, imports labels (`.github/.labels.json`), and files the dispatch issue.</repo>
+      <repo>**Runtime** `orchestrator-service` (THIS repo) — docker-compose opencode webhook runtime that receives events and dispatches non-interactive prompts.</repo>
+      <repo>**Instances** `intel-agency/<app>-<suffix>` (e.g. `gap-miner-v2-tango85`) — cloned+seeded repos the runtime implements against.</repo>
+      <repo>**Workflow store** `nam20485/agent-instructions` — canonical dynamic-workflow definitions fetched FRESH by the orchestrator at dispatch time.</repo>
+    </repos>
+    <dispatch_contract>
+      The factory files a dispatch issue on the new instance repo: **label `gh-issue-tracking:direct-body`**,
+      **body `/gh-issue-tracking-init`** (gated by fail-closed `DIRECT_BODY_ALLOWED_SENDERS`). A GitHub
+      repo webhook delivers the `issues:labeled` event → `webhook_receiver` HMAC-verifies
+      (`OS_WEBHOOK_SECRET`) → matches the label (`webhook_receiver/filters.py` `should_dispatch`) →
+      renders the prompt (`webhook_receiver/prompts.py` from `orchestration_prompt.jinja2.md`) →
+      `webhook_receiver/runner.py` `dispatch_to_opencode()` → `scripts/prompt.ps1` →
+      `opencode run --attach http://orchestratorservice:4099 --dir /workspace/<slug> --agent orchestrator --dangerously-skip-permissions`.
+      *(Legacy, superseded trigger: `orchestration:dispatch` label + `/orchestrate-dynamic-workflow`.)*
+      KNOWN GAP: nothing currently drives implementation after `/gh-issue-tracking-init` builds the Plan/Epic/Story hierarchy.
+    </dispatch_contract>
+  </multi_repo_system>
 
   <tech_stack>
-    <item>opencode CLI — agent runtime (`opencode --model zai-coding-plan/glm-5.2 --variant max --agent orchestrator`)</item>
-    <item>Z.AI GLM models (`glm-5.2` default, `glm-5`, `glm-5.1`, `glm-4.7`, `glm-4.5-air`) via `ZAI_CODING_API_KEY`</item>
-    <item>Google Gemini models (`gemini-3.1-pro-preview`, `gemini-3.1-flash-lite-preview`, etc.) via `GEMINI_API_KEY`</item>
-    <item>GitHub Actions — workflow trigger and runner; prebuilt devcontainer from `<org>/orchestrator-service-prebuild`</item>
-    <item>.NET SDK 10 + Aspire + Avalonia templates, Bun, uv (all in devcontainer, sourced from external prebuild image)</item>
-    <item>MCP servers (enabled): `@modelcontextprotocol/server-sequential-thinking`, `@modelcontextprotocol/server-memory` (knowledge-graph persistent memory; single-writer protocol — see `mandatory_tool_protocols.persistent_memory`).</item>
-    <item>MCP servers (disabled): `@modelcontextprotocol/server-github`, `https://mcp.grep.app`</item>
+    <item>opencode CLI (v1.18.4) — agent runtime: `opencode serve` on :4099; dispatched as `opencode run --model zai-coding-plan/glm-5.2 --variant max --agent orchestrator`.</item>
+    <item>Z.AI GLM models (`glm-5.2` default) via `ZAI_CODING_API_KEY`; `OPENROUTER_API_KEY`, `MODEL_STUDIO_API_KEY` for alternates.</item>
+    <item>Python (FastAPI) `webhook_receiver/` — webhook validation (HMAC), label matching, prompt rendering, dispatch.</item>
+    <item>docker-compose stack — `orchestratorservice` (opencode serve :4099) + `webhook-receiver` (FastAPI :8080) + `webhook-proxy` (Caddy :80). Self-built GHCR images from this repo's `Dockerfile`/`Dockerfile.webhook` + `image/` (CI: `.github/workflows/docker-publish.yml`).</item>
+    <item>PowerShell (`pwsh`) host/client scripts — `scripts/prompt.ps1` is the non-interactive dispatch wrapper.</item>
+    <item>MCP servers (enabled): `@modelcontextprotocol/server-sequential-thinking`, `@modelcontextprotocol/server-memory` (knowledge-graph at `/app/.memory/memory.jsonl`; single-writer protocol — see `mandatory_tool_protocols.persistent_memory`), remote Z.AI `web-reader`/`zread`/`web-search-prime`.</item>
   </tech_stack>
 
   <repository_map>
-    <!-- Workflows -->
-    <entry><path>.github/workflows/orchestrator-agent.yml</path><description>Primary workflow — assembles prompt, pulls prebuilt devcontainer image, runs opencode orchestrator. Triggers: `issues: [labeled]`, `workflow_dispatch`. Caches knowledge graph memory in `.memory/` via `actions/cache`.</description></entry>
-    <entry><path>.github/workflows/validate.yml</path><description>CI validation — jobs: `lint` (actionlint, gitleaks, markdownlint), `scan` (gitleaks), `test` (bash + Pester test suite).</description></entry>
-    <entry><path>.github/workflows/prompts/orchestrator-agent-prompt.md</path><description>Prompt template with `__EVENT_DATA__` placeholder (sed-substituted at runtime)</description></entry>
-    <!-- Agent definitions -->
-    <entry><path>.opencode/agents/orchestrator.md</path><description>Orchestrator — coordinates specialists, never writes code directly. Enforces delegation-depth ≤2.</description></entry>
-    <entry><path>.opencode/agents/</path><description>9 specialist agents: code-reviewer, developer, documentation-expert, github-expert, odbplusplus-expert, orchestrator, planner, qa-test-engineer, researcher.</description></entry>
-    <entry><path>.opencode/commands/</path><description>21 reusable command prompts including: orchestrate-new-project, grind-pr-reviews, fix-failing-workflows, create-application, create-app-plan, plan-app, orchestrate-dynamic-workflow, orchestrate-project-setup, resolve-pr-comments, optimize-prompt, and more.</description></entry>
-    <entry><path>opencode.json</path><description>opencode config (root level) — multi-provider model definitions (ZhipuAI, OpenAI, Kimi, Google), default model, MCP server definitions, and tool permissions.</description></entry>
-    <!-- Devcontainer -->
-    <entry><path>.devcontainer/devcontainer.json</path><description>Consumer devcontainer — pulls prebuilt GHCR image `ghcr.io/<org>/orchestrator-service-prebuild/devcontainer:main-latest`, forwards port 4096, auto-starts `opencode serve` via `scripts/start-opencode-server.sh` on container start.</description></entry>
-    <!-- Scripts -->
-    <entry><path>scripts/start-opencode-server.sh</path><description>Guarded `opencode serve` bootstrapper used by the devcontainer lifecycle and workflow attach path. Uses `setsid` to survive devcontainer exec session teardown.</description></entry>
-    <entry><path>scripts/devcontainer-opencode.sh</path><description>Primary CLI wrapper for devcontainer-based orchestration. Supports subcommands for one-shot prompt execution and server attach mode. Used by the `orchestrator-agent` workflow.</description></entry>
-    <entry><path>scripts/assemble-orchestrator-prompt.sh</path><description>Assembles the orchestrator prompt from the template, event context, and event JSON. Writes to `.assembled-orchestrator-prompt.md`.</description></entry>
-    <entry><path>run_opencode_prompt.sh</path><description>Root-level script — validates API keys, exports `GH_TOKEN`/`GITHUB_TOKEN`/`GITHUB_PERSONAL_ACCESS_TOKEN` from `GH_ORCHESTRATION_AGENT_TOKEN`, and invokes `opencode run --model zai-coding-plan/glm-5.2 --variant max --agent orchestrator` in server attach mode.</description></entry>
-    <!-- Tests -->
-    <entry><path>test/</path><description>Test suite — shell scripts (`bash`) and Pester (`pwsh`) tests: devcontainer tool availability, prompt assembly, image tag logic, opencode run/server, watchdog IO detection, and workflow/agent validation.</description></entry>
-    <entry><path>test/fixtures/</path><description>Sample webhook payloads for local testing (issues-opened, pr-opened, pr-review-submitted, etc.) and prompt fixtures.</description></entry>
-    <!-- Skills -->
-    <entry><path>.agents/skills/</path><description>Reusable agent skills: `forensic-analysis-report` (workflow failure analysis), `orchestration-run-analysis` (post-mortem reports), `prompt-bisect` (constraint bisection via git worktrees).</description></entry>
-    <!-- Remote instructions -->
-    <entry><path>local_ai_instruction_modules/</path><description>Local instruction modules (development rules, workflows, delegation, terminal commands)</description></entry>
+    <!-- Runtime stack -->
+    <entry><path>compose.yaml</path><description>3-service docker-compose stack: `orchestratorservice` (opencode serve :4099), `webhook-receiver` (FastAPI :8080 internal), `webhook-proxy` (Caddy :80). Pulls self-built GHCR images; `compose.build.yaml` rebuilds locally.</description></entry>
+    <entry><path>Dockerfile</path><description>Multi-stage image build (rust-builder for `br` + debian:trixie-slim final). `COPY image/ /app/`, installs `image/.opencode/` → `/home/app/.config/opencode/` (global config), writes `auth.json` from provider env, drops to non-root `app` via gosu.</description></entry>
+    <entry><path>Dockerfile.webhook</path><description>webhook-receiver Python image (uv-managed, `webhook_receiver/` FastAPI app).</description></entry>
+    <!-- Webhook receiver (the dispatch engine) -->
+    <entry><path>webhook_receiver/app.py</path><description>HTTP entry: `POST /webhooks/github` — signature verify, `should_dispatch` gate, `build_orchestrator_prompt`, background `dispatch_to_opencode`.</description></entry>
+    <entry><path>webhook_receiver/filters.py</path><description>`should_dispatch` + log blacklist — label-prefix matching (`gh-issue-tracking:`/`orchestration:`), `direct-body` sender allowlist.</description></entry>
+    <entry><path>webhook_receiver/prompts.py</path><description>Renders the Jinja2 `orchestration_prompt.jinja2.md` match-clause state machine.</description></entry>
+    <entry><path>webhook_receiver/runner.py</path><description>`dispatch_to_opencode()` + `IdleWatchdog` run classifier (completed/failed/idle_timeout/zero-work).</description></entry>
+    <entry><path>scripts/prompt.ps1</path><description>Non-interactive dispatch: `opencode run --attach <url> --dir <workspace> --model … --agent orchestrator --dangerously-skip-permissions`.</description></entry>
+    <!-- Agent/config source -->
+    <entry><path>image/.opencode/</path><description>opencode config shipped into the container: `opencode.json`, THIS `AGENTS.md`, `agents/` (orchestrator + 8 specialists: code-reviewer, developer, documentation-expert, github-expert, odbplusplus-expert, planner, qa-test-engineer, researcher), `commands/`, `local_ai_instruction_modules/`.</description></entry>
+    <entry><path>image/.opencode/opencode.json</path><description>`instructions:["AGENTS.md"]`, `default_agent:"orchestrator"`, `model:zai-coding-plan/glm-5.2`, per-agent variants, MCP defs, `permission.external_directory` (NOTE: subagent external_directory is governed by each agent's frontmatter, not this block — see repo-root AGENTS.md "Learned Workspace Facts").</description></entry>
+    <!-- CI -->
+    <entry><path>.github/workflows/</path><description>`validate` (lint/scan/test), `docker-publish` (build+push GHCR images), `trivy` (image scan), `opencode`, `dependency-review`, `droid`/`droid-review`. There is NO `orchestrator-agent.yml` workflow in this repo.</description></entry>
     <!-- Docs -->
-    <entry><path>docs/</path><description>Developer documentation: agent model assignments, orchestration migration options, workflow issues and fixes, subagent tracing guides, and quickstart docs.</description></entry>
+    <entry><path>docs/</path><description>Operational docs: `deployment-compose.md`, `dashboard.md`, `testing-approach.md`, `tool-memory.md`, `orchestrator-run-logs.md`, `plan-server-activity-watchdog.md`, incident postmortems.</description></entry>
 
     <opencode_server>
       <summary>
-        The consumer devcontainer auto-starts `opencode serve` through `scripts/start-opencode-server.sh`
-        (using `setsid` to survive devcontainer exec session teardown).
-        The server listens on port `4099` by default so host or in-container clients can attach with
-        `opencode run --attach http://127.0.0.1:4099 ...` (or the forwarded host port when connecting from outside the container).
+        `opencode serve` listens on :4099 (in-container). The webhook-receiver dispatches via
+        `opencode run --attach http://orchestratorservice:4099 --dir /workspace/<slug>`. Server password
+        is `OPENCODE_SERVER_PASSWORD` (fail-closed). Server config auto-loads from `/home/app/.config/opencode/`.
       </summary>
     </opencode_server>
   </repository_map>
@@ -122,19 +101,19 @@ scope: repository
 
   <environment_setup>
     <secrets>
-      <item>`ZHIPU_API_KEY` — ZhipuAI GLM model access; set in repo Settings → Secrets.</item>
-      <item>`KIMI_CODE_ORCHESTRATOR_AGENT_API_KEY` — Kimi (Moonshot) model access; set in repo Settings → Secrets.</item>
-      <item>`OPENAI_API_KEY` — OpenAI model access; set in repo Settings → Secrets.</item>
-      <item>`GEMINI_API_KEY` — Google Gemini model access (mapped to `GOOGLE_GENERATIVE_AI_API_KEY` in the devcontainer); set in repo Settings → Secrets.</item>
-      <item>`GH_ORCHESTRATION_AGENT_TOKEN` — org-level PAT with scopes: repo, workflow, project, read:org. Required for orchestrator execution. No fallback to `GITHUB_TOKEN`.</item>
-      <item>`GITHUB_TOKEN` — provided automatically by Actions; used only for GHCR login (image pull).</item>
+      <item>`ZAI_CODING_API_KEY` (or `ZAI_API_KEY`) — Z.AI GLM model access (primary).</item>
+      <item>`OPENROUTER_API_KEY`, `MODEL_STUDIO_API_KEY` — alternate providers.</item>
+      <item>`OS_WEBHOOK_SECRET` — GitHub webhook HMAC secret (required, fail-closed).</item>
+      <item>`OPENCODE_SERVER_PASSWORD` — `opencode serve` auth (required, fail-closed).</item>
+      <item>`WORKSPACE_DIR` — host path bind-mounted to `/workspace` (required).</item>
+      <item>`DIRECT_BODY_ALLOWED_SENDERS` — fail-closed allowlist gating `gh-issue-tracking:direct-body` dispatch.</item>
+      <item>`GH_ORCHESTRATION_AGENT_TOKEN` — org-level PAT (repo, workflow, project, read:org) for agent `gh`/API calls. No fallback to `GITHUB_TOKEN`.</item>
     </secrets>
-    <devcontainer_image>
-      The devcontainer image is sourced from the external `<org>/orchestrator-service-prebuild` repo.
-      Image: `ghcr.io/<org>/orchestrator-service-prebuild/devcontainer:main-latest`.
-      Login via `docker/login-action` with `GITHUB_TOKEN`. There are no `publish-docker` or `prebuild-devcontainer`
-      workflows in this repo — the Dockerfile and prebuild pipeline live in the external prebuild repo.
-    </devcontainer_image>
+    <image_build>
+      This repo builds its OWN GHCR images from `Dockerfile` (orchestratorservice) + `Dockerfile.webhook`
+      (webhook-receiver) + `image/`, published by `.github/workflows/docker-publish.yml`. `compose.yaml`
+      pulls `ghcr.io/nam20485/orchestrator-service:*-latest`. There is NO external prebuild/devcontainer repo.
+    </image_build>
   </environment_setup>
 
   <testing>
@@ -159,8 +138,8 @@ scope: repository
     <rule>Keep orchestrator delegation-depth ≤2 and "never write code directly" constraint.</rule>
     <rule>Pin ALL GitHub Actions by full SHA to the latest release — no tag or branch references (`@v4`, `@main`). Format: `uses: owner/action@<full-40-char-SHA> # vX.Y.Z`. The trailing comment with the semver tag is mandatory for human readability. This applies to every `uses:` line in every workflow file, including third-party actions, first-party (`actions/*`), and reusable workflows. Supply-chain attacks via tag mutation are a critical threat — SHA pinning is the only mitigation. When creating or modifying workflows, look up the SHA for the latest release of each action (e.g., via `gh api repos/actions/checkout/releases/latest --jq .tag_name` then resolve to SHA) and pin to it.</rule>
     <rule>Never add duplicate top-level `name:`, `on:`, or `jobs:` keys in workflow YAML.</rule>
-    <rule>`.opencode/` is checked out by `actions/checkout`; do not COPY it in the Dockerfile.</rule>
-    <rule>The Dockerfile and prebuild pipeline live in the external `<org>/orchestrator-service-prebuild` repo. Consumer devcontainer uses `"image:"` pointing to `ghcr.io/<org>/orchestrator-service-prebuild/devcontainer:main-latest` — no local build in this repo.</rule>
+      <rule>`image/.opencode/` is the agent config shipped into the container — the `Dockerfile` DOES `COPY image/ /app/` then installs it to `/home/app/.config/opencode/`. There is NO external prebuild repo; images build in this repo.</rule>
+      <rule>Subagent `external_directory` permission lives in each agent's frontmatter (`image/.opencode/agents/*.md`), NOT in the global `opencode.json` block (that block is bypassed under `--dangerously-skip-permissions` and never reaches subagents). See repo-root `AGENTS.md` "Learned Workspace Facts".</rule>
     <rule>Repository labels are defined in `.github/.labels.json`. Use `scripts/import-labels.ps1` to sync them to a repo instance. When adding new labels, add them to this file — it is the single source of truth for the label set.</rule>
     <rule>Implementation approval protocol: before implementing any non-trivial change, verify that explicit approval was given for that specific item AND that no significant state or circumstances have changed since approval was given. If approval was never given, or was invalidated by changed circumstances, stop and ask before acting. When in doubt — ask, don't act.</rule>
   </coding_conventions>
@@ -269,7 +248,7 @@ scope: repository
         <command purpose="lint only">./scripts/validate.ps1 -Lint</command>
         <command purpose="scan only">./scripts/validate.ps1 -Scan</command>
         <command purpose="test only">./scripts/validate.ps1 -Test</command>
-        <command purpose="devcontainer">bash test/test-devcontainer-tools.sh</command>
+        <command purpose="dockerfile">bash test/test-docker-entrypoint.sh</command>
       </validation_commands>
       <post_push>
         After push, monitor CI: `gh run list --limit 5`, `gh run watch &lt;id&gt;`, `gh run view &lt;id&gt; --log-failed`.
@@ -296,12 +275,11 @@ scope: repository
     <rule>The Orchestrator is the SOLE memory-graph writer. It MUST invoke `sequential_thinking` before planning any delegation and `search_nodes` (or `open_nodes`) before every new task to load prior project context. After each subagent completes, the Orchestrator reads the subagent's `## Memory Save Requests` list and persists those facts itself using `add_observations` / `create_entities` / `create_relations`. The Orchestrator never asks a subagent to write memory.</rule>
     <rule>Subagents and specialists are memory READ-ONLY: they may call `search_nodes`, `open_nodes`, and `read_graph`, but MUST NOT call `create_entities`, `create_relations`, `add_observations`, or any `delete_*` tool. Concurrent writers corrupt the memory store. Instead, each subagent ends its result with a `## Memory Save Requests` list of facts for the Orchestrator to persist.</rule>
     <rule>ALL agents MUST follow the mandatory_tool_protocols defined above — sequential thinking, memory (single-writer), and change validation are not optional.</rule>
-    <rule>Prompt assembly pipeline:
-      1. Read template from `.github/workflows/prompts/orchestrator-agent-prompt.md`.
-      2. Prepend structured event context (event name, action, actor, repo, ref, SHA).
-      3. Append raw event JSON from `${{ toJson(github.event) }}`.
-      4. Write to `.assembled-orchestrator-prompt.md` and export path via `GITHUB_ENV`.
-      5. Workflow invokes opencode via `scripts/devcontainer-opencode.sh prompt -f "$ORCHESTRATOR_PROMPT_PATH"`.
+    <rule>Prompt assembly pipeline (runtime, not GitHub Actions):
+      1. `webhook_receiver` receives a GitHub `issues:labeled` webhook and HMAC-verifies it (`OS_WEBHOOK_SECRET`).
+      2. `should_dispatch` (`webhook_receiver/filters.py`) matches the label (e.g. `gh-issue-tracking:direct-body`).
+      3. `build_orchestrator_prompt` (`webhook_receiver/prompts.py`) renders `orchestration_prompt.jinja2.md`, injecting the event JSON.
+      4. `dispatch_to_opencode` (`webhook_receiver/runner.py`) spawns `scripts/prompt.ps1`, which runs `opencode run --attach http://orchestratorservice:4099 --dir /workspace/<slug> --agent orchestrator --dangerously-skip-permissions`.
     </rule>
   </agent_specific_guardrails>
 
@@ -335,7 +313,7 @@ scope: repository
         | Lint only              | ./scripts/validate.ps1 -Lint                           | Quick check              |
         | Scan only              | ./scripts/validate.ps1 -Scan                           | Secrets concern          |
         | Test only              | ./scripts/validate.ps1 -Test                           | After lint passes        |
-        | Devcontainer tests     | bash test/test-devcontainer-tools.sh                   | Dockerfile changes       |
+        | Dockerfile/entrypoint  | bash test/test-docker-entrypoint.sh                    | Dockerfile changes       |
       -->
       <rule>When adding a CI workflow check, add its equivalent to scripts/validate.ps1.</rule>
     </verification_commands>
@@ -354,7 +332,7 @@ scope: repository
 
   <validation_before_handoff>
     <step>Run applicable shell tests and verification commands.</step>
-    <step>Validate workflow YAML: `grep -c "^name:" .github/workflows/orchestrator-agent.yml  # expect 1`</step>
+    <step>Validate config: `bash test/test-opencode-json.sh` and `bash test/test-compose-config.sh` (there is no `orchestrator-agent.yml` workflow in this repo).</step>
     <step>Summarize: what changed, what was validated, remaining risks (secret-dependent paths, image cache misses).</step>
   </validation_before_handoff>
 
@@ -472,35 +450,28 @@ scope: repository
 
     <github_authentication>
       <summary>
-        GitHub API access uses a single token: `GH_ORCHESTRATION_AGENT_TOKEN`, an org-level PAT
-        with scopes `repo`, `workflow`, `project`, `read:org`. This token is required for
-        orchestrator execution — there is no fallback to `GITHUB_TOKEN`.
+        GitHub API access (agent `gh`/API + webhook delivery) uses `GH_ORCHESTRATION_AGENT_TOKEN`,
+        an org-level PAT with scopes `repo`, `workflow`, `project`, `read:org`. Required for orchestrator
+        execution — there is no fallback to `GITHUB_TOKEN`. The webhook itself is HMAC-verified with
+        `OS_WEBHOOK_SECRET` (GitHub App or repo webhook).
       </summary>
-      <layer name="GH_ORCHESTRATION_AGENT_TOKEN">Org-level PAT configured as a repo/org secret. `run_opencode_prompt.sh` exports it as `GH_TOKEN`, `GITHUB_TOKEN`, and `GITHUB_PERSONAL_ACCESS_TOKEN` so that `gh` CLI, MCP GitHub server, and opencode all authenticate with the same token.</layer>
-      <layer name="GITHUB_TOKEN (Actions-provided)">Only used for GHCR login (`docker/login-action`) to pull devcontainer images. Not used for orchestrator API operations.</layer>
+      <layer name="GH_ORCHESTRATION_AGENT_TOKEN">Org-level PAT (compose env). Exported as `GH_TOKEN`/`GITHUB_TOKEN`/`GITHUB_PERSONAL_ACCESS_TOKEN` so `gh`, MCP, and opencode all authenticate with the same token.</layer>
+      <layer name="GITHUB_TOKEN (CI-provided)">Used only for GHCR login in `docker-publish.yml` to push/pull this repo's OWN images. Not used for orchestrator API operations.</layer>
     </github_authentication>
 
     <scripts_directory>
-      <summary>Helper scripts in `scripts/` for orchestration, GitHub setup, and management tasks.</summary>
-      <script name="scripts/devcontainer-opencode.sh">Primary CLI wrapper for devcontainer-based orchestration. Subcommand-based: runs one-shot prompts or attaches to a running opencode server. Used by the `orchestrator-agent` workflow.</script>
-      <script name="scripts/start-opencode-server.sh">Guarded `opencode serve` bootstrapper. Uses `setsid` to create a new session that survives devcontainer exec teardown.</script>
-      <script name="scripts/assemble-orchestrator-prompt.sh">Assembles and writes the structured orchestrator prompt from the template + event context.</script>
-      <script name="scripts/assemble-local-prompt.sh">Assembles prompts for local (non-Actions) execution.</script>
-      <script name="scripts/on-failure-handler.sh">Posts failure label and comment on the triggering issue when the orchestrator workflow fails.</script>
-      <script name="scripts/validate.ps1">Runs all local validation checks (`-All`, `-Lint`, `-Scan`, `-Test`). Mirrors CI jobs. Run before every commit.</script>
-      <script name="scripts/install-dev-tools.ps1">Installs local development tools (actionlint, shellcheck, gitleaks, markdownlint, etc.) needed for full local validation parity with CI.</script>
-      <script name="scripts/common-auth.ps1">Shared `Initialize-GitHubAuth` function — checks `gh auth status`, authenticates via PAT token (`$env:GITHUB_AUTH_TOKEN`) or interactive login.</script>
-      <script name="scripts/gh-auth.ps1">Extended GitHub auth helper — supports PAT token auth via `--with-token` and interactive fallback.</script>
-      <script name="scripts/import-labels.ps1">Imports labels from `.github/.labels.json` into the repository.</script>
-      <script name="scripts/create-milestones.ps1">Creates project milestones from plan docs.</script>
-      <script name="scripts/create-project.ps1">Creates GitHub project boards.</script>
-      <script name="scripts/create-dispatch-issue.ps1">Creates workflow dispatch issues for triggering the orchestrator.</script>
-      <script name="scripts/test-github-permissions.ps1">Verifies `GITHUB_TOKEN` has required permissions (contents, issues, PRs, packages).</script>
-      <script name="scripts/query.ps1">PR review thread manager — fetches unresolved review threads from a PR, summarizes them, and can batch-reply and resolve them. Supports `--AutoResolve`, `--DryRun`, `--Interactive`, `--ReplyEach`, `--Path`, `--BodyContains` filtering. Use this instead of writing ad-hoc scripts to resolve PR review comments.</script>
-      <script name="scripts/collect-trace-artifacts.sh">Collects and archives opencode subagent trace artifacts.</script>
-      <script name="scripts/resolve-image-tags.sh">Resolves the correct devcontainer image tag to use at runtime.</script>
-      <script name="scripts/setup-local-env.sh">Sets up a local development environment (env vars, tool checks).</script>
-      <script name="scripts/update-remote-indices.ps1">Updates remote instruction module indices.</script>
+      <summary>Helper scripts in `scripts/` (host-side wrappers + image entrypoints). Real scripts present:</summary>
+      <script name="scripts/prompt.ps1">Non-interactive dispatch wrapper invoked by `webhook_receiver/runner.py` — runs `opencode run --attach …`.</script>
+      <script name="scripts/init-project-workspace.ps1">Resolves/creates the per-project `/workspace/<slug>` subdir for a dispatch.</script>
+      <script name="scripts/attach.ps1">Interactive attach wrapper (`opencode attach <url>`).</script>
+      <script name="scripts/validate.ps1">Runs all local validation (`-All`/`-Lint`/`-Scan`/`-Test`); mirrors CI jobs. Run before every commit.</script>
+      <script name="scripts/install-dev-tools.ps1">Installs local dev tools (actionlint, shellcheck, gitleaks, markdownlint) for CI parity.</script>
+      <script name="scripts/dc.ps1">docker-compose wrapper used for all compose operations.</script>
+      <script name="scripts/docker-entrypoint.sh">orchestratorservice entrypoint — writes `auth.json` from provider env, drops to non-root `app` via gosu.</script>
+      <script name="scripts/webhook-entrypoint.sh">webhook-receiver container entrypoint.</script>
+      <script name="scripts/git-trust.sh">Configures git safe.directory / trust for mounted workspaces.</script>
+      <script name="scripts/import-labels.ps1">Imports labels from `.github/.labels.json` (dispatch labels live in `nam20485/workflow-launch2`).</script>
+      <rule>Legacy doc previously listed `devcontainer-opencode.sh`, `start-opencode-server.sh`, `assemble-orchestrator-prompt.sh`, `assemble-local-prompt.sh`, `on-failure-handler.sh`, `run_opencode_prompt.sh`, `resolve-image-tags.sh`, `setup-local-env.sh` — NONE of these exist in this repo.</rule>
     </scripts_directory>
   </available_tools>
 </instructions>
