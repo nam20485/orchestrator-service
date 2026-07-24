@@ -103,5 +103,7 @@ traces/gap-miner-v2-delta48-373i6gxj.md
 traces/gap-miner-v2-delta48-373i6gxj.stderr
 traces/gap-miner-v2-delta48-373i6gxj.stdout
 traces/golden-path-foxtrot54.log.txt
+# raw captured dispatch logs (keep the run-report analysis doc above)
+traces/gap-miner-v2-golf38-api-error.md
 # stray host downloads unrelated to the project
 amdgpu-install_*.deb
