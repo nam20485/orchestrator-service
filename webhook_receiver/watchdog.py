@@ -160,7 +160,7 @@ class _ServerLogMonitor:
 class _PermissionAskMonitor:
     """Detects unanswered permission ``ask`` prompts in the opencode server log.
 
-    A headless dispatch (``--dangerously-skip-permissions``, no human responder)
+    A headless dispatch (``--auto``, no human responder)
     can NEVER satisfy a permission ``ask``: the agent blocks forever waiting for
     a reply. opencode emits ``message=asking ... permission=<type>`` lines to its
     server log when ``evaluate()`` resolves a tool call to ``ask`` (distinct from

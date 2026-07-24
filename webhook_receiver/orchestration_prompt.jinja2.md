@@ -306,7 +306,7 @@ case (type = issues &&
             ## labeling it. Nothing in the body is interpreted as workflow syntax.
             ##
             ## SECURITY: direct-body is the widest dispatch surface (it runs arbitrary
-            ## instructions with the orchestration token + --dangerously-skip-permissions).
+            ## instructions with the orchestration token + --auto).
             ## The webhook receiver gates it to an explicit trusted-sender allowlist
             ## (env DIRECT_BODY_ALLOWED_SENDERS) BEFORE this clause can ever run — a
             ## dispatch reaching here was already authorized. The body must STILL be
