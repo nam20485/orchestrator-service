@@ -4,7 +4,7 @@ Dockerized OpenCode server (`opencode serve` on port **4099**) plus client scrip
 
 ## Three-Tier Pipeline
 
-The system is a three-tier software factory built around the [Beads](https://github.com/Dicklesworthstone/beads_rust) DAG ecosystem. Authoritative architecture: [`plan_docs/agent-loop-refactor/architecture.md`](plan_docs/agent-loop-refactor/architecture.md).
+The system is a three-tier software factory built around the [Beads](https://github.com/Dicklesworthstone/beads_rust) DAG ecosystem. Authoritative architecture: [`docs/deployment-compose.md`](docs/deployment-compose.md) (runtime) and [`plan_docs/three-repo-oveall-architecture-inspection-update-plan.md`](plan_docs/three-repo-oveall-architecture-inspection-update-plan.md) (multi-repo factory).
 
 | Phase | Trigger | Actor | Output |
 |-------|---------|-------|--------|
@@ -198,4 +198,4 @@ gh run view <run-id> --log-failed
 These historical documents do **not** reflect the current architecture — do not use them for implementation guidance:
 
 - `plan_docs/archive/plan.md`, `plan_docs/archive/orchestration_supervisor.md`, `plan_docs/archive/maestro_architecture_options.md`
-- `docs/agent-loop-dev-plans/` (corrected by [`plan_docs/agent-loop-refactor/architecture.md`](plan_docs/agent-loop-refactor/architecture.md), the authoritative reference)
+- Current architecture (replaces the former `docs/agent-loop-dev-plans/` + `plan_docs/agent-loop-refactor/` pointers, which no longer exist): [`docs/deployment-compose.md`](docs/deployment-compose.md) and [`plan_docs/three-repo-oveall-architecture-inspection-update-plan.md`](plan_docs/three-repo-oveall-architecture-inspection-update-plan.md)

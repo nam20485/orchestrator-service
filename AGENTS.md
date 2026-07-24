@@ -17,10 +17,10 @@
 ## Learned Workspace Facts
 
 - Docker image uses `debian:trixie-20260518-slim`, runs `opencode serve` on `0.0.0.0:4099`, and bundles Node.js 24.14.0, pwsh 7.6.2 LTS, uv, gh CLI, Python3, ripgrep, jq, and agent utilities (git, make, openssh-client, gnupg, patch, xz-utils, file, procps); Node and pwsh install from linux-x64 `.tar.gz` tarballs (image is amd64-only; PowerShell uses GitHub tarball because Microsoft apt repo fails on trixie SHA1 policy).
-- Authoritative architecture docs: `plan_docs/agent-loop-refactor/architecture.md` and `plan_docs/agent-loop-refactor/application_plan.md` (three-tier Beads pipeline). Original OpenCode server POR (`plan_docs/archive/plan.md`), supervisor spec (`plan_docs/archive/orchestration_supervisor.md`), and maestro options (`plan_docs/archive/maestro_architecture_options.md`) are archived and do NOT reflect current architecture.
+- Authoritative architecture refs: `docs/deployment-compose.md` (docker-compose runtime) and `plan_docs/three-repo-oveall-architecture-inspection-update-plan.md` (multi-repo software factory: template `intel-agency/agent-context` + factory `nam20485/workflow-launch2` + this runtime + `nam20485/agent-instructions` workflow store). Original OpenCode server POR (`plan_docs/archive/plan.md`), supervisor spec (`plan_docs/archive/orchestration_supervisor.md`), and maestro options (`plan_docs/archive/maestro_architecture_options.md`) are archived and do NOT reflect current architecture.
 - OpenCode server config source of truth is repo `image/` (`opencode.json`, `AGENTS.md`, `.opencode/agents/`, `.opencode/commands/`); Dockerfile copies those into `/app` (no full-repo `COPY . .`), then installs the `.opencode/` tree into the global config dir (`/home/app/.config/opencode`) so `opencode serve` auto-loads it. The entrypoint does NOT export `OPENCODE_CONFIG`/`OPENCODE_CONFIG_DIR` — `opencode serve` auto-loads config from `~/.config/opencode`.
 - Agent sessions run in `/workspace` (compose bind mount `${WORKSPACE_DIR}:/workspace`; host-side subdir is created by `scripts/prompt.ps1` before attach); `/app` is server config only—keep working tree separate from OpenCode install/config.
-- Root repo `AGENTS.md` is Cursor memory plus host-repo validation docs; the container uses `image/AGENTS.md` copied to `/app/AGENTS.md` (overwrites any root copy).
+- Root repo `AGENTS.md` is Cursor memory plus host-repo validation docs; the **running agents' context** is `image/.opencode/AGENTS.md`, which the Dockerfile installs to the global config dir `/home/app/.config/opencode/AGENTS.md` (loaded because `opencode.json` sets `instructions: ["AGENTS.md"]`). Keep it aligned with the real docker-compose/Python-webhook runtime — it is NOT a GitHub template/devcontainer repo.
 - Provider auth: `scripts/docker-entrypoint.sh` writes `/home/app/.local/share/opencode/auth.json` from host/CI env vars before `opencode serve` starts; supported vars include `ZAI_CODING_API_KEY` (or `ZAI_API_KEY`), `OPENROUTER_API_KEY`, and `MODEL_STUDIO_API_KEY`; Alibaba Model Studio Singapore (`bailian-payg`) defaults to `bailian-payg/qwen3.6-plus` with `bailian-payg/qwen3.6-flash` as `small_model`.
 - Non-root execution: all three containers run as non-root (`app` UID 1000 by default via gosu entrypoint; Caddy runs as a `caddy` user created in the image — the pinned `caddy:2.10.0-alpine` ships no non-root user — via a root entrypoint + `su-exec` drop, with `:80`/`:443` granted by a file capability on `/usr/bin/caddy` (`setcap cap_net_bind_service=+ep`) plus compose `cap_add: CAP_NET_BIND_SERVICE`). Workspace files are operator-owned — no `sudo` for cleanup. The `app`/`caddy` users are baked at **build** time (`ARG APP_UID`/`APP_GID` configure `app` only); the compose files set **no** runtime `user:` because it would bypass the root→`gosu`/`su-exec` drop and break ownership on non-1000 hosts. To run as a different UID, **rebuild** with `--build-arg APP_UID=$(id -u) --build-arg APP_GID=$(id -g)` (via `compose.build.yaml`), not a runtime env var. One-time migration for pre-existing root-owned files: `sudo chown -R $(id -u):$(id -g) $WORKSPACE_DIR`.
 - `zai-coding-plan/glm-4.7` needs `ZAI_CODING_API_KEY`; `OPENROUTER_API_KEY` alone does not authenticate that provider.
@@ -41,10 +41,10 @@ The GitHub Actions + webhook-driven AI orchestration runtime. It is the running 
 
 ### nam20485/workflow-launch2 (repo factory)
 
-The repo that stamps out new project instances from a GitHub template. Two scripts form the entry point:
+The repo that stamps out new project instances from the **`intel-agency/agent-context`** GitHub template. The canonical entry point is one script that chains the full pipeline:
 
-- **`scripts/create-repo-from-slug.ps1`** — thin entry point. Params: `-Slug` (required, validated `^[A-Za-z0-9_.-]+$`), `-Visibility` (`public`/`private`, default `public`), `-Owner` (default `intel-agency`), `-Yes`, `-LaunchAgent`, `-Count` (default `1`). It delegates to `create-repo-with-plan-docs.ps1` with `-PlanDocsDir ./plan_docs/$Slug`.
-- **`scripts/create-repo-with-plan-docs.ps1`** — the full pipeline (`#requires -Version 7.0`). Creates one or more repos named `<RepoName>-<randomSuffix>` (letter suffixes appended when `-Count > 1`) under `-Owner`, creates the repo secret `GEMINI_API_KEY` and a `VERSION_PREFIX` repo variable, clones each locally, copies the slug's `plan_docs/` into the new repo's `plan_docs/`, replaces template placeholders (template name → new repo name, template owner → owner), commits, pushes, then triggers `project-setup`. Params: `-RepoName`, `-Owner`, `-PlanDocsDir`, `-CloneParentDir`, `-Visibility`, `-DryRun`, `-Yes`, `-LaunchEditor`, `-Count`. The GitHub template it clones is `intel-agency/ai-new-workflow-app-template` (not this repo directly).
+- **`scripts/create-repo-agent-context.ps1`** — entry point (params: `-Slug`, `-Owner` default `nam20485`, `-Visibility`, `-Count`, `-Yes`, `-TriggerHierarchyInit`). It chains: `create-repo-with-plan-docs.ps1` (engine: `gh repo create --template intel-agency/agent-context`, name `<Slug>-<suffix>`, seed `plan_docs/<slug>/`, placeholder + `AGENTS.md` anchor replace, seed commit+push) → `cleanup-template-state.ps1` (Class-2: blank `.agents/memory.md`, clear template plans) → `import-labels.ps1` (`.github/.labels.json`) → `trigger-gh-issue-tracking-init.ps1` (file the dispatch issue).
+- **`scripts/create-repo-with-plan-docs.ps1`** — the shared engine underneath (`-SkipProjectSetup` is additive). `create-repo-from-slug.ps1` + template `ai-new-workflow-app-template` + the `orchestration:dispatch` trigger are the **legacy, superseded** path.
 
 Each slug under `plan_docs/` is an application spec keyed by app-name slug (e.g. `gap-miner-v2`, `accp`, `Helix3D`, `advanced-memory-v0`, `job-command-center`); that slug directory's plan/architecture docs are seeded into the new repo's `plan_docs/`.
 
@@ -54,14 +54,14 @@ The canonical, single-source-of-truth repository for dynamic workflows and workf
 
 ### How a new project is created
 
-1. `workflow-launch2` runs `create-repo-from-slug.ps1 -Slug <app>` → `create-repo-with-plan-docs.ps1` creates `<app>-<randomSuffix>` from the `ai-new-workflow-app-template` template, seeds `plan_docs/` from the slug directory, replaces template placeholders, commits, and pushes.
-2. The factory then runs `trigger-project-setup.ps1`, which opens a dispatch issue on the new repo (label `orchestration:dispatch`, body `/orchestrate-dynamic-workflow` + `$workflow_name = project-setup`). Separately, the instance's `validate` CI runs on push.
-3. The webhook receiver dispatches the orchestrator, which fetches the `project-setup` workflow + assignments from `agent-instructions` and walks the per-assignment script to completion.
-4. The codename suffixes (e.g. `gap-miner-v2-delta48`, `…-november10`) are each a distinct instance created this way — useful for A/B comparisons such as the glm-4.7-vs-glm-5 delegation experiment.
+1. `workflow-launch2` runs `create-repo-agent-context.ps1 -Slug <app>`, which creates `<app>-<suffix>` from the **`intel-agency/agent-context`** template, seeds `plan_docs/` from the slug directory, replaces template placeholders (incl. the `AGENTS.md` `**GitHub template repo**` → `**project instance**` anchor), runs Class-2 cleanup, imports labels, commits, and pushes.
+2. The factory then files the dispatch issue via `trigger-gh-issue-tracking-init.ps1`: **label `gh-issue-tracking:direct-body`**, body **`/gh-issue-tracking-init`** (gated by `DIRECT_BODY_ALLOWED_SENDERS`). *(Legacy: `orchestration:dispatch` + `/orchestrate-dynamic-workflow project-setup` — superseded for agent-context clones.)*
+3. A GitHub webhook delivers the `issues:labeled` event to this repo's `webhook_receiver` (FastAPI), which matches the label, renders the prompt, and dispatches a non-interactive `opencode run --attach http://orchestratorservice:4099 --dir /workspace/<slug> --agent orchestrator` via `scripts/prompt.ps1`. The orchestrator fetches workflow definitions fresh from `agent-instructions` at dispatch time.
+4. The codename suffixes (e.g. `gap-miner-v2-tango85`, `…-delta48`) are each a distinct instance created this way — useful for A/B comparisons such as the glm-4.7-vs-glm-5 delegation experiment.
 
 ## Current Architecture
 
-The system is a **three-tier software factory** built around the Beads DAG ecosystem. Authoritative architecture docs: `plan_docs/agent-loop-refactor/architecture.md` and `plan_docs/agent-loop-refactor/application_plan.md`.
+The system is a **three-tier software factory** built around the Beads DAG ecosystem. Authoritative architecture refs: `docs/deployment-compose.md` (runtime) and `plan_docs/three-repo-oveall-architecture-inspection-update-plan.md` (multi-repo factory).
 
 ### Three-Tier Pipeline
 
@@ -111,7 +111,7 @@ These docs are **historical/archived** and do NOT reflect current architecture. 
 - `plan_docs/archive/plan.md` — Original OpenCode Server POR. Uses port 4096 (now 4099). Describes `scripts/opencode/prompt.sh` (now `scripts/prompt.ps1`). Predates the beads integration.
 - `plan_docs/archive/orchestration_supervisor.md` — Future maestro/supervisor design. NOT implemented. Describes leapfrog recovery pattern.
 - `plan_docs/archive/maestro_architecture_options.md` — Future architecture options for the maestro. NOT implemented.
-- `docs/agent-loop-dev-plans/` — Original refactor plans with inaccuracies. Corrected by `plan_docs/agent-loop-refactor/architecture.md` ("Corrections from Original Plans" section).
+- Current architecture (replaces the former `docs/agent-loop-dev-plans/` + `plan_docs/agent-loop-refactor/` pointers, which no longer exist): `docs/deployment-compose.md` and `plan_docs/three-repo-oveall-architecture-inspection-update-plan.md`.
 
 ## Validation
 
