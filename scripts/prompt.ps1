@@ -10,7 +10,7 @@ param (
     $Workspace = "/workspace",
     [Parameter()]
     [String]
-    $Model = "zai-coding-plan/glm-5.2",
+    $Model = "zai-coding-plan/glm-5",
     [Parameter()]
     [String]
     $Agent = "orchestrator",
