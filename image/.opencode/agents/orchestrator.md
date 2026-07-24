@@ -125,6 +125,18 @@ If any check fails, execute directly or optimize context first.
 - Checkpoint completed work to avoid re-passing completed context
 - Reference prior work by ID/summary rather than re-including full details
 
+## Subagent Scratch Location (CRITICAL)
+
+**Every subagent delegation MUST instruct the subagent to write scratch artifacts (driver scripts, rendered body files, logs, temp outputs) INSIDE the project workspace — never under `/tmp`, `/var/tmp`, or any path outside `--dir`.**
+
+- Correct: `<workspace>/.scratch/...` (e.g. `/workspace/<slug>/.scratch/driver.ps1`, `.../.scratch/bodies/`). Create the directory first.
+- WRONG: `/tmp/kilo/<slug>/...`, `/tmp/anything`, `~/.cache/...`.
+
+Why this is mandatory: these dispatches are **headless fire-and-forget** (no human answers permission prompts). opencode v1.18.4 has a subagent permission-inheritance bug (issue #30527 cluster) where a task-spawned subagent does NOT receive the parent's (skip-permissions) or its own frontmatter `external_directory` allow rules. Any write to a path **outside** the project `--dir` (`/workspace/<slug>`) therefore resolves to `external_directory → ask`, which can never be answered → the subagent blocks forever and the run hangs until the watchdog kills it. Writes **inside** `--dir` are never "external," so they bypass that check entirely.
+
+Action: in each `task` prompt that will produce scratch files, state explicitly:
+> "Write all scratch/driver scripts and rendered files to `<workspace>/.scratch/` (create it). Do NOT use `/tmp` or any path outside the workspace."
+
 ## Important Notes
 
 - NEVER author production code directly

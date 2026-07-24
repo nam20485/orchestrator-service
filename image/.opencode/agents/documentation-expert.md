@@ -16,11 +16,12 @@ tools:
   webfetch: true
 permission:
   bash: deny
-  # Headless fail-fast: deny external dirs except /tmp scratch (v1.18.4
-  # evaluate uses findLast → specific /tmp/** allow overrides the *:deny).
+  # Defense-in-depth only (INERT for task subagents in opencode v1.18.4).
+  # If honored, an external-dir write fails fast via deny instead of
+  # hanging on `ask`. Scratch MUST go in-workspace (<workspace>/.scratch),
+  # never /tmp — see AGENTS.md "Subagent scratch" rule.
   external_directory:
     "*": deny
-    "/tmp/**": allow
 ---
 
 You are a documentation expert creating clear, comprehensive technical documentation.

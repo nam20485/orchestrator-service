@@ -8,21 +8,26 @@
   "model": "zai-coding-plan/glm-5.2",
   "small_model": "zai-coding-plan/glm-4.5-air",
   "agent": {
-    // Subagent model + reasoning-effort overrides (best-effort). The
-    // orchestrator is intentionally OMITTED: it receives model+variant from
-    // the dispatch CLI (--model zai-coding-plan/glm-5.2 --variant max), the
-    // reliable session-level path that must not be downgraded. NOTE opencode
-    // issue #27790: same-model agents with different per-agent variants may
-    // not reliably preserve the variant at runtime (can bleed to the session
-    // default "max"); if so, subagents simply run at "max" — acceptable.
-    "developer":                 { "model": "zai-coding-plan/glm-5.2", "variant": "high" },
-    "code-reviewer":             { "model": "zai-coding-plan/glm-5.2", "variant": "high" },
-    "documentation-expert":      { "model": "zai-coding-plan/glm-5.2", "variant": "high" },
-    "github-expert":             { "model": "zai-coding-plan/glm-5.2", "variant": "high" },
-    "odbplusplus-expert":        { "model": "zai-coding-plan/glm-5.2", "variant": "high" },
-    "planner":                   { "model": "zai-coding-plan/glm-5.2", "variant": "high" },
-    "qa-test-engineer":          { "model": "zai-coding-plan/glm-5.2", "variant": "high" },
-    "researcher":                { "model": "zai-coding-plan/glm-5.2", "variant": "high" }
+    // Subagent reasoning-effort override (best-effort). Only `variant` is set;
+    // each subagent inherits its `model` from the session default
+    // (line-8 "model": zai-coding-plan/glm-5.2, set via the dispatch CLI
+    // --model), so a model bump touches ONE place, not 11. The orchestrator is
+    // intentionally OMITTED: it receives model+variant from the dispatch CLI
+    // (--variant max), the reliable session-level path that must not be
+    // downgraded. NOTE opencode issue #27790: same-model agents with different
+    // per-agent variants may not reliably preserve the variant at runtime (can
+    // bleed to the session default "max"); if so, subagents run at "max" — acceptable.
+    "developer":                 { "variant": "high" },
+    "code-reviewer":             { "variant": "high" },
+    "debugger":                  { "variant": "high" },
+    "documentation-expert":      { "variant": "high" },
+    "github-expert":             { "variant": "high" },
+    "odbplusplus-expert":        { "variant": "high" },
+    "planner":                   { "variant": "high" },
+    "qa-test-engineer":          { "variant": "high" },
+    "researcher":                { "variant": "high" },
+    "security-expert":           { "variant": "high" },
+    "agent-instructions-expert": { "variant": "high" }
   },
   "mcp": {
     "sequential-thinking": {
@@ -72,15 +77,20 @@
     },
   },
   "permission": {
-    // NOTE: this block governs ONLY the top-level orchestrator session's own
-    // external_directory — and is bypassed entirely because the orchestrator
-    // runs with --dangerously-skip-permissions. It does NOT reach subagents:
-    // subagent external_directory is evaluated per-agent (tools.ts merges
-    // agent.permission + a parent-session-derived ruleset; the parent session
-    // is empty under skip-permissions, so only the agent frontmatter applies).
-    // The real gate for headless subagent deadlocks is external_directory:allow
-    // in each image/.opencode/agents/*.md. (opencode's glob matcher maps `*`
-    // -> `.*` and crosses `/`; there is no `**` distinction.)
+    // NOTE: this block is bypassed entirely — the orchestrator runs with
+    // --dangerously-skip-permissions, so it never governs the orchestrator
+    // session, and task-spawned subagents do NOT inherit it either (opencode
+    // v1.18.4 deriveSubagentSessionPermission + prompt.ts session.permission
+    // clobber; issue #30527 cluster). The agent frontmatter
+    // (image/.opencode/agents/*.md) external_directory allow is ALSO inert for
+    // task subagents in this version (verified). Therefore do NOT rely on
+    // ANY external_directory allow here or in agent frontmatter for headless
+    // subagents: subagent scratch MUST be written inside the workspace
+    // (<workspace>/.scratch), never /tmp. The watchdog additionally fails-fast
+    // on any unanswered permission `ask` (PERMISSION_ASK_GRACE_SECS). This
+    // block is retained only as documentation/defense-in-depth.
+    // (opencode's glob matcher maps `*` -> `.*` and crosses `/`; no `**`
+    // distinction.)
     "external_directory": {
       "*": "deny",
       "/tmp/**": "allow"
