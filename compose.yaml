@@ -51,7 +51,7 @@ services:
       - GITHUB_TOKEN=${GITHUB_TOKEN}
       # Trusted-sender allowlist (GitHub usernames/logins, comma-separated) for
       # gh-issue-tracking:direct-body dispatch. direct-body runs the issue body
-      # verbatim with the orchestration token + --dangerously-skip-permissions,
+      # verbatim with the orchestration token + --auto,
       # so it is fail-closed when unset. The webhook payload's sender.login is
       # matched against this list (see filters.should_dispatch).
       - DIRECT_BODY_ALLOWED_SENDERS=${DIRECT_BODY_ALLOWED_SENDERS}

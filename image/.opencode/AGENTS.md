@@ -36,7 +36,7 @@ scope: repository
       (`OS_WEBHOOK_SECRET`) → matches the label (`webhook_receiver/filters.py` `should_dispatch`) →
       renders the prompt (`webhook_receiver/prompts.py` from `orchestration_prompt.jinja2.md`) →
       `webhook_receiver/runner.py` `dispatch_to_opencode()` → `scripts/prompt.ps1` →
-      `opencode run --attach http://orchestratorservice:4099 --dir /workspace/<slug> --agent orchestrator --dangerously-skip-permissions`.
+      `opencode run --attach http://orchestratorservice:4099 --dir /workspace/<slug> --agent orchestrator --auto`.
       *(Legacy, superseded trigger: `orchestration:dispatch` label + `/orchestrate-dynamic-workflow`.)*
       KNOWN GAP: nothing currently drives implementation after `/gh-issue-tracking-init` builds the Plan/Epic/Story hierarchy.
     </dispatch_contract>
@@ -61,10 +61,10 @@ scope: repository
     <entry><path>webhook_receiver/filters.py</path><description>`should_dispatch` + log blacklist — label-prefix matching (`gh-issue-tracking:`/`orchestration:`), `direct-body` sender allowlist.</description></entry>
     <entry><path>webhook_receiver/prompts.py</path><description>Renders the Jinja2 `orchestration_prompt.jinja2.md` match-clause state machine.</description></entry>
     <entry><path>webhook_receiver/runner.py</path><description>`dispatch_to_opencode()` + `IdleWatchdog` run classifier (completed/failed/idle_timeout/zero-work).</description></entry>
-    <entry><path>scripts/prompt.ps1</path><description>Non-interactive dispatch: `opencode run --attach <url> --dir <workspace> --model … --agent orchestrator --dangerously-skip-permissions`.</description></entry>
+    <entry><path>scripts/prompt.ps1</path><description>Non-interactive dispatch: `opencode run --attach <url> --dir <workspace> --model … --agent orchestrator --auto`.</description></entry>
     <!-- Agent/config source -->
     <entry><path>image/.opencode/</path><description>opencode config shipped into the container: `opencode.json`, THIS `AGENTS.md`, `agents/` (orchestrator + 8 specialists: code-reviewer, developer, documentation-expert, github-expert, odbplusplus-expert, planner, qa-test-engineer, researcher), `commands/`, `local_ai_instruction_modules/`.</description></entry>
-    <entry><path>image/.opencode/opencode.json</path><description>`instructions:["AGENTS.md"]`, `default_agent:"orchestrator"`, `model:zai-coding-plan/glm-5.2`, per-agent variants, MCP defs, `permission.external_directory` (NOTE: subagent external_directory is governed by each agent's frontmatter, not this block — see repo-root AGENTS.md "Learned Workspace Facts").</description></entry>
+    <entry><path>image/.opencode/opencode.json</path><description>`instructions:["AGENTS.md"]`, `default_agent:"orchestrator"`, `model:zai-coding-plan/glm-5.2`, per-agent variants, MCP defs, `"permission": "allow"` (server-side: allows all actions for all sessions including subagents — the definitive fix for the headless permission deadlock).</description></entry>
     <!-- CI -->
     <entry><path>.github/workflows/</path><description>`validate` (lint/scan/test), `docker-publish` (build+push GHCR images), `trivy` (image scan), `opencode`, `dependency-review`, `droid`/`droid-review`. There is NO `orchestrator-agent.yml` workflow in this repo.</description></entry>
     <!-- Docs -->
@@ -139,7 +139,7 @@ scope: repository
     <rule>Pin ALL GitHub Actions by full SHA to the latest release — no tag or branch references (`@v4`, `@main`). Format: `uses: owner/action@<full-40-char-SHA> # vX.Y.Z`. The trailing comment with the semver tag is mandatory for human readability. This applies to every `uses:` line in every workflow file, including third-party actions, first-party (`actions/*`), and reusable workflows. Supply-chain attacks via tag mutation are a critical threat — SHA pinning is the only mitigation. When creating or modifying workflows, look up the SHA for the latest release of each action (e.g., via `gh api repos/actions/checkout/releases/latest --jq .tag_name` then resolve to SHA) and pin to it.</rule>
     <rule>Never add duplicate top-level `name:`, `on:`, or `jobs:` keys in workflow YAML.</rule>
       <rule>`image/.opencode/` is the agent config shipped into the container — the `Dockerfile` DOES `COPY image/ /app/` then installs it to `/home/app/.config/opencode/`. There is NO external prebuild repo; images build in this repo.</rule>
-      <rule>Subagent `external_directory` permission lives in each agent's frontmatter (`image/.opencode/agents/*.md`), NOT in the global `opencode.json` block (that block is bypassed under `--dangerously-skip-permissions` and never reaches subagents). See repo-root `AGENTS.md` "Learned Workspace Facts".</rule>
+      <rule>Server-side permission config (`"permission": "allow"` in `image/.opencode/opencode.json`) governs ALL sessions including task-spawned subagents. The client-side `--auto` flag is belt-and-suspenders. Agent frontmatter `external_directory` rules are defense-in-depth only.</rule>
     <rule>Repository labels are defined in `.github/.labels.json`. Use `scripts/import-labels.ps1` to sync them to a repo instance. When adding new labels, add them to this file — it is the single source of truth for the label set.</rule>
     <rule>Implementation approval protocol: before implementing any non-trivial change, verify that explicit approval was given for that specific item AND that no significant state or circumstances have changed since approval was given. If approval was never given, or was invalidated by changed circumstances, stop and ask before acting. When in doubt — ask, don't act.</rule>
   </coding_conventions>
@@ -279,7 +279,7 @@ scope: repository
       1. `webhook_receiver` receives a GitHub `issues:labeled` webhook and HMAC-verifies it (`OS_WEBHOOK_SECRET`).
       2. `should_dispatch` (`webhook_receiver/filters.py`) matches the label (e.g. `gh-issue-tracking:direct-body`).
       3. `build_orchestrator_prompt` (`webhook_receiver/prompts.py`) renders `orchestration_prompt.jinja2.md`, injecting the event JSON.
-      4. `dispatch_to_opencode` (`webhook_receiver/runner.py`) spawns `scripts/prompt.ps1`, which runs `opencode run --attach http://orchestratorservice:4099 --dir /workspace/<slug> --agent orchestrator --dangerously-skip-permissions`.
+      4. `dispatch_to_opencode` (`webhook_receiver/runner.py`) spawns `scripts/prompt.ps1`, which runs `opencode run --attach http://orchestratorservice:4099 --dir /workspace/<slug> --agent orchestrator --auto`.
     </rule>
   </agent_specific_guardrails>
 
