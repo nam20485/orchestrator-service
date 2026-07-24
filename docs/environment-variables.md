@@ -1,0 +1,172 @@
+# Environment Variables
+
+This is the canonical reference for every environment variable the **orchestrator-service**
+runtime depends on. It supersedes the earlier template-clone-only description and now covers
+both layers that ship in this repo:
+
+1. **The docker-compose stack + shipped opencode config** — the running container.
+   Credentials are injected by the `environment:` blocks in `compose.yaml` /
+   `compose.development.yaml`, then:
+   - MCP servers read keys directly from the container env via `{env:…}` placeholders in
+     `image/.opencode/opencode.json` (the config the Dockerfile installs into the image).
+   - Built-in model providers (`zai-coding-plan`, `openrouter`, `bailian-payg`) resolve
+     credentials from `auth.json`, which `scripts/docker-entrypoint.sh` writes at startup
+     from the env keys below (exits if none are present).
+2. **Host-side automation scripts** — `scripts/*.ps1` (GitHub auth, label/index sync,
+   permission checks). These run on the host or a downstream clone, **not** inside the
+   container image.
+
+> **Naming convention:** the Z.AI API key has a single canonical name — **`ZAI_CODING_API_KEY`**.
+> It is what the shipped container config reads for the Z.AI MCP servers and what the
+> entrypoint prefers for `auth.json`. `ZAI_API_KEY` is an accepted fallback (entrypoint +
+> compose). The old `Z_AI_API_KEY` name is **not** consumed anywhere at runtime and should
+> not be relied upon.
+
+---
+
+## Required — the stack will not function without these
+
+| Variable | Used by | Purpose |
+|---|---|---|
+| `OPENCODE_SERVER_PASSWORD` | `compose.yaml` (both services) | Shared secret between the opencode server and clients/webhook-receiver. Fail-closed (`:?required`). |
+| `OS_WEBHOOK_SECRET` | `webhook-receiver` | GitHub webhook HMAC verification secret. Required (fail-closed). |
+| `WORKSPACE_DIR` | `compose.yaml` (bind mount) | Host directory bind-mounted to `/workspace` (agent session + beads working dir). Fail-closed (`:?required`). |
+| `GH_ORCHESTRATION_AGENT_TOKEN` | `orchestratorservice` + `webhook-receiver` | Org-level PAT (`repo`, `workflow`, `project`, `read:org`) for agent `gh`/API calls. No fallback to `GITHUB_TOKEN`. |
+
+## Required for default model access
+
+The entrypoint needs **at least one** provider key to write `auth.json`, or it exits with an
+error. The default model is `zai-coding-plan/glm-5`, so the primary key is:
+
+| Variable | Used by | Purpose |
+|---|---|---|
+| `ZAI_CODING_API_KEY` | `docker-entrypoint.sh` → `auth.json` (`zai-coding-plan`); `image/.opencode/opencode.json` (Z.AI MCP servers) | Z.AI GLM model access **and** authentication for the `web-reader`/`zread`/`web-search-prime` MCP servers. |
+
+Alternate/standalone provider keys (any one satisfies the entrypoint):
+
+| Variable | Used by | Purpose |
+|---|---|---|
+| `ZAI_API_KEY` | `docker-entrypoint.sh` → `auth.json` (fallback for `zai-coding-plan`) | Accepted alternative to `ZAI_CODING_API_KEY`. |
+| `OPENROUTER_API_KEY` | `docker-entrypoint.sh` → `auth.json` (`openrouter`) | OpenRouter provider access. |
+| `MODEL_STUDIO_API_KEY` | `docker-entrypoint.sh` → `auth.json` (`bailian-payg`) | Alibaba Bailian pay-as-you-go access. |
+
+## Required for the enabled MCP tools
+
+The Exa MCP server is `enabled: true` in the shipped config and authenticates from env:
+
+| Variable | Used by | Purpose |
+|---|---|---|
+| `EXA_API_KEY` | `image/.opencode/opencode.json` — Exa MCP | Passed as `exaApiKey` in the Exa MCP URL. Without it the enabled Exa server fails auth. |
+
+---
+
+## Model-provider keys consumed by the shipped config
+
+These are read directly from the container env via `{env:…}` (or the built-in provider
+convention). Only required when the corresponding provider/model is actually selected.
+
+| Variable | Used by | Purpose |
+|---|---|---|
+| `ZAI_CODING_API_KEY` | Z.AI MCP servers + `zai-coding-plan` provider | Z.AI GLM models + MCP auth (see above). |
+| `MS_DS_API_KEY` | `alibaba-model-studio` provider | Alibaba Model Studio (Anthropic-compatible endpoint). |
+| `GEMINI_API_KEY` | `google` built-in provider | Google AI Studio models (read directly from env by the built-in provider). |
+| `NVIDIA_NIM_API_KEY` | `nvidia` provider | NVIDIA NIM (OpenAI-compatible) API key. Optional. |
+| `NVIDIA_NIM_BASE_URL` | `nvidia` provider | NIM endpoint base URL (defaults to `https://integrate.api.nvidia.com/v1`). Optional. |
+| `CLINE_API_KEY` | `cline-pass` provider | ClinePass subscription API key. Optional. |
+
+---
+
+## Compose operational variables
+
+Injected into the container(s) by the compose `environment:` blocks (with defaults where shown).
+
+| Variable | Service | Purpose |
+|---|---|---|
+| `GITHUB_TOKEN` | `orchestratorservice` + `webhook-receiver` | Exported as `GH_TOKEN`/`GITHUB_TOKEN` so `gh`, MCP, and opencode authenticate. (CI-provided token is used for GHCR image push/pull.) |
+| `NOTION_MCP_CONNECTIONS_API_KEY` | `orchestratorservice` | **No active consumer** in the shipped `image/.opencode` config — carried for a planned Notion MCP. Harmless if unset. |
+| `DIRECT_BODY_ALLOWED_SENDERS` | `webhook-receiver` | Fail-closed allowlist (GitHub logins) gating `gh-issue-tracking:direct-body` dispatch. |
+| `OPENCODE_SERVER_URL` | `webhook-receiver` | Hardcoded `http://orchestratorservice:4099`. |
+| `OPENCODE_SERVER_LOG_PATH` | `webhook-receiver` | Server log path for the idle watchdog. Default `/var/log/opencode-server/opencode.log`. |
+| `DASHBOARD_TOKEN` | `webhook-receiver` | Optional dashboard auth token. Default empty. |
+| `BEADS_*`, `IDLE_TIMEOUT_SECS`, `ERROR_GRACE_SECS`, `HARD_CEILING_SECS`, `WATCHDOG_*`, `MAX_CONSECUTIVE_ERRORS`, `DISPATCH_TIMEOUT_SECS` | `webhook-receiver` | Beads loop + idle-watchdog tuning. All have sensible defaults — see `compose.yaml`. |
+| `IMAGE_REF` | compose interpolation | Image tag suffix. Default `main`. |
+| `WEBHOOK_LOG_DIR`, `WEBHOOK_SITE_ADDRESS` | compose interpolation | Runner-log bind mount and Caddy site address. See `compose.yaml` defaults. |
+
+---
+
+## Host-side automation scripts (`scripts/*.ps1`)
+
+These run on the host or a downstream clone, **not** inside the container image.
+
+| Variable | Used by | Purpose |
+|---|---|---|
+| `GITHUB_AUTH_TOKEN` | `scripts/gh-auth.ps1`, `scripts/test-github-permissions.ps1` | Primary GitHub auth token for repo automation scripts. |
+| `GITHUB_TOKEN` | `scripts/sync-agent-instruction-indices.ps1` | Fallback GitHub token for index sync (accepted wherever `GITHUB_AUTH_TOKEN` is expected). |
+| `GITHUB_USERNAME` | `scripts/test-github-permissions.ps1` | Default repository owner for permission checks (`-Owner`). If unset the script warns and skips the project-creation test. |
+
+> **Note:** `scripts/update-remote-indices.ps1` (referenced by older docs as the
+> `GITHUB_TOKEN` fallback consumer) is **not present** in this repo; the real fallback
+> consumer here is `scripts/sync-agent-instruction-indices.ps1`.
+
+---
+
+## Provider credential fallbacks (only when `auth.json` is absent)
+
+The two built-in providers below resolve credentials from `auth.json` first and fall back to
+these env vars. Since the entrypoint always writes `auth.json` (provisioning
+`zai-coding-plan`, `openrouter`, `bailian-payg`), these are rarely needed.
+
+| Variable | Used by | Purpose |
+|---|---|---|
+| `ZAI_CODING_PLAN_OPEN_AI_API_KEY` | `zai-coding-plan` provider | Fallback API key when `auth.json` is absent. |
+| `OPENCODE_GO_API_KEY` | `opencode-go` provider | Fallback API key when `auth.json` is absent. Note: the entrypoint does **not** write an `opencode-go` `auth.json` entry, so this provider is only usable via this env fallback. |
+
+---
+
+## Do NOT set — internal runtime state
+
+| Variable | Owner | Notes |
+|---|---|---|
+| `GHIT_LOG_FILE` | `gh-issue-tracking-init` skill | Set at runtime by the skill's `common.ps1` to carry the active log-file path between dot-sourced scripts. Not a secret; pre-defining it can interfere with log management. |
+
+---
+
+## Current environment status (host shell)
+
+Checked via `echo $VAR`. Status reflects where compose interpolates `${VAR}` from.
+
+| Variable | Status |
+|---|---|
+| `EXA_API_KEY`, `ZAI_CODING_API_KEY`, `ZAI_API_KEY`, `OPENROUTER_API_KEY`, `MODEL_STUDIO_API_KEY`, `MS_DS_API_KEY`, `GEMINI_API_KEY`, `NOTION_MCP_CONNECTIONS_API_KEY`, `NVIDIA_NIM_API_KEY`, `NVIDIA_NIM_BASE_URL`, `CLINE_API_KEY`, `GH_ORCHESTRATION_AGENT_TOKEN`, `GITHUB_TOKEN`, `OPENCODE_SERVER_PASSWORD`, `ZAI_CODING_PLAN_OPEN_AI_API_KEY`, `OPENCODE_GO_API_KEY` | **SET** |
+| `OS_WEBHOOK_SECRET`, `WORKSPACE_DIR`, `DIRECT_BODY_ALLOWED_SENDERS` | Define in `.env` / shell before `docker compose up` |
+| `GITHUB_AUTH_TOKEN`, `GITHUB_USERNAME` | **UNSET** — only needed for host-side `scripts/*.ps1`; not consumed by the container. See "Host-side automation scripts" above. |
+
+---
+
+## Quick-start minimum set
+
+For a running stack with the default model + enabled MCP tools, define:
+
+```sh
+# Stack secrets (required, fail-closed)
+export OPENCODE_SERVER_PASSWORD="..."
+export OS_WEBHOOK_SECRET="..."
+export WORKSPACE_DIR="/path/to/orchestrator-workspace"
+export GH_ORCHESTRATION_AGENT_TOKEN="ghp_..."   # org-level PAT
+
+# Default model + Z.AI MCP servers
+export ZAI_CODING_API_KEY="..."
+
+# Enabled MCP (Exa)
+export EXA_API_KEY="..."
+
+# GitHub (container runtime)
+export GITHUB_TOKEN="ghp_..."
+```
+
+For host-side automation scripts additionally:
+
+```sh
+export GITHUB_AUTH_TOKEN="ghp_..."   # or GITHUB_TOKEN
+export GITHUB_USERNAME="..."
+```
