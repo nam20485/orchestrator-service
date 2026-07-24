@@ -76,38 +76,7 @@
       "enabled": true,
     },
   },
-  "permission": {
-    // NOTE: this block is bypassed entirely — the orchestrator runs with
-    // --dangerously-skip-permissions, so it never governs the orchestrator
-    // session, and task-spawned subagents do NOT inherit it either (opencode
-    // v1.18.4 deriveSubagentSessionPermission + prompt.ts session.permission
-    // clobber; issue #30527 cluster). The agent frontmatter
-    // (image/.opencode/agents/*.md) external_directory allow is ALSO inert for
-    // task subagents in this version (verified). Therefore do NOT rely on
-    // ANY external_directory allow here or in agent frontmatter for headless
-    // subagents: subagent scratch MUST be written inside the workspace
-    // (<workspace>/.scratch), never /tmp. The watchdog additionally fails-fast
-    // on any unanswered permission `ask` (PERMISSION_ASK_GRACE_SECS). This
-    // block is retained only as documentation/defense-in-depth.
-    // (opencode's glob matcher maps `*` -> `.*` and crosses `/`; no `**`
-    // distinction.)
-    "external_directory": {
-      "*": "deny",
-      "/tmp/**": "allow"
-    },
-    "mcp_tool": {
-      "sequential-thinking:sequentialthinking": "allow",
-      "memory-graph:create_entities": "allow",
-      "memory-graph:create_relations": "allow",
-      "memory-graph:add_observations": "allow",
-      "memory-graph:delete_entities": "allow",
-      "memory-graph:delete_observations": "allow",
-      "memory-graph:delete_relations": "allow",
-      "memory-graph:read_graph": "allow",
-      "memory-graph:search_nodes": "allow",
-      "memory-graph:open_nodes": "allow"
-    }
-  },
+  "permission": "allow",
   "provider": {
     // Z.AI Coding Plan — built-in provider (creds resolved from auth.json;
     // env fallback ZAI_CODING_PLAN_OPEN_AI_API_KEY / Z_AI_API_KEY).

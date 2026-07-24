@@ -28,7 +28,7 @@ param (
     $PrintLogs = "true",
     [Parameter()]
     [String]
-    $DangerouslySkipPermissions = "true",
+    $Auto = "true",
     [Parameter()]
     [String]
     $Thinking = "true",
@@ -81,7 +81,7 @@ $runArgs = @(
     "--model",  $Model,
     "--agent",  $Agent,
     "--thinking", $Thinking,
-    "--dangerously-skip-permissions", $DangerouslySkipPermissions,
+    "--auto", $Auto,
     "--format", $Format,
     "--print-logs", $PrintLogs,
     "--log-level", $LogLevel
