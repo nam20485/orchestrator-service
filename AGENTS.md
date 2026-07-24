@@ -315,7 +315,7 @@ Always use sequential-thinking and the Memory knowledge-graph for all non-trivia
 
 ### Web & Repository Research (Z.AI MCP)
 
-Three **remote** Z.AI MCP servers authenticate via the `Authorization: {env:Z_AI_API_KEY}` header and require no local install. Use them for reliable, structured external information retrieval instead of ad-hoc fetching.
+Three **remote** Z.AI MCP servers authenticate via the `Authorization: {env:ZAI_CODING_API_KEY}` header and require no local install. Use them for reliable, structured external information retrieval instead of ad-hoc fetching.
 
 - **`web-search-prime`** → `webSearchPrime` — Web search returning titles, URLs, summaries, site names, and icons. Use for best-practice surveys, competitive analysis, dependency/API research, and factual questions needing current external info. Key params: `content_size` (`medium` default, `high` for comprehensive), `location` (`cn` / `us`), `search_domain_filter` (whitelist a domain), `search_recency_filter` (`oneDay` / `oneWeek` / `oneMonth` / `oneYear` / `noLimit`). Keep queries ≤ 70 chars.
 - **`web-reader`** → `webReader` — Fetches a URL and converts it to large-model-friendly input (markdown/text/html). Returns page title, main content, metadata, and optional link/image summaries. Use to read API docs, articles, release notes, and reference pages. Prefer this over generic `webfetch` when available.
