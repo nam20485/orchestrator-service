@@ -5,18 +5,18 @@
     "AGENTS.md"
   ],
   "default_agent": "orchestrator",
-  "model": "zai-coding-plan/glm-5.2",
+  "model": "zai-coding-plan/glm-5",
   "small_model": "zai-coding-plan/glm-4.5-air",
   "agent": {
     // Subagent reasoning-effort override (best-effort). Only `variant` is set;
     // each subagent inherits its `model` from the session default
-    // (line-8 "model": zai-coding-plan/glm-5.2, set via the dispatch CLI
-    // --model), so a model bump touches ONE place, not 11. The orchestrator is
-    // intentionally OMITTED: it receives model+variant from the dispatch CLI
-    // (--variant max), the reliable session-level path that must not be
-    // downgraded. NOTE opencode issue #27790: same-model agents with different
-    // per-agent variants may not reliably preserve the variant at runtime (can
-    // bleed to the session default "max"); if so, subagents run at "max" — acceptable.
+    // (line-8 "model": zai-coding-plan/glm-5, set via the dispatch CLI
+    // --model). The orchestrator is intentionally OMITTED: it receives
+    // model+variant from the dispatch CLI (--variant high), the reliable
+    // session-level path. GLM-5 variant ceiling is "high" (low/medium/high — no
+    // "max"), so BOTH orchestrator and subagents run "high" — a single flat
+    // tier. With no per-agent variant difference there is no #27790 bleed.
+    // Keep these explicit so future tiering (e.g. medium) is a one-line change.
     "developer":                 { "variant": "high" },
     "code-reviewer":             { "variant": "high" },
     "debugger":                  { "variant": "high" },
