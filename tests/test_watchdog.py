@@ -11,6 +11,8 @@ from __future__ import annotations
 import signal
 import subprocess
 import time
+import urllib.error
+import urllib.request
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -713,6 +715,40 @@ class TestPermissionAskMonitor:
         mon.poll(time.monotonic())
         assert mon.pending_ask is None
 
+    def test_captures_session_id(self, tmp_path: Path) -> None:
+        log = tmp_path / "opencode.log"
+        log.write_text("baseline\n", encoding="utf-8")
+        mon = _PermissionAskMonitor(str(log))
+        with log.open("a", encoding="utf-8") as fh:
+            fh.write(
+                "timestamp=... level=INFO run=abc message=process "
+                "session.id=ses_06aab8071ffeV8TotH696WH6Gi mode=primary\n"
+            )
+        mon.poll(time.monotonic())
+        assert mon.session_id == "ses_06aab8071ffeV8TotH696WH6Gi"
+
+    def test_first_session_id_wins(self, tmp_path: Path) -> None:
+        # The first session.id seen is locked (this dispatch's own session,
+        # created at run start); a later one from concurrent-dispatch noise
+        # sharing the log file does not replace it.
+        log = tmp_path / "opencode.log"
+        log.write_text("baseline\n", encoding="utf-8")
+        mon = _PermissionAskMonitor(str(log))
+        with log.open("a", encoding="utf-8") as fh:
+            fh.write("... session.id=ses_FIRST ...\n")
+        mon.poll(time.monotonic())
+        with log.open("a", encoding="utf-8") as fh:
+            fh.write("... session.id=ses_SECOND ...\n")
+        mon.poll(time.monotonic())
+        assert mon.session_id == "ses_FIRST"
+
+    def test_no_session_id_is_none(self, tmp_path: Path) -> None:
+        log = tmp_path / "opencode.log"
+        log.write_text("baseline without a session marker\n", encoding="utf-8")
+        mon = _PermissionAskMonitor(str(log))
+        mon.poll(time.monotonic())
+        assert mon.session_id is None
+
 
 # ── IdleWatchdog: permission-ask deadlock kill condition ───────────────────
 
@@ -805,3 +841,109 @@ class TestIdleWatchdogPermissionDeadlock:
         assert result.killed is False
         assert result.reason == REASON_PROCESS_EXIT
         mock_killpg.assert_not_called()
+
+
+# ── Server-side session abort on termination ────────────────────────────────
+
+
+class TestServerSessionAbort:
+    """On any watchdog trip the server-side opencode session is aborted via
+    ``POST {server}/session/{id}/abort`` so a killed client does not leave an
+    orphaned server session. Client and server run in separate containers, so a
+    client process-group kill alone cannot stop the server-side agent loop."""
+
+    @staticmethod
+    def _make_wd(
+        *,
+        session_id: str | None = "ses_abc",
+        server_url: str = "http://orchestratorservice:4099",
+    ) -> IdleWatchdog:
+        proc = _mock_proc(returncode=-15)
+        state = WatchdogState(time.monotonic())
+        cfg = WatchdogConfig(
+            server_url=server_url,
+            server_password="secret",
+            server_username="opencode",
+            server_log_path="",  # disable server-log signal
+            sigterm_grace_secs=0,
+        )
+        wd = IdleWatchdog(proc, state, cfg)
+        wd._ask_monitor._session_id = session_id
+        return wd
+
+    @patch("webhook_receiver.watchdog.os.killpg")
+    @patch("webhook_receiver.watchdog.os.getpgid")
+    @patch("webhook_receiver.watchdog.urllib.request.urlopen")
+    def test_abort_posts_to_session_endpoint(
+        self,
+        mock_urlopen: MagicMock,
+        mock_getpgid: MagicMock,
+        mock_killpg: MagicMock,
+    ) -> None:
+        """Termination POSTs to /session/{id}/abort with basic auth."""
+        mock_getpgid.return_value = 1
+        ctx = mock_urlopen.return_value
+        ctx.__enter__.return_value = ctx
+        ctx.status = 200
+
+        wd = self._make_wd(session_id="ses_abc")
+        wd._terminate(REASON_IDLE_TIMEOUT)
+
+        mock_urlopen.assert_called_once()
+        req: urllib.request.Request = mock_urlopen.call_args.args[0]
+        assert req.full_url == "http://orchestratorservice:4099/session/ses_abc/abort"
+        assert req.get_method() == "POST"
+        auth = req.get_header("Authorization")
+        assert auth is not None
+        assert auth.startswith("Basic ")
+
+    @patch("webhook_receiver.watchdog.os.killpg")
+    @patch("webhook_receiver.watchdog.os.getpgid")
+    @patch("webhook_receiver.watchdog.urllib.request.urlopen")
+    def test_abort_skipped_without_session_id(
+        self,
+        mock_urlopen: MagicMock,
+        mock_getpgid: MagicMock,
+        mock_killpg: MagicMock,
+    ) -> None:
+        """No captured session id → no abort attempt, but client kill proceeds."""
+        mock_getpgid.return_value = 1
+        wd = self._make_wd(session_id=None)
+        wd._terminate(REASON_IDLE_TIMEOUT)
+        mock_urlopen.assert_not_called()
+        mock_killpg.assert_called()
+
+    @patch("webhook_receiver.watchdog.os.killpg")
+    @patch("webhook_receiver.watchdog.os.getpgid")
+    @patch("webhook_receiver.watchdog.urllib.request.urlopen")
+    def test_abort_skipped_without_server_url(
+        self,
+        mock_urlopen: MagicMock,
+        mock_getpgid: MagicMock,
+        mock_killpg: MagicMock,
+    ) -> None:
+        """Empty server_url → abort disabled, client kill still proceeds."""
+        mock_getpgid.return_value = 1
+        wd = self._make_wd(session_id="ses_abc", server_url="")
+        wd._terminate(REASON_IDLE_TIMEOUT)
+        mock_urlopen.assert_not_called()
+        mock_killpg.assert_called()
+
+    @patch("webhook_receiver.watchdog.os.killpg")
+    @patch("webhook_receiver.watchdog.os.getpgid")
+    @patch("webhook_receiver.watchdog.urllib.request.urlopen")
+    def test_abort_failure_is_swallowed(
+        self,
+        mock_urlopen: MagicMock,
+        mock_getpgid: MagicMock,
+        mock_killpg: MagicMock,
+    ) -> None:
+        """A network failure during abort must not prevent the client kill."""
+        mock_getpgid.return_value = 1
+        mock_urlopen.side_effect = urllib.error.URLError("connection refused")
+
+        wd = self._make_wd(session_id="ses_abc")
+        # Must not raise — best-effort cleanup.
+        wd._terminate(REASON_IDLE_TIMEOUT)
+        mock_urlopen.assert_called_once()
+        mock_killpg.assert_called()
