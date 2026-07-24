@@ -31,6 +31,7 @@ post-mortem diagnosis without requiring debug mode.
 """
 from __future__ import annotations
 
+import base64
 import logging
 import os
 import re
@@ -38,6 +39,8 @@ import signal
 import subprocess
 import threading
 import time
+import urllib.error
+import urllib.request
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
@@ -179,12 +182,18 @@ class _PermissionAskMonitor:
     #   ... message=asking id=per_.. permission=external_directory patterns=[..]
     _ASK_RE = re.compile(r"message=asking\b.*?permission=([A-Za-z_]+)")
     _REPLIED_RE = re.compile(r"message=replied|permission\.replied")
+    # The dispatch's opencode session id, e.g. ``session.id=ses_abc123``. The
+    # FIRST one seen in this dispatch's log window is locked in — the session
+    # is created at run start, so the earliest match is this dispatch's own
+    # (resilient to concurrent-dispatch noise sharing the one log file).
+    _SESSION_RE = re.compile(r"session\.id=(ses_[A-Za-z0-9]+)")
 
     def __init__(self, path: str) -> None:
         self._path: Path | None = Path(path) if path else None
         self._pos = self._size_or_zero()
         self._last_ask_time: float | None = None
         self._last_ask_detail: str = ""
+        self._session_id: str | None = None
 
     def _size_or_zero(self) -> int:
         try:
@@ -213,6 +222,12 @@ class _PermissionAskMonitor:
             return  # unreadable this cycle; retry next poll
         self._pos = size
         text = chunk.decode("utf-8", errors="replace")
+        # Capture this dispatch's session id (first-seen wins) so the watchdog
+        # can abort the server-side session on termination.
+        if self._session_id is None:
+            sm = self._SESSION_RE.search(text)
+            if sm:
+                self._session_id = sm.group(1)
         if self._REPLIED_RE.search(text):
             # An ask in flight was resolved — no longer deadlocked.
             self._last_ask_time = None
@@ -230,6 +245,11 @@ class _PermissionAskMonitor:
         if self._last_ask_time is None:
             return None
         return (self._last_ask_time, self._last_ask_detail)
+
+    @property
+    def session_id(self) -> str | None:
+        """The dispatch's opencode session id, once seen in the server log."""
+        return self._session_id
 
 
 class WatchdogState:
@@ -315,6 +335,15 @@ class WatchdogConfig:
     # delegation) withhold an idle kill, while a non-growing log falls back to
     # client-only monitoring. Empty string disables the signal.
     server_log_path: str = "/home/app/.local/share/opencode/log/opencode.log"
+    # opencode server connection for server-side session abort on termination.
+    # The client process-group kill only reaps the local opencode-run client;
+    # the session lives in the (separate-container) server and would otherwise
+    # orphan — blocked on an unanswered ask or an active agent loop. On any
+    # watchdog trip the captured session id is POST-aborted via this URL.
+    # Empty server_url disables the abort (the client kill still happens).
+    server_url: str = ""
+    server_username: str = "opencode"
+    server_password: str = ""
 
     @classmethod
     def from_settings(cls, settings: object) -> WatchdogConfig:
@@ -339,6 +368,9 @@ class WatchdogConfig:
                 "server_log_path",
                 "/home/app/.local/share/opencode/log/opencode.log",
             ),
+            server_url=getattr(settings, "opencode_server_url", ""),
+            server_username=os.environ.get("OPENCODE_SERVER_USERNAME", "opencode"),
+            server_password=os.environ.get("OPENCODE_SERVER_PASSWORD", ""),
         )
 
 
@@ -634,15 +666,30 @@ class IdleWatchdog:
     # ── Termination and diagnostics ───────────────────────────────────────
 
     def _terminate(self, reason: str) -> int:
-        """SIGTERM → grace → SIGKILL escalation on the entire process group.
+        """Abort the server-side session, then SIGTERM → grace → SIGKILL the
+        client process group.
 
-        The runner spawns opencode with ``start_new_session=True``, making the
-        child a session/process-group leader. Sending signals to the process
-        *group* (not just the direct child PID) ensures that grandchild
-        processes (e.g. ``gh`` CLI calls spawned by subagents) are also
-        terminated, preventing orphaned processes from continuing to mutate
-        GitHub state after the watchdog kill.
+        Two independent cleanup targets, because client and server run in
+        separate containers:
+
+        1. **Server session abort** — ``POST {server}/session/{id}/abort``.
+           This is the precise way to stop the server-side agent loop. Without
+           it the session orphans (the client kill alone cannot reach the
+           server), staying blocked on an unanswered permission ask or an
+           active subagent until the server is restarted. Best-effort: a
+           network failure does not block the client kill below.
+
+        2. **Client process-group kill** — ``os.killpg`` escalation. The runner
+           spawns opencode with ``start_new_session=True``, making the child a
+           session/process-group leader. Signalling the *group* (not just the
+           direct child PID) ensures grandchild processes (e.g. ``gh`` CLI
+           calls spawned by subagents) are also terminated, preventing orphaned
+           processes from continuing to mutate GitHub state after the kill.
         """
+        # Server-side session abort FIRST: cleanly stops the agent loop so the
+        # client can exit on its own; the killpg below is then hard cleanup.
+        self._abort_server_session()
+
         proc = self._proc
         try:
             pgid = os.getpgid(proc.pid)
@@ -669,6 +716,46 @@ class IdleWatchdog:
             proc.wait()
 
         return proc.returncode if proc.returncode is not None else -15
+
+    def _abort_server_session(self) -> None:
+        """Best-effort ``POST {server}/session/{id}/abort``.
+
+        Captured session id comes from the server log via
+        :attr:`_PermissionAskMonitor.session_id`. Skipped silently when the
+        server URL or session id is unavailable (the client kill still
+        proceeds). Never raises — this is cleanup, not a control path.
+        """
+        cfg = self._config
+        session_id = self._ask_monitor.session_id
+        if not cfg.server_url or not session_id:
+            logger.info(
+                "[watchdog] server-session abort skipped "
+                "(server_url=%r session_id=%r)",
+                cfg.server_url,
+                session_id,
+            )
+            return
+        url = f"{cfg.server_url.rstrip('/')}/session/{session_id}/abort"
+        req = urllib.request.Request(url, method="POST", data=b"")
+        if cfg.server_password:
+            token = base64.b64encode(
+                f"{cfg.server_username}:{cfg.server_password}".encode()
+            ).decode()
+            req.add_header("Authorization", f"Basic {token}")
+        try:
+            with urllib.request.urlopen(req, timeout=8) as resp:
+                logger.warning(
+                    "[watchdog] server session aborted url=%s status=%s",
+                    url,
+                    resp.status,
+                )
+        except Exception as exc:  # noqa: BLE001 — best-effort, never fatal
+            logger.warning(
+                "[watchdog] server session abort FAILED (best-effort; "
+                "client kill still proceeds) url=%s err=%s",
+                url,
+                exc,
+            )
 
     def _dump_diagnostics(self, snap: WatchdogSnapshot, reason: str) -> None:
         """Dump recent stderr lines + state summary before termination.
