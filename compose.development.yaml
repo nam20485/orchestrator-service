@@ -12,9 +12,15 @@ services:
     environment:
       - ZAI_CODING_API_KEY=${ZAI_CODING_API_KEY}
       - ZAI_API_KEY=${ZAI_API_KEY}
+      # Exa MCP server (neural web search, code-context lookup, crawling).
+      - EXA_API_KEY=${EXA_API_KEY}
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
       - MODEL_STUDIO_API_KEY=${MODEL_STUDIO_API_KEY}
       - MS_DS_API_KEY=${MS_DS_API_KEY}
+      # Alternate model providers (optional — only used when selected).
+      - NVIDIA_NIM_API_KEY=${NVIDIA_NIM_API_KEY}
+      - NVIDIA_NIM_BASE_URL=${NVIDIA_NIM_BASE_URL}
+      - CLINE_API_KEY=${CLINE_API_KEY}
       - GEMINI_API_KEY=${GEMINI_API_KEY}
       - NOTION_MCP_CONNECTIONS_API_KEY=${NOTION_MCP_CONNECTIONS_API_KEY}
       - GH_ORCHESTRATION_AGENT_TOKEN=${GH_ORCHESTRATION_AGENT_TOKEN}
