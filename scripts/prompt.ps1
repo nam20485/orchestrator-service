@@ -74,18 +74,22 @@ $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $hostWorkspaceDir = Get-WorkspaceDirFromEnvOrDotEnv
 $Workspace = Resolve-ProjectWorkspace -Workspace $Workspace -Project $Project -HostWorkspaceDir $hostWorkspaceDir
 
+# opencode boolean flags (--thinking, --auto, --print-logs) take NO argument
+# (yargs [boolean]); passing an explicit value (e.g. "--auto true") leaks
+# "true" as a positional message token, corrupting the prompt. Include each
+# flag only when its (string) param is truthy.
 $runArgs = @(
     "run",
     "--attach", $ServerUrl,
     "--dir",    $Workspace,
     "--model",  $Model,
     "--agent",  $Agent,
-    "--thinking", $Thinking,
-    "--auto", $Auto,
     "--format", $Format,
-    "--print-logs", $PrintLogs,
     "--log-level", $LogLevel
 )
+if ($Thinking -eq 'true')  { $runArgs += "--thinking" }
+if ($Auto -eq 'true')      { $runArgs += "--auto" }
+if ($PrintLogs -eq 'true') { $runArgs += "--print-logs" }
 if ($Variant) {
     $runArgs += @("--variant", $Variant)
 }
