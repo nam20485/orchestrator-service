@@ -107,3 +107,5 @@ traces/golden-path-foxtrot54.log.txt
 traces/gap-miner-v2-golf38-api-error.md
 # stray host downloads unrelated to the project
 amdgpu-install_*.deb
+# machine-local opencode client error logs
+.opencode/*-error.txt
