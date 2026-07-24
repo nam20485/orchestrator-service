@@ -157,6 +157,81 @@ class _ServerLogMonitor:
         return now - self._last_growth
 
 
+class _PermissionAskMonitor:
+    """Detects unanswered permission ``ask`` prompts in the opencode server log.
+
+    A headless dispatch (``--dangerously-skip-permissions``, no human responder)
+    can NEVER satisfy a permission ``ask``: the agent blocks forever waiting for
+    a reply. opencode emits ``message=asking ... permission=<type>`` lines to its
+    server log when ``evaluate()`` resolves a tool call to ``ask`` (distinct from
+    ``message=evaluated``, which fires for allow/deny too). This scanner reads
+    only the bytes appended to the shared server log *during this dispatch* and
+    records the most recent unanswered ask. The watchdog then kills the run once
+    that ask has aged past ``permission_ask_grace_secs`` instead of hanging until
+    the much longer idle ceiling fires.
+
+    Defensive: a subsequent ``message=replied`` clears the pending ask, in case
+    opencode resolves it via a saved "always" approval — though this cannot
+    happen for subagents in skip-permissions mode.
+    """
+
+    # opencode slog text format, e.g.:
+    #   ... message=asking id=per_.. permission=external_directory patterns=[..]
+    _ASK_RE = re.compile(r"message=asking\b.*?permission=([A-Za-z_]+)")
+    _REPLIED_RE = re.compile(r"message=replied|permission\.replied")
+
+    def __init__(self, path: str) -> None:
+        self._path: Path | None = Path(path) if path else None
+        self._pos = self._size_or_zero()
+        self._last_ask_time: float | None = None
+        self._last_ask_detail: str = ""
+
+    def _size_or_zero(self) -> int:
+        try:
+            return self._path.stat().st_size if self._path is not None else 0
+        except OSError:
+            return 0
+
+    def poll(self, now: float) -> None:
+        """Consume new server-log bytes; track the latest unanswered ``ask``."""
+        if self._path is None:
+            return
+        try:
+            size = self._path.stat().st_size
+        except OSError:
+            return
+        # Log rotation/truncation: reset to head so we don't miss a fresh ask.
+        if size < self._pos:
+            self._pos = 0
+        if size <= self._pos:
+            return
+        try:
+            with self._path.open("rb") as fh:
+                fh.seek(self._pos)
+                chunk = fh.read(size - self._pos)
+        except OSError:
+            return  # unreadable this cycle; retry next poll
+        self._pos = size
+        text = chunk.decode("utf-8", errors="replace")
+        if self._REPLIED_RE.search(text):
+            # An ask in flight was resolved — no longer deadlocked.
+            self._last_ask_time = None
+            return
+        last_match = None
+        for match in self._ASK_RE.finditer(text):
+            last_match = match
+        if last_match is not None:
+            self._last_ask_time = now
+            self._last_ask_detail = last_match.group(0).strip()[:160]
+
+    @property
+    def pending_ask(self) -> tuple[float, str] | None:
+        """``(ask_monotonic_time, detail)`` if an unanswered ask is pending."""
+        if self._last_ask_time is None:
+            return None
+        return (self._last_ask_time, self._last_ask_detail)
+
+
 class WatchdogState:
     """Thread-safe activity state updated by stream readers, read by watchdog.
 
@@ -228,6 +303,12 @@ class WatchdogConfig:
     max_consecutive_errors: int = 5
     sigterm_grace_secs: int = 10
     debug: bool = False
+    # Grace window before an unanswered permission `ask` (detected in the server
+    # log) is treated as a fatal headless deadlock and the run is killed. In a
+    # headless dispatch no `ask` can ever be answered, so this is kept short;
+    # the window only absorbs a transiently-logged ask that opencode resolves
+    # via a saved "always" approval (rare; impossible for skip-perms subagents).
+    permission_ask_grace_secs: int = 60
     # Path to the opencode server's log file (shared via the opencode-logs
     # volume). The watchdog treats the log as a per-dispatch activity signal by
     # tracking byte growth since the run started: ongoing appends (subagent
@@ -250,6 +331,9 @@ class WatchdogConfig:
             poll_interval_secs=getattr(settings, "watchdog_poll_secs", 30),
             max_consecutive_errors=getattr(settings, "max_consecutive_errors", 5),
             debug=getattr(settings, "watchdog_debug", False),
+            permission_ask_grace_secs=getattr(
+                settings, "permission_ask_grace_secs", 60
+            ),
             server_log_path=getattr(
                 settings,
                 "server_log_path",
@@ -265,6 +349,9 @@ REASON_PROCESS_EXIT = "process_exit"
 REASON_IDLE_TIMEOUT = "idle_timeout"
 REASON_HARD_CEILING = "hard_ceiling"
 REASON_CONSECUTIVE_ERRORS = "consecutive_errors"
+# An unanswered permission `ask` detected in the server log. In headless
+# dispatches (no human to answer) this is an unrecoverable deadlock.
+REASON_PERMISSION_DEADLOCK = "permission_deadlock"
 
 
 @dataclass(frozen=True)
@@ -318,6 +405,9 @@ class IdleWatchdog:
         self._server_monitor = _ServerLogMonitor(
             config.server_log_path, state.start_time
         )
+        # Permission-ask deadlock scanner (headless fail-fast). Shares the same
+        # server-log path as the growth monitor but tracks its own read offset.
+        self._ask_monitor = _PermissionAskMonitor(config.server_log_path)
 
     def run(self) -> WatchdogResult:
         """Main watchdog loop. Blocks until the process exits or is killed.
@@ -378,6 +468,11 @@ class IdleWatchdog:
             else:
                 effective_idle = line_idle
 
+            # ── Permission-ask deadlock scan (headless fail-fast) ─────────
+            # Read newly-appended server-log bytes and track any unanswered
+            # permission `ask`. The kill decision based on this is below.
+            self._ask_monitor.poll(now)
+
             # ── 1. Hard ceiling (unconditional) ────────────────────────────
             if cfg.hard_ceiling_secs is not None and elapsed >= cfg.hard_ceiling_secs:
                 logger.warning(
@@ -430,7 +525,40 @@ class IdleWatchdog:
                         total_lines=snap.total_lines,
                     )
 
-            # ── 3. Idle timeout ───────────────────────────────────────────
+            # ── 3. Permission-ask deadlock (headless fail-fast) ──────────
+            # In headless mode an unanswered permission `ask` can never be
+            # resolved; once one ages past the grace window, kill the run
+            # immediately rather than waiting for the idle ceiling (which can
+            # be 15+ minutes). This is the deterministic signature of the
+            # subagent external_directory deadlock (opencode #30527 cluster).
+            ask_pending = self._ask_monitor.pending_ask
+            if ask_pending is not None:
+                ask_age = now - ask_pending[0]
+                if ask_age >= cfg.permission_ask_grace_secs:
+                    logger.warning(
+                        "[watchdog] PERMISSION DEADLOCK unanswered ask "
+                        "ask_age=%ds grace=%ds detail=%r "
+                        "elapsed=%ds lines=%d — terminating",
+                        int(ask_age),
+                        cfg.permission_ask_grace_secs,
+                        ask_pending[1][:120],
+                        int(elapsed),
+                        snap.total_lines,
+                    )
+                    self._dump_diagnostics(snap, REASON_PERMISSION_DEADLOCK)
+                    exit_code = self._terminate(REASON_PERMISSION_DEADLOCK)
+                    return WatchdogResult(
+                        killed=True,
+                        reason=REASON_PERMISSION_DEADLOCK,
+                        elapsed=elapsed,
+                        exit_code=exit_code,
+                        consecutive_errors=snap.consecutive_errors,
+                        last_error_message=snap.last_error_message,
+                        last_line_time=snap.last_line_time,
+                        total_lines=snap.total_lines,
+                    )
+
+            # ── 4. Idle timeout ───────────────────────────────────────────
             # Uses effective_idle (min of client line_idle and server log
             # mtime idle) so a subagent actively working on the server does
             # not trigger a false-positive kill.

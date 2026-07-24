@@ -85,6 +85,12 @@ class Settings:
     watchdog_poll_secs: int = 30
     max_consecutive_errors: int = 5
     watchdog_debug: bool = False
+    # Grace window before an unanswered permission `ask` (detected in the
+    # opencode server log) is treated as a fatal headless deadlock and the run
+    # is killed. In headless dispatches no `ask` can be answered, so this is
+    # short; it only absorbs a transiently-logged ask that opencode resolves
+    # via a saved "always" approval (impossible for skip-perms subagents).
+    permission_ask_grace_secs: int = 60
     # Path to the opencode server's log file, shared via the opencode-logs
     # volume (see compose.yaml). The watchdog treats it as a per-dispatch
     # activity signal by tracking byte growth since the run started: if the
@@ -158,6 +164,9 @@ class Settings:
             .strip()
             .lower()
             in ("1", "true", "yes"),
+            permission_ask_grace_secs=int(
+                os.environ.get("PERMISSION_ASK_GRACE_SECS", "60")
+            ),
             server_log_path=os.environ.get(
                 "OPENCODE_SERVER_LOG_PATH",
                 "/home/app/.local/share/opencode/log/opencode.log",

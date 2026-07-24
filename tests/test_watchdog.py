@@ -20,11 +20,13 @@ from webhook_receiver.watchdog import (
     REASON_CONSECUTIVE_ERRORS,
     REASON_HARD_CEILING,
     REASON_IDLE_TIMEOUT,
+    REASON_PERMISSION_DEADLOCK,
     REASON_PROCESS_EXIT,
     IdleWatchdog,
     SignalKind,
     WatchdogConfig,
     WatchdogState,
+    _PermissionAskMonitor,
     _ServerLogMonitor,
     classify_line,
 )
@@ -149,6 +151,7 @@ class TestWatchdogConfig:
         assert cfg.poll_interval_secs == 30
         assert cfg.max_consecutive_errors == 5
         assert cfg.debug is False
+        assert cfg.permission_ask_grace_secs == 60
 
     def test_from_settings(self) -> None:
         settings = MagicMock()
@@ -171,6 +174,7 @@ class TestWatchdogConfig:
         cfg = WatchdogConfig.from_settings(object())
         assert cfg.idle_timeout_secs == 900
         assert cfg.hard_ceiling_secs == 5400
+        assert cfg.permission_ask_grace_secs == 60
 
 
 # ── IdleWatchdog ───────────────────────────────────────────────────────────
@@ -621,3 +625,183 @@ class TestServerLogMonitor:
     def test_empty_path_is_disabled(self) -> None:
         mon = _ServerLogMonitor("", time.monotonic())
         assert mon.idle_secs(time.monotonic()) is None
+
+
+# ── _PermissionAskMonitor: headless permission-ask deadlock detection ──────
+
+
+class TestPermissionAskMonitor:
+    """Unit tests for the unanswered-permission-ask server-log scanner.
+
+    In headless dispatches a permission ``ask`` can never be answered. opencode
+    logs ``message=asking ... permission=<type>``; this monitor reads only bytes
+    appended during the dispatch and tracks the latest unanswered ask.
+    """
+
+    def test_no_ask_is_none(self, tmp_path: Path) -> None:
+        log = tmp_path / "opencode.log"
+        log.write_text("baseline\n", encoding="utf-8")
+        mon = _PermissionAskMonitor(str(log))
+        mon.poll(time.monotonic())
+        assert mon.pending_ask is None
+
+    def test_detects_ask(self, tmp_path: Path) -> None:
+        log = tmp_path / "opencode.log"
+        log.write_text("baseline\n", encoding="utf-8")
+        now = time.monotonic()
+        mon = _PermissionAskMonitor(str(log))
+        with log.open("a", encoding="utf-8") as fh:
+            fh.write(
+                'timestamp=... level=INFO run=abc message=asking '
+                'id=per_123 permission=external_directory patterns=["/tmp/x/*"]\n'
+            )
+        mon.poll(now)
+        pending = mon.pending_ask
+        assert pending is not None
+        assert pending[0] == now
+        assert "external_directory" in pending[1]
+
+    def test_pre_existing_ask_excluded(self, tmp_path: Path) -> None:
+        # An ask present BEFORE the dispatch (in the baseline) must not count.
+        log = tmp_path / "opencode.log"
+        log.write_text(
+            'message=asking id=per_old permission=bash patterns=["*"]\n',
+            encoding="utf-8",
+        )
+        mon = _PermissionAskMonitor(str(log))
+        mon.poll(time.monotonic())
+        assert mon.pending_ask is None
+
+    def test_replied_clears_pending_ask(self, tmp_path: Path) -> None:
+        log = tmp_path / "opencode.log"
+        log.write_text("baseline\n", encoding="utf-8")
+        mon = _PermissionAskMonitor(str(log))
+        with log.open("a", encoding="utf-8") as fh:
+            fh.write(
+                "message=asking id=per_1 permission=external_directory patterns=[]\n"
+            )
+        mon.poll(time.monotonic())
+        assert mon.pending_ask is not None
+        with log.open("a", encoding="utf-8") as fh:
+            fh.write('timestamp=... message=replied reply="always"\n')
+        mon.poll(time.monotonic())
+        assert mon.pending_ask is None
+
+    def test_does_not_match_evaluated(self, tmp_path: Path) -> None:
+        # `message=evaluated ... action.action=ask` is the evaluation log, not
+        # the "prompting the user" signal — it must NOT be treated as a pending
+        # ask (it fires even when the result is allow/deny).
+        log = tmp_path / "opencode.log"
+        log.write_text("baseline\n", encoding="utf-8")
+        mon = _PermissionAskMonitor(str(log))
+        with log.open("a", encoding="utf-8") as fh:
+            fh.write(
+                "message=evaluated permission=external_directory "
+                'pattern=/tmp/x/* action.permission=external_directory '
+                "action.action=ask action.pattern=*\n"
+            )
+        mon.poll(time.monotonic())
+        assert mon.pending_ask is None
+
+    def test_empty_path_is_disabled(self) -> None:
+        mon = _PermissionAskMonitor("")
+        mon.poll(time.monotonic())
+        assert mon.pending_ask is None
+
+    def test_missing_file_is_noop(self, tmp_path: Path) -> None:
+        mon = _PermissionAskMonitor(str(tmp_path / "nope.log"))
+        mon.poll(time.monotonic())
+        assert mon.pending_ask is None
+
+
+# ── IdleWatchdog: permission-ask deadlock kill condition ───────────────────
+
+
+class TestIdleWatchdogPermissionDeadlock:
+    """An unanswered permission ask aged past the grace window kills the run."""
+
+    @patch("webhook_receiver.watchdog.os.killpg")
+    @patch("webhook_receiver.watchdog.os.getpgid")
+    def test_unanswered_ask_kills_run(
+        self,
+        mock_getpgid: MagicMock,
+        mock_killpg: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """A server-log `message=asking` that persists past grace → kill."""
+        server_log = tmp_path / "opencode.log"
+        server_log.write_text("baseline\n", encoding="utf-8")
+
+        proc = _mock_proc(returncode=None)
+        proc.returncode = -15
+        # First poll: running (ask detected, but not yet aged). Second poll:
+        # still running; ask now aged past grace → kill. (poll() called once at
+        # top of loop before the kill checks.)
+        proc.poll.side_effect = [None, -15]
+        mock_getpgid.return_value = 12345
+
+        # Pretend the run started long ago so the ask (recorded on first poll)
+        # is already aged past the grace window by the kill check.
+        far_past = time.monotonic() - 1000
+        state = WatchdogState(far_past)
+        # Keep the client "active" so only the permission-deadlock path fires
+        # (idle timeout must NOT be the reason).
+        state._last_line_time = time.monotonic()
+
+        cfg = WatchdogConfig(
+            idle_timeout_secs=10000,  # disable idle path
+            hard_ceiling_secs=None,  # disable ceiling
+            poll_interval_secs=0,
+            permission_ask_grace_secs=1,
+            server_log_path=str(server_log),
+        )
+        wd = IdleWatchdog(proc, state, cfg)
+        # Force the monitor to already have a pending, aged ask before run().
+        wd._ask_monitor._last_ask_time = far_past
+        wd._ask_monitor._last_ask_detail = (
+            "message=asking permission=external_directory patterns=[/tmp/kilo/x/*]"
+        )
+
+        result = wd.run()
+
+        assert result.killed is True
+        assert result.reason == REASON_PERMISSION_DEADLOCK
+        mock_killpg.assert_called()
+
+    @patch("webhook_receiver.watchdog.os.killpg")
+    @patch("webhook_receiver.watchdog.os.getpgid")
+    def test_ask_within_grace_does_not_kill(
+        self,
+        mock_getpgid: MagicMock,
+        mock_killpg: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """A fresh ask (younger than grace) must not kill — process exits."""
+        server_log = tmp_path / "opencode.log"
+        server_log.write_text("baseline\n", encoding="utf-8")
+
+        proc = _mock_proc(returncode=None)
+        proc.returncode = 0
+        proc.poll.side_effect = [None, 0]  # exits on second poll
+        mock_getpgid.return_value = 12345
+
+        state = WatchdogState(time.monotonic())
+        state._last_line_time = time.monotonic()  # client active
+
+        cfg = WatchdogConfig(
+            idle_timeout_secs=10000,
+            hard_ceiling_secs=None,
+            poll_interval_secs=0,
+            permission_ask_grace_secs=1000,  # ask far within grace
+            server_log_path=str(server_log),
+        )
+        wd = IdleWatchdog(proc, state, cfg)
+        # Pending ask recorded "just now" → younger than the 1000s grace.
+        wd._ask_monitor._last_ask_time = time.monotonic()
+        wd._ask_monitor._last_ask_detail = "message=asking permission=bash"
+
+        result = wd.run()
+
+        assert result.killed is False
+        assert result.reason == REASON_PROCESS_EXIT
+        mock_killpg.assert_not_called()
