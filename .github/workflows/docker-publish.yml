@@ -158,6 +158,7 @@ jobs:
           tags: |
             type=raw,value=${{ env.BRANCH_NAME }}-${{ github.run_number }}
             type=raw,value=${{ env.BRANCH_NAME }}-latest
+            type=raw,value=sha-${{ github.sha }}
 
       - name: Build and push Docker image
         id: build-and-push

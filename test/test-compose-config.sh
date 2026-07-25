@@ -16,6 +16,21 @@ echo "compose config: ok"
 docker compose -f compose.yaml -f compose.https.yaml config --quiet
 echo "compose https overlay: ok"
 
+# Rollback overlay must render and pin all three services to IMAGE_TAG.
+export IMAGE_TAG="main-999"
+docker compose -f compose.yaml -f compose.rollback.yaml config --quiet
+rollback_images=$(docker compose -f compose.yaml -f compose.rollback.yaml config --format json \
+  | jq -r '[.services[].image] | join(",")')
+case "$rollback_images" in
+  *":${IMAGE_TAG}"*":${IMAGE_TAG}"*":${IMAGE_TAG}"*) ;;
+  *)
+    echo "FAIL: compose.rollback.yaml did not pin all services to IMAGE_TAG=${IMAGE_TAG}: ${rollback_images}"
+    exit 1
+    ;;
+esac
+unset IMAGE_TAG
+echo "compose rollback overlay: ok"
+
 # Verify enforcement: compose config should fail without OPENCODE_SERVER_PASSWORD.
 # Use --env-file /dev/null so a developer's local .env (auto-loaded by compose)
 # does not re-supply the variable and mask a missing enforcement.

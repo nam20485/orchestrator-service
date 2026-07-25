@@ -1,0 +1,17 @@
+# Rollback overlay: pin all three service images to an explicit, immutable
+# tag (a `<branch>-<run_number>` or `sha-<commit>` value published by
+# docker-publish.yml) instead of the mutable `:*-latest` tag compose.yaml uses
+# by default. See docs/rollback-runbook.md.
+#
+# Usage:
+#   IMAGE_TAG=main-123 docker compose -f compose.yaml -f compose.rollback.yaml up -d
+
+services:
+  orchestratorservice:
+    image: ghcr.io/nam20485/orchestrator-service:${IMAGE_TAG:?IMAGE_TAG is required, e.g. main-123 or sha-<commit>}
+
+  webhook-receiver:
+    image: ghcr.io/nam20485/orchestrator-service/webhook:${IMAGE_TAG:?IMAGE_TAG is required, e.g. main-123 or sha-<commit>}
+
+  webhook-proxy:
+    image: ghcr.io/nam20485/orchestrator-service/caddy:${IMAGE_TAG:?IMAGE_TAG is required, e.g. main-123 or sha-<commit>}
