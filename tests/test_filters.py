@@ -30,7 +30,7 @@ def test_should_filter_matches_log_noise_categories() -> None:
     samples = [
         # 1: permission-always-allowed evaluations
         'message="evaluated permission=memory-graph_search_nodes pattern=* '
-        'action.permission=* action.action=allow action.pattern=*',
+        "action.permission=* action.action=allow action.pattern=*",
         # 2: tracking hash echo (unchanged workspace)
         "message=tracking hash=d28910629f2af8ddd331b44acabe41cab0717105 cwd=/workspace",
         # 3: bare loop counter (must NOT swallow "exiting loop")
@@ -90,9 +90,7 @@ def test_should_dispatch_rejects_non_labeled_actions() -> None:
 
 def test_should_dispatch_rejects_bot_actors() -> None:
     for sender in ("github-actions[bot]", "dependabot[bot]", "renovate-bot"):
-        allow, reason = filters.should_dispatch(
-            "issues", _labeled(sender=sender)
-        )
+        allow, reason = filters.should_dispatch("issues", _labeled(sender=sender))
         assert allow is False, sender
         assert "bot" in reason
 
@@ -191,9 +189,7 @@ def test_direct_body_allowlist_is_case_insensitive(monkeypatch) -> None:
 
 
 def test_should_dispatch_label_is_case_insensitive() -> None:
-    allow, _ = filters.should_dispatch(
-        "issues", _labeled(label="Orchestration:Dispatch")
-    )
+    allow, _ = filters.should_dispatch("issues", _labeled(label="Orchestration:Dispatch"))
     assert allow is True
 
 

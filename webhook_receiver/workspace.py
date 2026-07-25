@@ -42,9 +42,7 @@ def _assert_within_base(base_dir: str, path: str) -> None:
     base_real = os.path.realpath(base_dir)
     path_real = os.path.realpath(path)
     if not (path_real == base_real or path_real.startswith(base_real + os.sep)):
-        raise ValueError(
-            f"Path '{path}' escapes workspace base '{base_dir}'"
-        )
+        raise ValueError(f"Path '{path}' escapes workspace base '{base_dir}'")
 
 
 def discover_projects(base_dir: str) -> list[str]:
@@ -92,17 +90,13 @@ def _ensure_worktrees_excluded(project_root: str) -> None:
     lines: list[str] = []
     if os.path.isfile(exclude_path):
         try:
-            lines = (
-                Path(exclude_path).read_text(encoding="utf-8").splitlines()
-            )
+            lines = Path(exclude_path).read_text(encoding="utf-8").splitlines()
         except OSError:
             lines = []
     if _WORKTREES_EXCLUDE_LINE not in lines:
         lines.append(_WORKTREES_EXCLUDE_LINE)
         os.makedirs(os.path.dirname(exclude_path), exist_ok=True)
-        Path(exclude_path).write_text(
-            "\n".join(lines) + "\n", encoding="utf-8"
-        )
+        Path(exclude_path).write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
 def init_project_workspace(base_dir: str, slug: str) -> str:

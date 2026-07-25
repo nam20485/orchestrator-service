@@ -4,6 +4,7 @@ Tests the full HTTP request lifecycle with real prompt assembly (jinja2 template
 and mocked dispatch. Exercises signature verification, event filtering, payload
 truncation, and the inter-stage boundary between webhook receipt and dispatch.
 """
+
 from __future__ import annotations
 
 import hashlib

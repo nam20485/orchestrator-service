@@ -9,6 +9,7 @@ This is the fast (<30s), agent-drivable way to validate that the beads dispatch
 system still works end-to-end after large refactors. Run with:
     uv run pytest tests/test_e2e_beads_dispatch.py -q
 """
+
 from __future__ import annotations
 
 import json
@@ -38,9 +39,7 @@ STUB = REPO / "tests" / "fixtures" / "stub-agent.ps1"
 def _run(
     args: list[str], *, cwd: str | Path, check: bool = True
 ) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        args, cwd=str(cwd), capture_output=True, text=True, check=check
-    )
+    return subprocess.run(args, cwd=str(cwd), capture_output=True, text=True, check=check)
 
 
 def _br_json(project: Path, *args: str) -> object:
@@ -147,9 +146,7 @@ def _log_versions() -> None:
             print(f"  {name}: version check failed: {exc}")
 
 
-def _has_event(
-    store: EventStore, event_type: str, bead_id: str | None = None
-) -> bool:
+def _has_event(store: EventStore, event_type: str, bead_id: str | None = None) -> bool:
     for e in store.recent(500):
         if e["type"] != event_type:
             continue
@@ -160,9 +157,7 @@ def _has_event(
     return False
 
 
-def _event_index(
-    store: EventStore, event_type: str, bead_id: str
-) -> int | None:
+def _event_index(store: EventStore, event_type: str, bead_id: str) -> int | None:
     """Return the 1-based sequence id of the first matching event, or None."""
     for e in store.recent(500):
         if e["type"] == event_type and e.get("data", {}).get("bead_id") == bead_id:
@@ -250,9 +245,7 @@ def _read_agent_io(ids: dict[str, str]) -> dict[str, dict[str, str]]:
             matches = sorted(log_dir.glob(f"bead-{bid}-*.{kind}"))
             if matches:
                 try:
-                    entry[kind] = matches[-1].read_text(
-                        encoding="utf-8", errors="replace"
-                    )
+                    entry[kind] = matches[-1].read_text(encoding="utf-8", errors="replace")
                 except OSError:
                     pass
         io[bid] = entry
@@ -373,9 +366,7 @@ def test_beads_loop_dispatches_and_closes_first_bead(
     assert len(t1_pushes) == 1, (
         f"expected 1 push_branch call for T1, got {len(t1_pushes)}: {push_calls}"
     )
-    assert len(t1_prs) == 1, (
-        f"expected 1 create_pr call for T1, got {len(t1_prs)}: {pr_calls}"
-    )
+    assert len(t1_prs) == 1, f"expected 1 create_pr call for T1, got {len(t1_prs)}: {pr_calls}"
 
     # Worktree was created then removed.
     wt = project / ".worktrees" / t1_safe

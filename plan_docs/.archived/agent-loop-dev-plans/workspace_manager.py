@@ -5,6 +5,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+
 def create_agent_workspace(repo_path: str, bead_id: str) -> str:
     """
     Creates an isolated Git worktree for a specific task.
@@ -23,8 +24,10 @@ def create_agent_workspace(repo_path: str, bead_id: str) -> str:
     # 1. Create a new branch off main (check if it exists first to handle retries cleanly)
     try:
         subprocess.run(
-            ["git", "rev-parse", "--verify", branch_name], 
-            cwd=repo_path, check=True, capture_output=True
+            ["git", "rev-parse", "--verify", branch_name],
+            cwd=repo_path,
+            check=True,
+            capture_output=True,
         )
         logger.info(f"Branch {branch_name} already exists. Re-using.")
     except subprocess.CalledProcessError:
@@ -33,15 +36,18 @@ def create_agent_workspace(repo_path: str, bead_id: str) -> str:
 
     # 2. Attach a new worktree to that branch
     if not os.path.exists(worktree_dir):
-        subprocess.run(["git", "worktree", "add", worktree_dir, branch_name], cwd=repo_path, check=True)
+        subprocess.run(
+            ["git", "worktree", "add", worktree_dir, branch_name], cwd=repo_path, check=True
+        )
     else:
         logger.info(f"Worktree directory {worktree_dir} already exists.")
-    
+
     return worktree_dir
+
 
 def cleanup_agent_workspace(repo_path: str, bead_id: str, success: bool):
     """
-    Tears down the worktree. Pushes branch to origin if successful, 
+    Tears down the worktree. Pushes branch to origin if successful,
     nukes the branch to start fresh if it failed.
     """
     worktree_dir = os.path.abspath(os.path.join(repo_path, f"../worktrees/{bead_id}"))

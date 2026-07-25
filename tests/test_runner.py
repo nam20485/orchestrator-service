@@ -142,18 +142,15 @@ def test_format_log_line_groups_envelope_bare_message() -> None:
 
 
 def test_format_log_line_without_run() -> None:
-    line = "timestamp=2026-07-23T02:00:00Z level=ERROR message=\"stream error\""
+    line = 'timestamp=2026-07-23T02:00:00Z level=ERROR message="stream error"'
     assert _format_log_line(line) == (
-        "[timestamp=2026-07-23T02:00:00Z level=ERROR] "
-        'message="stream error"'
+        '[timestamp=2026-07-23T02:00:00Z level=ERROR] message="stream error"'
     )
 
 
 def test_format_log_line_envelope_only() -> None:
     line = "timestamp=2026-07-23T02:00:00Z level=INFO run=abc123"
-    assert _format_log_line(line) == (
-        "[timestamp=2026-07-23T02:00:00Z level=INFO run=abc123]"
-    )
+    assert _format_log_line(line) == ("[timestamp=2026-07-23T02:00:00Z level=INFO run=abc123]")
 
 
 def test_format_log_line_non_slog_passthrough() -> None:
@@ -289,9 +286,7 @@ def _closed_state_run() -> subprocess.CompletedProcess:
     Used so the incomplete-detection state probe resolves cleanly in tests
     instead of raising on a MagicMock stdout.
     """
-    return subprocess.CompletedProcess(
-        args=[], returncode=0, stdout='{"state":"closed"}'
-    )
+    return subprocess.CompletedProcess(args=[], returncode=0, stdout='{"state":"closed"}')
 
 
 def _no_comment_posted(mock_run: MagicMock) -> bool:
@@ -436,12 +431,7 @@ def test_extract_tool_names_parses_glyph_lines() -> None:
 
 def test_extract_tool_names_ignores_json_lines() -> None:
     # JSON/log lines must not false-match as tool calls.
-    noise = (
-        '{"entities": []}\n'
-        '["a", "b"]\n'
-        '"key": value\n'
-        "service=bus type=message.part.delta data\n"
-    )
+    noise = '{"entities": []}\n["a", "b"]\n"key": value\nservice=bus type=message.part.delta data\n'
     assert extract_tool_names(noise) == set()
 
 
@@ -476,9 +466,7 @@ def test_zero_work_comment_posted_on_planning_only_clean_exit(
 
 
 @patch("webhook_receiver.runner.subprocess.run")
-def test_no_zero_work_comment_when_execution_tool_used(
-    mock_run: MagicMock, tmp_path: Path
-) -> None:
+def test_no_zero_work_comment_when_execution_tool_used(mock_run: MagicMock, tmp_path: Path) -> None:
     mock_run.return_value = _closed_state_run()
     stderr = _OSCAR37_STDERR + "→ Task developer Implement the assignment\n"
     (tmp_path / "p.stderr").write_text(stderr, encoding="utf-8")
@@ -488,15 +476,11 @@ def test_no_zero_work_comment_when_execution_tool_used(
     _run_completion_watcher(proc, store, _ctx(), str(tmp_path), "p")
 
     assert _no_comment_posted(mock_run)  # no advisory comment — it did real work
-    store.emit.assert_called_once_with(
-        "dispatch_completed", exit_code=0, prompt_file="p.md"
-    )
+    store.emit.assert_called_once_with("dispatch_completed", exit_code=0, prompt_file="p.md")
 
 
 @patch("webhook_receiver.runner.subprocess.run")
-def test_no_zero_work_analysis_when_stderr_missing(
-    mock_run: MagicMock, tmp_path: Path
-) -> None:
+def test_no_zero_work_analysis_when_stderr_missing(mock_run: MagicMock, tmp_path: Path) -> None:
     mock_run.return_value = _closed_state_run()
     # No stderr file -> cannot classify -> no zero-work comment (regression guard
     # for the existing zero-exit "no comment" contract).
@@ -506,9 +490,7 @@ def test_no_zero_work_analysis_when_stderr_missing(
     _run_completion_watcher(proc, store, _ctx(), str(tmp_path), "missing")
 
     assert _no_comment_posted(mock_run)
-    store.emit.assert_called_once_with(
-        "dispatch_completed", exit_code=0, prompt_file="missing.md"
-    )
+    store.emit.assert_called_once_with("dispatch_completed", exit_code=0, prompt_file="missing.md")
 
 
 # ── Secret sanitization ────────────────────────────────────────────────────
@@ -572,8 +554,13 @@ def test_consecutive_errors_comment_is_sanitized(
         error_grace_secs=300,
     )
     _run_completion_watcher(
-        proc, MagicMock(), _ctx(), "/tmp/x", "prompt-abc",
-        state=state, watchdog_config=cfg,
+        proc,
+        MagicMock(),
+        _ctx(),
+        "/tmp/x",
+        "prompt-abc",
+        state=state,
+        watchdog_config=cfg,
     )
 
     body = mock_run.call_args.kwargs["input"]
@@ -585,11 +572,7 @@ def test_consecutive_errors_comment_is_sanitized(
 
 
 def test_parse_workflow_name_extracts_dispatch_body() -> None:
-    prompt = (
-        "/orchestrate-dynamic-workflow\n"
-        '$workflow_name = project-setup\n'
-        "some trailing context"
-    )
+    prompt = "/orchestrate-dynamic-workflow\n$workflow_name = project-setup\nsome trailing context"
     assert _parse_workflow_name(prompt) == "project-setup"
 
 
@@ -651,9 +634,7 @@ def test_dispatch_issue_closed_false_when_open() -> None:
 def test_dispatch_issue_closed_true_on_gh_error() -> None:
     """A failing/non-JSON gh response must never false-positive 'incomplete'."""
     with patch("webhook_receiver.runner.subprocess.run") as mock_run:
-        mock_run.return_value = subprocess.CompletedProcess(
-            args=[], returncode=1, stdout=""
-        )
+        mock_run.return_value = subprocess.CompletedProcess(args=[], returncode=1, stdout="")
         assert _dispatch_issue_closed(_ctx()) is True
 
 
@@ -667,9 +648,7 @@ def test_incomplete_comment_posted_when_issue_still_open(
     def _run_side_effect(*args, **kwargs):
         cmd = args[0] if args else None
         if cmd and "view" in cmd:
-            return subprocess.CompletedProcess(
-                args=[], returncode=0, stdout='{"state":"open"}'
-            )
+            return subprocess.CompletedProcess(args=[], returncode=0, stdout='{"state":"open"}')
         return subprocess.CompletedProcess(args=[], returncode=0, stdout="")
 
     mock_run.side_effect = _run_side_effect
@@ -689,9 +668,7 @@ def test_incomplete_comment_posted_when_issue_still_open(
 
 
 @patch("webhook_receiver.runner.subprocess.run")
-def test_incomplete_manifest_recorded(
-    mock_run: MagicMock, tmp_path: Path
-) -> None:
+def test_incomplete_manifest_recorded(mock_run: MagicMock, tmp_path: Path) -> None:
     mock_run.return_value = subprocess.CompletedProcess(
         args=[], returncode=0, stdout='{"state":"open"}'
     )
@@ -738,20 +715,17 @@ def test_incomplete_not_triggered_for_non_dispatch_label(
 
 
 @patch("webhook_receiver.runner.subprocess.run")
-def test_incomplete_triggered_for_direct_body_label(
-    mock_run: MagicMock, tmp_path: Path
-) -> None:
+def test_incomplete_triggered_for_direct_body_label(mock_run: MagicMock, tmp_path: Path) -> None:
     """``gh-issue-tracking:direct-body`` carries the same close-on-success
     contract as ``orchestration:dispatch``: a clean, real-work run that leaves
     the triggering issue open is flagged incomplete (the silent false-success
     mode the check was added to catch).
     """
+
     def _run_side_effect(*args, **kwargs):
         cmd = args[0] if args else None
         if cmd and "view" in cmd:
-            return subprocess.CompletedProcess(
-                args=[], returncode=0, stdout='{"state":"open"}'
-            )
+            return subprocess.CompletedProcess(args=[], returncode=0, stdout='{"state":"open"}')
         return subprocess.CompletedProcess(args=[], returncode=0, stdout="")
 
     mock_run.side_effect = _run_side_effect
@@ -788,9 +762,7 @@ def test_dispatch_writes_manifest_and_uses_slug_prefix(
     mock_proc.pid = 4242
     mock_popen.return_value = mock_proc
     settings = _test_settings(log_dir=tmp_path)
-    prompt = (
-        "/orchestrate-dynamic-workflow\n$workflow_name = project-setup\n"
-    )
+    prompt = "/orchestrate-dynamic-workflow\n$workflow_name = project-setup\n"
 
     dispatch_to_opencode(settings, prompt, dispatch_ctx=_ctx())
 
@@ -865,8 +837,13 @@ def test_watchdog_idle_timeout_posts_failure_comment(
     )
     store = MagicMock()
     _run_completion_watcher(
-        proc, store, _ctx(), "/tmp/x", "prompt-abc",
-        state=state, watchdog_config=cfg,
+        proc,
+        store,
+        _ctx(),
+        "/tmp/x",
+        "prompt-abc",
+        state=state,
+        watchdog_config=cfg,
     )
 
     body = mock_run.call_args.kwargs["input"]
@@ -893,8 +870,13 @@ def test_watchdog_hard_ceiling_posts_failure_comment(
     )
     store = MagicMock()
     _run_completion_watcher(
-        proc, store, _ctx(), "/tmp/x", "prompt-abc",
-        state=state, watchdog_config=cfg,
+        proc,
+        store,
+        _ctx(),
+        "/tmp/x",
+        "prompt-abc",
+        state=state,
+        watchdog_config=cfg,
     )
 
     body = mock_run.call_args.kwargs["input"]
@@ -921,8 +903,13 @@ def test_watchdog_consecutive_errors_posts_failure_comment(
     )
     store = MagicMock()
     _run_completion_watcher(
-        proc, store, _ctx(), "/tmp/x", "prompt-abc",
-        state=state, watchdog_config=cfg,
+        proc,
+        store,
+        _ctx(),
+        "/tmp/x",
+        "prompt-abc",
+        state=state,
+        watchdog_config=cfg,
     )
 
     body = mock_run.call_args.kwargs["input"]
@@ -931,9 +918,7 @@ def test_watchdog_consecutive_errors_posts_failure_comment(
 
 
 @patch("webhook_receiver.runner.subprocess.run")
-def test_watchdog_classification_in_manifest(
-    mock_run: MagicMock, tmp_path: Path
-) -> None:
+def test_watchdog_classification_in_manifest(mock_run: MagicMock, tmp_path: Path) -> None:
     """The manifest records the specific kill reason as the classification."""
     import json
 
@@ -945,8 +930,13 @@ def test_watchdog_classification_in_manifest(
         poll_interval_secs=0,
     )
     _run_completion_watcher(
-        proc, MagicMock(), _ctx(), str(tmp_path), "p",
-        state=state, watchdog_config=cfg,
+        proc,
+        MagicMock(),
+        _ctx(),
+        str(tmp_path),
+        "p",
+        state=state,
+        watchdog_config=cfg,
     )
 
     mf = json.loads((tmp_path / "p.manifest.json").read_text())
@@ -972,8 +962,13 @@ def test_watchdog_process_exit_no_kill_reason(
     cfg = WatchdogConfig(poll_interval_secs=0)
     store = MagicMock()
     _run_completion_watcher(
-        proc, store, _ctx(), "/tmp/x", "prompt-abc",
-        state=state, watchdog_config=cfg,
+        proc,
+        store,
+        _ctx(),
+        "/tmp/x",
+        "prompt-abc",
+        state=state,
+        watchdog_config=cfg,
     )
 
     assert _no_comment_posted(mock_run)

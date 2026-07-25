@@ -4,6 +4,7 @@ Tests the full beads execution path with real prompt building (``_build_bead_pro
 and mocked subprocess for ``br``/``bvr``/agent execution. Exercises retry logic,
 workspace management, and the inter-stage boundaries (DAG → prompt → agent → close).
 """
+
 from __future__ import annotations
 
 import json
@@ -85,11 +86,12 @@ def test_beads_loop_poll_to_close_happy_path(
     settings = _test_settings()
     loop = BeadsLoop(settings)
     # Simulate a discovered project so the scan picks it up
-    with patch(
-        "webhook_receiver.beads_loop.discover_projects", return_value=["proj"]
-    ), patch(
-        "webhook_receiver.beads_loop.project_workspace_path",
-        return_value="/workspace/proj",
+    with (
+        patch("webhook_receiver.beads_loop.discover_projects", return_value=["proj"]),
+        patch(
+            "webhook_receiver.beads_loop.project_workspace_path",
+            return_value="/workspace/proj",
+        ),
     ):
         loop._scan_and_process()
 
@@ -127,11 +129,12 @@ def test_beads_loop_retry_on_agent_failure(
 
     settings = _test_settings()
     loop = BeadsLoop(settings)
-    with patch(
-        "webhook_receiver.beads_loop.discover_projects", return_value=["proj"]
-    ), patch(
-        "webhook_receiver.beads_loop.project_workspace_path",
-        return_value="/workspace/proj",
+    with (
+        patch("webhook_receiver.beads_loop.discover_projects", return_value=["proj"]),
+        patch(
+            "webhook_receiver.beads_loop.project_workspace_path",
+            return_value="/workspace/proj",
+        ),
     ):
         loop._scan_and_process()
 
@@ -160,11 +163,12 @@ def test_beads_loop_worktree_creation_failure(
 
     settings = _test_settings()
     loop = BeadsLoop(settings)
-    with patch(
-        "webhook_receiver.beads_loop.discover_projects", return_value=["proj"]
-    ), patch(
-        "webhook_receiver.beads_loop.project_workspace_path",
-        return_value="/workspace/proj",
+    with (
+        patch("webhook_receiver.beads_loop.discover_projects", return_value=["proj"]),
+        patch(
+            "webhook_receiver.beads_loop.project_workspace_path",
+            return_value="/workspace/proj",
+        ),
     ):
         loop._scan_and_process()
 
@@ -194,11 +198,12 @@ def test_beads_loop_push_failure_still_clears_retry(
 
     settings = _test_settings()
     loop = BeadsLoop(settings)
-    with patch(
-        "webhook_receiver.beads_loop.discover_projects", return_value=["proj"]
-    ), patch(
-        "webhook_receiver.beads_loop.project_workspace_path",
-        return_value="/workspace/proj",
+    with (
+        patch("webhook_receiver.beads_loop.discover_projects", return_value=["proj"]),
+        patch(
+            "webhook_receiver.beads_loop.project_workspace_path",
+            return_value="/workspace/proj",
+        ),
     ):
         with (
             patch("webhook_receiver.beads_loop.push_branch", side_effect=Exception("push fail")),
@@ -235,8 +240,7 @@ def test_beads_loop_injects_previous_logs_on_retry(tmp_path: Path) -> None:
     with patch("webhook_receiver.beads_loop.subprocess.run") as mock_run:
         mock_run.return_value = MagicMock(stdout="", stderr="", returncode=0)
         prompt = loop._build_bead_prompt(
-            bead, 1, str(tmp_path), "/workspace/proj",
-            previous_logs="ERROR: build failed"
+            bead, 1, str(tmp_path), "/workspace/proj", previous_logs="ERROR: build failed"
         )
 
     assert "WARNING" in prompt
@@ -279,11 +283,12 @@ def test_beads_loop_clears_retry_state_on_success(
     settings = _test_settings()
     loop = BeadsLoop(settings)
     loop._retry_state["proj:br-clear"] = {"count": 1, "logs": "old error"}
-    with patch(
-        "webhook_receiver.beads_loop.discover_projects", return_value=["proj"]
-    ), patch(
-        "webhook_receiver.beads_loop.project_workspace_path",
-        return_value="/workspace/proj",
+    with (
+        patch("webhook_receiver.beads_loop.discover_projects", return_value=["proj"]),
+        patch(
+            "webhook_receiver.beads_loop.project_workspace_path",
+            return_value="/workspace/proj",
+        ),
     ):
         with (
             patch("webhook_receiver.beads_loop.push_branch"),

@@ -98,9 +98,7 @@ def test_snapshot_includes_blockers_with_status() -> None:
             }
         ]
     }
-    runner = _runner(
-        {"list": json.dumps(beads), "graph": json.dumps(graph)}
-    )
+    runner = _runner({"list": json.dumps(beads), "graph": json.dumps(graph)})
     out = bead_context.progress_snapshot("/workspace", "br-c", runner)
     assert "prerequisites" in out
     assert "br-a [closed]" in out
@@ -162,7 +160,4 @@ def test_write_files_does_not_clobber_existing_agents(tmp_path: Path) -> None:
     assert (tmp_path / "AGENTS.md").read_text() == "REPO OWN INSTRUCTIONS"
     # Guide still written.
     assert (tmp_path / "BEADS_AGENT_GUIDE.md").read_text() == "GUIDE BODY"
-    assert any(
-        "AGENTS.md" in path and action == "skipped"
-        for path, action in actions.items()
-    )
+    assert any("AGENTS.md" in path and action == "skipped" for path, action in actions.items())

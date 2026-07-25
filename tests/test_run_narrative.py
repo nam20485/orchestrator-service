@@ -6,10 +6,10 @@ from webhook_receiver.run_narrative import parse_narrative
 # Includes boot noise (to be dropped), model marker, delegations, tool calls,
 # reads, errors, watchdog, and exit.
 _SAMPLE_STDERR = (
-    "INFO  2026-07-22T19:07:02 service=default args=[...]\n"            # noise
-    "sqlite-migration:done\n"                                            # noise
-    "\x1b[0m> orchestrator \xc2\xb7 glm-5\x1b[0m\n"                      # model
-    "\x1b[0m\u2699 \x1b[0mbash {\"command\":\"git status\"}\n"
+    "INFO  2026-07-22T19:07:02 service=default args=[...]\n"  # noise
+    "sqlite-migration:done\n"  # noise
+    "\x1b[0m> orchestrator \xc2\xb7 glm-5\x1b[0m\n"  # model
+    '\x1b[0m\u2699 \x1b[0mbash {"command":"git status"}\n'
     "\x1b[0m\u2192 \x1b[0mRead /workspace/repo/AGENTS.md\n"
     "\x1b[0m\u2192 \x1b[0mRead /workspace/repo/README.md\n"
     "\x1b[0m\u2192 \x1b[0mRead /workspace/repo/pyproject.toml\n"

@@ -9,6 +9,7 @@ decode these same bytes, so the ANSI stripping and glyph detection live here as
 the single source — preventing the two consumers from drifting on stream-format
 changes (which would silently make run classification disagree with the feed).
 """
+
 from __future__ import annotations
 
 import re

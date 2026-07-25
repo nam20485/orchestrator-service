@@ -61,9 +61,7 @@ def test_init_project_workspace_creates_dir_and_git_init(
     assert result == os.path.join(base, slug)
     assert os.path.isdir(result)
     # git init should have been called
-    init_calls = [
-        c for c in mock_run.call_args_list if "init" in (c.args[0] if c.args else [])
-    ]
+    init_calls = [c for c in mock_run.call_args_list if "init" in (c.args[0] if c.args else [])]
     assert len(init_calls) == 1
     assert init_calls[0].kwargs["cwd"] == result
 
@@ -85,9 +83,7 @@ def test_init_project_workspace_excludes_worktrees(tmp_path: str) -> None:
 
 
 @patch("webhook_receiver.workspace.subprocess.run")
-def test_ensure_project_from_clone_clones(
-    mock_run: MagicMock, tmp_path: str
-) -> None:
+def test_ensure_project_from_clone_clones(mock_run: MagicMock, tmp_path: str) -> None:
     base = str(tmp_path)
     slug = "cloned-proj"
     repo_url = "https://github.com/o/r.git"
@@ -95,18 +91,12 @@ def test_ensure_project_from_clone_clones(
     result = ensure_project_from_clone(base, slug, repo_url)
 
     assert result == os.path.join(base, slug)
-    clone_calls = [
-        c
-        for c in mock_run.call_args_list
-        if c.args and "clone" in c.args[0]
-    ]
+    clone_calls = [c for c in mock_run.call_args_list if c.args and "clone" in c.args[0]]
     assert len(clone_calls) == 1
 
 
 @patch("webhook_receiver.workspace.subprocess.run")
-def test_ensure_project_from_clone_idempotent(
-    mock_run: MagicMock, tmp_path: str
-) -> None:
+def test_ensure_project_from_clone_idempotent(mock_run: MagicMock, tmp_path: str) -> None:
     base = str(tmp_path)
     slug = "existing-proj"
     # Simulate an already-cloned repo
@@ -117,11 +107,7 @@ def test_ensure_project_from_clone_idempotent(
 
     assert result == project_root
     # No clone should have been performed
-    clone_calls = [
-        c
-        for c in mock_run.call_args_list
-        if c.args and "clone" in c.args[0]
-    ]
+    clone_calls = [c for c in mock_run.call_args_list if c.args and "clone" in c.args[0]]
     assert len(clone_calls) == 0
 
 
@@ -129,9 +115,7 @@ def test_ensure_project_from_clone_idempotent(
 
 
 @patch("webhook_receiver.workspace.subprocess.run")
-def test_create_bead_worktree_creates_branch(
-    mock_run: MagicMock, tmp_path: str
-) -> None:
+def test_create_bead_worktree_creates_branch(mock_run: MagicMock, tmp_path: str) -> None:
     project_root = str(tmp_path)
     bead_id = "br-test123"
 
@@ -139,11 +123,7 @@ def test_create_bead_worktree_creates_branch(
 
     assert result == os.path.join(project_root, ".worktrees", bead_id)
     # git worktree add should have been called with the branch
-    wt_calls = [
-        c
-        for c in mock_run.call_args_list
-        if c.args and "worktree" in c.args[0]
-    ]
+    wt_calls = [c for c in mock_run.call_args_list if c.args and "worktree" in c.args[0]]
     assert len(wt_calls) == 1
     cmd = wt_calls[0].args[0]
     assert "worktree" in cmd
@@ -154,9 +134,7 @@ def test_create_bead_worktree_creates_branch(
 
 
 @patch("webhook_receiver.workspace.subprocess.run")
-def test_create_bead_worktree_removes_stale(
-    mock_run: MagicMock, tmp_path: str
-) -> None:
+def test_create_bead_worktree_removes_stale(mock_run: MagicMock, tmp_path: str) -> None:
     project_root = str(tmp_path)
     bead_id = "br-stale"
     wt_path = os.path.join(project_root, ".worktrees", bead_id)
@@ -229,18 +207,10 @@ def test_create_bead_worktree_explicit_base_branch_overrides_detection(
     create_bead_worktree(project_root, bead_id, base_branch="develop")
 
     # No symbolic-ref detection call should have been made.
-    sym_calls = [
-        c
-        for c in mock_run.call_args_list
-        if c.args and "symbolic-ref" in c.args[0]
-    ]
+    sym_calls = [c for c in mock_run.call_args_list if c.args and "symbolic-ref" in c.args[0]]
     assert len(sym_calls) == 0
     # The worktree add command must use the explicit branch.
-    wt_calls = [
-        c
-        for c in mock_run.call_args_list
-        if c.args and "worktree" in c.args[0]
-    ]
+    wt_calls = [c for c in mock_run.call_args_list if c.args and "worktree" in c.args[0]]
     assert len(wt_calls) == 1
     cmd = wt_calls[0].args[0]
     assert "develop" in cmd
@@ -261,9 +231,7 @@ def test_detect_default_branch_falls_back_to_main_on_error(
 
 
 @patch("webhook_receiver.workspace.subprocess.run")
-def test_remove_bead_worktree_noop_if_missing(
-    mock_run: MagicMock, tmp_path: str
-) -> None:
+def test_remove_bead_worktree_noop_if_missing(mock_run: MagicMock, tmp_path: str) -> None:
     remove_bead_worktree(str(tmp_path), "br-nonexistent")
     # No worktree remove calls should be made
     wt_calls = [

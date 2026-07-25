@@ -43,14 +43,10 @@ def make_dashboard_token_dep(
 
     async def _require_token(request: Request) -> None:
         if not token:
-            raise HTTPException(
-                status_code=disabled_status, detail=disabled_detail
-            )
+            raise HTTPException(status_code=disabled_status, detail=disabled_detail)
         provided = _extract_token(request)
         if not provided or not hmac.compare_digest(str(provided), token):
-            raise HTTPException(
-                status_code=401, detail="Invalid or missing dashboard token"
-            )
+            raise HTTPException(status_code=401, detail="Invalid or missing dashboard token")
 
     return _require_token
 

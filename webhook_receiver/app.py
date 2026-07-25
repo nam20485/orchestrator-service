@@ -55,12 +55,7 @@ def _safe_branch(value: Any) -> str:
     if not isinstance(value, str):
         return "main"
     branch = value.strip()
-    if (
-        not branch
-        or branch.startswith("-")
-        or ".." in branch
-        or not _BRANCH_RE.match(branch)
-    ):
+    if not branch or branch.startswith("-") or ".." in branch or not _BRANCH_RE.match(branch):
         return "main"
     return branch
 
@@ -100,9 +95,7 @@ def _validate_clone_url(url: str) -> bool:
     return parsed.scheme == "https" and bool(parsed.netloc)
 
 
-def _ensure_project_workspace(
-    cfg: Settings, payload: dict[str, Any]
-) -> tuple[str, Settings]:
+def _ensure_project_workspace(cfg: Settings, payload: dict[str, Any]) -> tuple[str, Settings]:
     """Ensure a project workspace exists and return (project_root, project_settings).
 
     For webhooks from an existing repo, clones the repo on first arrival and
@@ -157,9 +150,7 @@ def _safe_dispatch(
             )
             return
         if _validate_clone_url(clone_url):
-            ensure_project_from_clone(
-                base, slug, clone_url, base_branch=default_branch
-            )
+            ensure_project_from_clone(base, slug, clone_url, base_branch=default_branch)
             sync_project(resolved, branch=default_branch)
         else:
             # No valid clone URL: bootstrap a fresh main-branch git repo so
@@ -174,14 +165,10 @@ def _safe_dispatch(
     dispatch_ctx = _dispatch_context_from_payload(payload)
     prompt_stem = dispatch_to_opencode(settings, prompt, store, dispatch_ctx)
     if webhook_store and delivery_id and isinstance(prompt_stem, str):
-        webhook_store.record(
-            delivery_id, decision="allowed", prompt_stem=prompt_stem
-        )
+        webhook_store.record(delivery_id, decision="allowed", prompt_stem=prompt_stem)
 
 
-def _dispatch_context_from_payload(
-    payload: dict[str, Any]
-) -> DispatchContext | None:
+def _dispatch_context_from_payload(payload: dict[str, Any]) -> DispatchContext | None:
     """Build a DispatchContext for the failure-comment path.
 
     Returns None when the payload carries no attributable issue (e.g. a
@@ -224,9 +211,7 @@ def create_app(
         return {"status": "ok"}
 
     @app.post("/webhooks/github")
-    async def github_webhook(
-        request: Request, background_tasks: BackgroundTasks
-    ) -> JSONResponse:
+    async def github_webhook(request: Request, background_tasks: BackgroundTasks) -> JSONResponse:
         body = await request.body()
         delivery_id = request.headers.get("X-GitHub-Delivery", "")
         event = request.headers.get("X-GitHub-Event", "").lower()
@@ -362,9 +347,7 @@ def create_app(
             len(prompt),
             prompt.count("\n"),
         )
-        logger.debug(
-            "Prompt preview delivery_id=%s:\n%s", delivery_id, prompt[:500]
-        )
+        logger.debug("Prompt preview delivery_id=%s:\n%s", delivery_id, prompt[:500])
 
         background_tasks.add_task(
             _safe_dispatch,
@@ -408,8 +391,6 @@ def create_app(
         )
     )
     app.include_router(create_dashboard_page_router(dashboard_token=cfg.dashboard_token))
-    app.include_router(
-        create_dashboard_pages_router(dashboard_token=cfg.dashboard_token)
-    )
+    app.include_router(create_dashboard_pages_router(dashboard_token=cfg.dashboard_token))
 
     return app

@@ -19,7 +19,6 @@ def create_simulator_router(
     *, enabled: bool, port: int, dashboard_token: str | None = None
 ) -> APIRouter:
     if not enabled:
-
         unauthed = APIRouter(prefix="/simulator", tags=["simulator"])
 
         @unauthed.get("")
@@ -82,9 +81,7 @@ def create_simulator_router(
         if event_key not in ALL_EVENTS:
             raise HTTPException(status_code=404, detail=f"Unknown event: {event}")
         try:
-            payload = get_template(
-                event_key, repo=repo, action=action, number=number
-            )
+            payload = get_template(event_key, repo=repo, action=action, number=number)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         return {"event": event_key, "payload": payload}
@@ -111,9 +108,7 @@ def create_simulator_router(
 
         secret = os.environ.get("OS_WEBHOOK_SECRET", "").strip()
         if not secret:
-            raise HTTPException(
-                status_code=500, detail="OS_WEBHOOK_SECRET not configured"
-            )
+            raise HTTPException(status_code=500, detail="OS_WEBHOOK_SECRET not configured")
 
         body = json.dumps(payload).encode("utf-8")
         signature = compute_signature(body, secret)
@@ -138,9 +133,7 @@ def create_simulator_router(
                     },
                 )
         except httpx.HTTPError as exc:
-            raise HTTPException(
-                status_code=502, detail=f"Webhook forward failed: {exc}"
-            ) from exc
+            raise HTTPException(status_code=502, detail=f"Webhook forward failed: {exc}") from exc
 
         return JSONResponse(
             {"status": resp.status_code, "body": resp.text},

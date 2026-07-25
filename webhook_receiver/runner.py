@@ -97,9 +97,7 @@ def _slug_segment(value: str) -> str:
     return _SLUG_SAFE_RE.sub("-", value)
 
 
-def _dispatch_slug(
-    ctx: DispatchContext | None, workflow: str | None, ts: str
-) -> str:
+def _dispatch_slug(ctx: DispatchContext | None, workflow: str | None, ts: str) -> str:
     """Build a human-readable identity slug for a dispatch's log files.
 
     Keeps the ``prompt-`` prefix so existing ``prompt-*.md`` globs keep working;
@@ -123,9 +121,7 @@ def _write_run_manifest(log_dir: Path, stem: str, payload: dict) -> None:
         logger.warning("Failed to write run manifest %s", path, exc_info=True)
 
 
-def _update_run_manifest(
-    log_dir: Path, stem: str, completion: dict
-) -> None:
+def _update_run_manifest(log_dir: Path, stem: str, completion: dict) -> None:
     """Merge completion fields (ended_at/exit_code/classification/...) into the
     existing manifest sidecar, starting from whatever was written at dispatch.
     """
@@ -161,9 +157,7 @@ def _dispatch_issue_closed(ctx: DispatchContext) -> bool:
     ]
     env = _gh_env()
     try:
-        res = subprocess.run(
-            cmd, env=env, capture_output=True, text=True, check=False, timeout=30
-        )
+        res = subprocess.run(cmd, env=env, capture_output=True, text=True, check=False, timeout=30)
         data = json.loads(res.stdout)
         return str(data.get("state", "")).lower() == "closed"
     except Exception:
@@ -205,9 +199,7 @@ def _post_incomplete_comment(
     prompt_stem: str,
 ) -> None:
     """Post an advisory comment for an exit-0-but-unfinished run."""
-    _post_issue_comment(
-        ctx, _build_incomplete_body(ctx, tools, log_dir, prompt_stem)
-    )
+    _post_issue_comment(ctx, _build_incomplete_body(ctx, tools, log_dir, prompt_stem))
 
 
 @dataclass(frozen=True)
@@ -265,9 +257,7 @@ def _prompt_script_invocation(settings: Settings, prompt_path: Path) -> list[str
 # Non-slog lines (glyphs, Python logger output, etc.) pass through unchanged.
 # The trace file always receives the raw line; only the container logger is
 # reformatted — filters and the watchdog must see the original text.
-_SLOG_ENVELOPE_RE = re.compile(
-    r"^(timestamp=\S+)\s+(level=\S+)(?:\s+(run=\S+))?(?:\s+(.*))?$"
-)
+_SLOG_ENVELOPE_RE = re.compile(r"^(timestamp=\S+)\s+(level=\S+)(?:\s+(run=\S+))?(?:\s+(.*))?$")
 
 
 def _format_log_line(line: str) -> str:
@@ -307,9 +297,7 @@ def _stream_to_logger_and_file(
             if state is not None:
                 state.record_line(line)
             if not should_filter(line):
-                logger.info(
-                    "[%s] %s", label, _format_log_line(line.rstrip())
-                )
+                logger.info("[%s] %s", label, _format_log_line(line.rstrip()))
     except ValueError:
         pass  # pipe closed
 
@@ -408,9 +396,7 @@ def _gh_env() -> dict[str, str]:
     cannot drift.
     """
     env = os.environ.copy()
-    token = os.environ.get("GH_ORCHESTRATION_AGENT_TOKEN") or os.environ.get(
-        "GITHUB_TOKEN"
-    )
+    token = os.environ.get("GH_ORCHESTRATION_AGENT_TOKEN") or os.environ.get("GITHUB_TOKEN")
     if token:
         env["GH_TOKEN"] = token
     return env
@@ -627,9 +613,7 @@ def _run_completion_watcher(
             sorted(tools),
         )
         if zero_work and dispatch_ctx is not None:
-            _post_zero_work_comment(
-                dispatch_ctx, tools, str(log_dir), prompt_stem
-            )
+            _post_zero_work_comment(dispatch_ctx, tools, str(log_dir), prompt_stem)
 
     # Incomplete-run detection: a clean, non-zero-work exit whose dispatch
     # issue is still open did not satisfy the orchestrator's own success
@@ -657,15 +641,17 @@ def _run_completion_watcher(
     ):
         if not _dispatch_issue_closed(dispatch_ctx):
             incomplete = True
-            _post_incomplete_comment(
-                dispatch_ctx, sorted(tools), str(log_dir), prompt_stem
-            )
+            _post_incomplete_comment(dispatch_ctx, sorted(tools), str(log_dir), prompt_stem)
 
     classification = (
-        kill_reason if kill_reason is not None
-        else "failed" if failed
-        else "zero_work" if zero_work
-        else "incomplete" if incomplete
+        kill_reason
+        if kill_reason is not None
+        else "failed"
+        if failed
+        else "zero_work"
+        if zero_work
+        else "incomplete"
+        if incomplete
         else "completed"
     )
     _update_run_manifest(

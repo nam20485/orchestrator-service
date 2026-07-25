@@ -279,9 +279,7 @@ def _fetch_beads_view(ws: str) -> dict[str, Any]:
     return {"all": all_beads, "ready_ids": {b.get("id") for b in ready}}
 
 
-def _loop_state(
-    beads_loop: BeadsLoop | None, project_slug: str | None
-) -> dict[str, Any] | None:
+def _loop_state(beads_loop: BeadsLoop | None, project_slug: str | None) -> dict[str, Any] | None:
     """Fetch per-project loop state keyed by raw bead ID, or ``None``.
 
     ``BeadsLoop`` stores state under composite ``"{project}:{bead_id}"``
@@ -403,13 +401,12 @@ def create_dashboard_router(
             poll_interval = beads_loop._settings.beads_poll_interval
 
         excluded = active | halted
-        ready_count = len([
-            b for b in open_beads
-            if b.get("id") in ready_ids and b.get("id") not in excluded
-        ])
-        blocked_count = len(open_beads) - ready_count - len([
-            b for b in open_beads if b.get("id") in excluded
-        ])
+        ready_count = len(
+            [b for b in open_beads if b.get("id") in ready_ids and b.get("id") not in excluded]
+        )
+        blocked_count = (
+            len(open_beads) - ready_count - len([b for b in open_beads if b.get("id") in excluded])
+        )
 
         return {
             "loop_status": {
@@ -457,9 +454,7 @@ def create_dashboard_router(
     async def graph(project: str | None = None) -> dict[str, Any]:
         ws = _workspace(project)
         slug = _resolve_project(project)
-        g = await asyncio.to_thread(
-            _cached, f"beads_graph:{ws}", _fetch_beads_graph, ws
-        )
+        g = await asyncio.to_thread(_cached, f"beads_graph:{ws}", _fetch_beads_graph, ws)
 
         active: set[Any] = set()
         halted: set[Any] = set()
@@ -675,9 +670,7 @@ def create_dashboard_router(
 # ── HTML page routes (separate so they have no /api prefix) ────────────────
 
 
-def _serve_html(
-    request: Request, filename: str, dashboard_token: str | None
-) -> HTMLResponse:
+def _serve_html(request: Request, filename: str, dashboard_token: str | None) -> HTMLResponse:
     """Serve a static dashboard page and persist the token cookie if present.
 
     When the page is opened with ``?token=<token>``, persist it as a cookie so
@@ -804,6 +797,7 @@ def _run_events_for(log_dir: Path, stem: str | None) -> dict[str, Any]:
     re-parse of a growing multi-MB transcript replaces the prior entry instead
     of accumulating unbounded keys; the 5s TTL bounds staleness between polls.
     """
+
     def _parse_stderr(path: Path) -> list[dict[str, Any]]:
         return parse_events(path.read_text(encoding="utf-8", errors="replace"))
 
@@ -845,6 +839,7 @@ def _run_narrative_for(log_dir: Path, stem: str) -> dict[str, Any]:
     5s. Cached by stem only so a re-parse of a growing transcript replaces
     the prior entry.
     """
+
     def _build() -> dict[str, Any]:
         manifest = _load_single_manifest(log_dir, stem)
         logs = _read_run_logs(log_dir, stem, tail=10000)

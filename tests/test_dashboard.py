@@ -45,6 +45,7 @@ def _test_settings(**overrides: object) -> Settings:
 def _clear_cache() -> None:
     """Clear the dashboard TTL cache between tests."""
     from webhook_receiver import dashboard
+
     dashboard._CACHE.clear()
 
 
@@ -346,9 +347,7 @@ def test_events_limit() -> None:
 
 def test_bead_logs_not_found(tmp_path: Path) -> None:
     store = EventStore()
-    app = create_app(
-        _test_settings(log_dir=tmp_path / "orchestrator-webhook"), event_store=store
-    )
+    app = create_app(_test_settings(log_dir=tmp_path / "orchestrator-webhook"), event_store=store)
     client = _client(app)
 
     resp = client.get("/api/dashboard/beads/br-nonexist/logs")
@@ -390,9 +389,7 @@ def test_bead_logs_rejects_glob_chars() -> None:
 
 def test_bead_logs_accepts_valid_ids(tmp_path: Path) -> None:
     store = EventStore()
-    app = create_app(
-        _test_settings(log_dir=tmp_path / "orchestrator-webhook"), event_store=store
-    )
+    app = create_app(_test_settings(log_dir=tmp_path / "orchestrator-webhook"), event_store=store)
     client = _client(app)
 
     for valid_id in ["br-1", "workspace-abc", "br_my_bead", "task-123"]:
@@ -444,8 +441,14 @@ def test_bead_metadata_found() -> None:
     client = _client(app)
 
     all_json = _br_list_json(
-        {"id": "br-1", "status": "open", "title": "First Task", "priority": 2,
-         "type": "task", "description": "Do the thing."},
+        {
+            "id": "br-1",
+            "status": "open",
+            "title": "First Task",
+            "priority": 2,
+            "type": "task",
+            "description": "Do the thing.",
+        },
         {"id": "br-2", "status": "open", "title": "Second Task", "priority": 1},
     )
     ready_json = _br_ready_json()
@@ -889,9 +892,7 @@ def test_pages_endpoint_rejects_traversal(tmp_path: Path) -> None:
         "foo/../../bar",  # net-escape attempt
     ],
 )
-def test_pages_endpoint_rejects_traversal_variants(
-    file_path: str, tmp_path: Path
-) -> None:
+def test_pages_endpoint_rejects_traversal_variants(file_path: str, tmp_path: Path) -> None:
     ws = tmp_path / "ws"
     (ws / ".beads").mkdir(parents=True)
     bundle = tmp_path / "bundle"
@@ -1074,8 +1075,8 @@ def test_valid_run_stem_allows_slug_chars() -> None:
     assert _valid_run_stem("prompt-owner__repo__issue-7__project-setup__ts-abc")
     assert _valid_run_stem("br-1")
     assert not _valid_run_stem("")
-    assert not _valid_run_stem("a.b")        # dot not produced by runner
-    assert not _valid_run_stem("a/b")        # path separator
+    assert not _valid_run_stem("a.b")  # dot not produced by runner
+    assert not _valid_run_stem("a/b")  # path separator
     assert not _valid_run_stem("..")
     assert not _valid_run_stem(None)
 
@@ -1102,8 +1103,15 @@ def test_runs_list_endpoint(tmp_path: Path) -> None:
     log_dir = tmp_path / "orchestrator-webhook"
     log_dir.mkdir()
     (log_dir / "r1.manifest.json").write_text(
-        json.dumps({"stem": "r1", "repo_full_name": "o/r", "workflow": "project-setup",
-                    "classification": "completed", "started_at": "2026-07-04T20:00:00Z"})
+        json.dumps(
+            {
+                "stem": "r1",
+                "repo_full_name": "o/r",
+                "workflow": "project-setup",
+                "classification": "completed",
+                "started_at": "2026-07-04T20:00:00Z",
+            }
+        )
     )
     app = create_app(_test_settings(log_dir=log_dir), event_store=EventStore())
     client = _client(app)
@@ -1171,7 +1179,7 @@ def test_run_events_endpoint_default_newest_and_stem_filter(tmp_path: Path) -> N
     log_dir.mkdir()
     a = "prompt-a"
     b = "prompt-b"
-    _del = "\x1b[0m\u2022 \x1b[0m"            # • delegation glyph, ANSI-wrapped
+    _del = "\x1b[0m\u2022 \x1b[0m"  # • delegation glyph, ANSI-wrapped
     (log_dir / f"{a}.stderr").write_text(f"{_del}Do A\x1b[90m Developer Agent\x1b[0m\n")
     (log_dir / f"{b}.stderr").write_text(f"{_del}Do B\x1b[90m Planner Agent\x1b[0m\n")
     os.utime(log_dir / f"{a}.stderr", (time.time() - 50, time.time() - 50))  # a older
@@ -1264,5 +1272,5 @@ def test_tail_lines_small_and_missing(tmp_path: Path) -> None:
     p = tmp_path / "small"
     p.write_text("a\nb\nc\n")
     assert _tail_lines(p, 2) == "b\nc"
-    assert _tail_lines(p, 100) == "a\nb\nc"   # n > line count → whole file
+    assert _tail_lines(p, 100) == "a\nb\nc"  # n > line count → whole file
     assert _tail_lines(tmp_path / "missing", 5) == ""

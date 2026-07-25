@@ -4,6 +4,7 @@ Tests the full dispatch path at the inter-stage boundary between prompt assembly
 and subprocess execution. Uses mocked Popen to verify command construction,
 temp file creation, and streaming thread launch without requiring pwsh.
 """
+
 from __future__ import annotations
 
 import glob
@@ -109,9 +110,7 @@ def test_dispatch_concurrent_dispatches_use_unique_files(
 
 @patch("webhook_receiver.runner.threading.Thread")
 @patch("webhook_receiver.runner.subprocess.Popen")
-def test_dispatch_handles_subprocess_crash(
-    mock_popen: MagicMock, mock_thread: MagicMock
-) -> None:
+def test_dispatch_handles_subprocess_crash(mock_popen: MagicMock, mock_thread: MagicMock) -> None:
     """Popen raising OSError should propagate (caller handles in background task)."""
     mock_popen.side_effect = OSError("command not found")
     settings = _test_settings()

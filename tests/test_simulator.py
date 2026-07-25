@@ -101,9 +101,7 @@ def test_simulator_unknown_event_404() -> None:
 
 
 def test_get_template_issues_with_overrides() -> None:
-    payload = get_template(
-        "issues", repo="acme/widgets", action="labeled", number=99
-    )
+    payload = get_template("issues", repo="acme/widgets", action="labeled", number=99)
     assert payload["action"] == "labeled"
     assert payload["repository"]["full_name"] == "acme/widgets"
     assert payload["issue"]["number"] == 99
@@ -129,9 +127,7 @@ def test_merge_template_applies_fields() -> None:
         ("", False),
     ],
 )
-def test_enable_simulator_env(
-    monkeypatch: pytest.MonkeyPatch, raw: str, expected: bool
-) -> None:
+def test_enable_simulator_env(monkeypatch: pytest.MonkeyPatch, raw: str, expected: bool) -> None:
     monkeypatch.setenv("OS_WEBHOOK_SECRET", "s")
     monkeypatch.setenv("WEBHOOK_ENABLE_SIMULATOR", raw)
     cfg = Settings.from_env()
@@ -279,9 +275,7 @@ def test_simulator_enabled_without_dashboard_token_returns_401() -> None:
     client = _client(settings=_test_settings(enable_simulator=True, dashboard_token=None))
     assert client.get("/simulator").status_code == 401
     assert client.get("/simulator/api/templates").status_code == 401
-    resp = client.post(
-        "/simulator/api/send", json={"event": "ping", "payload": {}}
-    )
+    resp = client.post("/simulator/api/send", json={"event": "ping", "payload": {}})
     assert resp.status_code == 401
     assert "DASHBOARD_TOKEN" in resp.json()["detail"]
 
@@ -300,4 +294,3 @@ def test_simulator_page_rejects_invalid_token_query() -> None:
     client = TestClient(create_app(_test_settings()))
     response = client.get("/simulator", params={"token": "nope"}, follow_redirects=False)
     assert response.status_code == 401
-

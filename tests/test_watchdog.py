@@ -6,6 +6,7 @@ Covers:
 3. IdleWatchdog: idle timeout, consecutive errors, hard ceiling, process exit
 4. WatchdogConfig.from_settings
 """
+
 from __future__ import annotations
 
 import signal
@@ -44,18 +45,13 @@ class TestClassifyLine:
 
     def test_level_error_is_error(self) -> None:
         assert (
-            classify_line(
-                'timestamp=2026-07-11 level=ERROR run=70c74cd7 '
-                'message="stream error"'
-            )
+            classify_line('timestamp=2026-07-11 level=ERROR run=70c74cd7 message="stream error"')
             is SignalKind.ERROR
         )
 
     def test_ai_api_call_error_is_error(self) -> None:
         assert (
-            classify_line(
-                'error.error="AI_APICallError: Usage limit reached for 5 hour"'
-            )
+            classify_line('error.error="AI_APICallError: Usage limit reached for 5 hour"')
             is SignalKind.ERROR
         )
 
@@ -654,7 +650,7 @@ class TestPermissionAskMonitor:
         mon = _PermissionAskMonitor(str(log))
         with log.open("a", encoding="utf-8") as fh:
             fh.write(
-                'timestamp=... level=INFO run=abc message=asking '
+                "timestamp=... level=INFO run=abc message=asking "
                 'id=per_123 permission=external_directory patterns=["/tmp/x/*"]\n'
             )
         mon.poll(now)
@@ -679,9 +675,7 @@ class TestPermissionAskMonitor:
         log.write_text("baseline\n", encoding="utf-8")
         mon = _PermissionAskMonitor(str(log))
         with log.open("a", encoding="utf-8") as fh:
-            fh.write(
-                "message=asking id=per_1 permission=external_directory patterns=[]\n"
-            )
+            fh.write("message=asking id=per_1 permission=external_directory patterns=[]\n")
         mon.poll(time.monotonic())
         assert mon.pending_ask is not None
         with log.open("a", encoding="utf-8") as fh:
@@ -699,7 +693,7 @@ class TestPermissionAskMonitor:
         with log.open("a", encoding="utf-8") as fh:
             fh.write(
                 "message=evaluated permission=external_directory "
-                'pattern=/tmp/x/* action.permission=external_directory '
+                "pattern=/tmp/x/* action.permission=external_directory "
                 "action.action=ask action.pattern=*\n"
             )
         mon.poll(time.monotonic())

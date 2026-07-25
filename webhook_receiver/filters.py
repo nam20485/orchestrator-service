@@ -127,8 +127,7 @@ def should_dispatch(event: str, payload: dict) -> tuple[bool, str]:
         if not allowed_senders:
             return (
                 False,
-                "direct-body dispatch disabled "
-                "(set DIRECT_BODY_ALLOWED_SENDERS to enable)",
+                "direct-body dispatch disabled (set DIRECT_BODY_ALLOWED_SENDERS to enable)",
             )
         if sender.lower() not in allowed_senders:
             return (

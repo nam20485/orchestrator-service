@@ -4,9 +4,7 @@ import copy
 from typing import Any
 
 SAFE_EVENTS = frozenset({"ping"})
-WORK_EVENTS = frozenset(
-    {"issues", "pull_request", "issue_comment", "workflow_run", "custom"}
-)
+WORK_EVENTS = frozenset({"issues", "pull_request", "issue_comment", "workflow_run", "custom"})
 ALL_EVENTS = SAFE_EVENTS | WORK_EVENTS
 
 _DEFAULT_REPO = "org/repo"

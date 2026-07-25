@@ -14,9 +14,7 @@ _PROMPT_TEMPLATE_PATH = Path(__file__).resolve().parent / _PROMPT_TEMPLATE_FILEN
 @lru_cache(maxsize=1)
 def _prompt_template() -> Template:
     if not _PROMPT_TEMPLATE_PATH.is_file():
-        raise FileNotFoundError(
-            f"Orchestration prompt template not found: {_PROMPT_TEMPLATE_PATH}"
-        )
+        raise FileNotFoundError(f"Orchestration prompt template not found: {_PROMPT_TEMPLATE_PATH}")
     source = _PROMPT_TEMPLATE_PATH.read_text(encoding="utf-8")
     return Template(source, keep_trailing_newline=True)
 
@@ -56,7 +54,6 @@ def build_orchestrator_prompt(
     prompt = _prompt_template().render(event_data=event_json)
     if truncated:
         prompt += (
-            "\n\n(Payload JSON was truncated for size; use `gh` against the repo "
-            "for full context.)"
+            "\n\n(Payload JSON was truncated for size; use `gh` against the repo for full context.)"
         )
     return prompt

@@ -29,6 +29,7 @@ Three independent kill conditions:
 Live heartbeat tracing (``[watchdog]`` lines in the container log) provides
 post-mortem diagnosis without requiring debug mode.
 """
+
 from __future__ import annotations
 
 import base64
@@ -76,11 +77,7 @@ def classify_line(line: str) -> SignalKind:
 
     Error lines increment the consecutive-error counter; normal lines reset it.
     """
-    return (
-        SignalKind.ERROR
-        if any(p.search(line) for p in _ERROR_PATTERNS)
-        else SignalKind.NORMAL
-    )
+    return SignalKind.ERROR if any(p.search(line) for p in _ERROR_PATTERNS) else SignalKind.NORMAL
 
 
 # ── Thread-safe state shared between stream readers and watchdog ───────────
@@ -360,9 +357,7 @@ class WatchdogConfig:
             poll_interval_secs=getattr(settings, "watchdog_poll_secs", 30),
             max_consecutive_errors=getattr(settings, "max_consecutive_errors", 5),
             debug=getattr(settings, "watchdog_debug", False),
-            permission_ask_grace_secs=getattr(
-                settings, "permission_ask_grace_secs", 60
-            ),
+            permission_ask_grace_secs=getattr(settings, "permission_ask_grace_secs", 60),
             server_log_path=getattr(
                 settings,
                 "server_log_path",
@@ -434,9 +429,7 @@ class IdleWatchdog:
         # Server-log growth monitor scoped to THIS dispatch (see
         # _ServerLogMonitor). Baseline is captured at watchdog start so
         # pre-existing log content can't mask a stuck run.
-        self._server_monitor = _ServerLogMonitor(
-            config.server_log_path, state.start_time
-        )
+        self._server_monitor = _ServerLogMonitor(config.server_log_path, state.start_time)
         # Permission-ask deadlock scanner (headless fail-fast). Shares the same
         # server-log path as the growth monitor but tracks its own read offset.
         self._ask_monitor = _PermissionAskMonitor(config.server_log_path)
@@ -458,8 +451,7 @@ class IdleWatchdog:
                 elapsed = time.monotonic() - start
                 snap = self._state.snapshot()
                 logger.info(
-                    "[watchdog] process exited on its own "
-                    "elapsed=%ds exit_code=%s lines=%d",
+                    "[watchdog] process exited on its own elapsed=%ds exit_code=%s lines=%d",
                     int(elapsed),
                     exit_code,
                     snap.total_lines,
@@ -624,9 +616,7 @@ class IdleWatchdog:
             # (so a slow-but-working run is visible), or on every poll when
             # debug mode is on.
             if line_idle >= 60 or cfg.debug:
-                _sl_idle_str = (
-                    f"{int(server_log_idle)}s" if server_log_idle is not None else "n/a"
-                )
+                _sl_idle_str = f"{int(server_log_idle)}s" if server_log_idle is not None else "n/a"
                 # When the server log is active but the client is idle, note
                 # that a subagent is likely running (the server is doing work
                 # that the client can't stream).
@@ -705,8 +695,7 @@ class IdleWatchdog:
             proc.wait(timeout=self._config.sigterm_grace_secs)
         except subprocess.TimeoutExpired:
             logger.warning(
-                "[watchdog] process group did not exit after SIGTERM "
-                "(grace=%ds), sending SIGKILL",
+                "[watchdog] process group did not exit after SIGTERM (grace=%ds), sending SIGKILL",
                 self._config.sigterm_grace_secs,
             )
             try:
@@ -729,8 +718,7 @@ class IdleWatchdog:
         session_id = self._ask_monitor.session_id
         if not cfg.server_url or not session_id:
             logger.info(
-                "[watchdog] server-session abort skipped "
-                "(server_url=%r session_id=%r)",
+                "[watchdog] server-session abort skipped (server_url=%r session_id=%r)",
                 cfg.server_url,
                 session_id,
             )
@@ -779,9 +767,7 @@ class IdleWatchdog:
             return
 
         try:
-            lines = self._stderr_path.read_text(
-                encoding="utf-8", errors="replace"
-            ).splitlines()
+            lines = self._stderr_path.read_text(encoding="utf-8", errors="replace").splitlines()
         except OSError:
             return
 

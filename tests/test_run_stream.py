@@ -8,14 +8,14 @@ from webhook_receiver.run_stream import ANSI_RE, extract_tool_names, parse_event
 # glyph — the exact case that made the old runner regex (SGR-only) miss a tool
 # call and false-classify a run as zero-work.
 _SAMPLE = (
-    "INFO  2026-07-05T02:47:02 service=default args=[...]\n"            # noise
-    "sqlite-migration:done\n"                                            # noise
-    "\x1b[0m> orchestrator \xc2\xb7 glm-5\x1b[0m\n"                      # model
+    "INFO  2026-07-05T02:47:02 service=default args=[...]\n"  # noise
+    "sqlite-migration:done\n"  # noise
+    "\x1b[0m> orchestrator \xc2\xb7 glm-5\x1b[0m\n"  # model
     "\x1b[0m\u2022 \x1b[0mPost status update\x1b[90m Github-Expert Agent\x1b[0m\n"
     "\x1b[0m\u2713 \x1b[0mPost status update\x1b[90m Github-Expert Agent\x1b[0m\n"
-    "\x1b[0m\u2699 \x1b[0mbash {\"command\":\"git status\"}\n"
+    '\x1b[0m\u2699 \x1b[0mbash {"command":"git status"}\n'
     "\x1b[0m\u2192 \x1b[0mRead /workspace/repo/AGENTS.md\n"
-    "\x1b[2K\u2699 memory_search_nodes {\"query\":\"repo\"}\n"           # non-SGR CSI prefix
+    '\x1b[2K\u2699 memory_search_nodes {"query":"repo"}\n'  # non-SGR CSI prefix
     "\x1b[0m#\x1b[0m Todos\n"
     "\x1b[0m\u2717 \x1b[0mInvalid Tool unavailable 'memory-search_nodes'\n"
     "[watchdog] client output idle 87s, server I/O active\n"
@@ -27,8 +27,8 @@ def test_extract_tool_names_basic() -> None:
     # one lowercased token per glyph line; boot noise excluded
     assert "bash" in tools
     assert "read" in tools
-    assert "memory_search_nodes" in tools          # from the \x1b[2K line
-    assert "execute" not in tools                   # "Post…" is not a token
+    assert "memory_search_nodes" in tools  # from the \x1b[2K line
+    assert "execute" not in tools  # "Post…" is not a token
     assert all(t == t.lower() for t in tools)
 
 
@@ -49,7 +49,7 @@ def test_parse_events_classifies_glyphs_and_drops_noise() -> None:
     assert delegations[0]["detail"] == "Post status update"
 
     # long tool JSON is truncated
-    long_tool = "\x1b[0m\u2699 \x1b[0mbash {\"command\":\"" + "x" * 200 + "\"}\n"
+    long_tool = '\x1b[0m\u2699 \x1b[0mbash {"command":"' + "x" * 200 + '"}\n'
     tool_ev = next(e for e in parse_events(long_tool) if e["kind"] == "tool")
     assert len(tool_ev["detail"]) <= 141 and tool_ev["detail"].endswith("…")
 
@@ -64,7 +64,7 @@ def test_drift_guard_non_sgr_ansi_handled_identically() -> None:
     tolerated only SGR (``m``) ANSI and would MISS such a line, while the
     dashboard stripped all CSI. With the shared ``ANSI_RE`` both now see it.
     """
-    line = "\x1b[2K\u2699 memory_search_nodes {\"query\":\"q\"}\n"
+    line = '\x1b[2K\u2699 memory_search_nodes {"query":"q"}\n'
     assert extract_tool_names(line) == {"memory_search_nodes"}
     evs = parse_events(line)
     assert len(evs) == 1 and evs[0]["kind"] == "tool"

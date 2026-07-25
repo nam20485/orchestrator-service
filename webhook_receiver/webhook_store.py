@@ -94,11 +94,7 @@ class WebhookStore:
         """Delete events older than *max_age_days*. Returns the count removed."""
         cutoff = time.time() - max_age_days * 86400
         with self._lock:
-            stale = [
-                did
-                for did, ev in self._events.items()
-                if ev.get("received_ts", 0) < cutoff
-            ]
+            stale = [did for did, ev in self._events.items() if ev.get("received_ts", 0) < cutoff]
             for did in stale:
                 del self._events[did]
             if stale:

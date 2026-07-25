@@ -10,9 +10,7 @@ def compute_signature(body: bytes, secret: str) -> str:
     return f"sha256={digest}"
 
 
-def verify_signature(
-    body: bytes, signature_header: str | None, secret: str
-) -> bool:
+def verify_signature(body: bytes, signature_header: str | None, secret: str) -> bool:
     """Validate X-Hub-Signature-256 (sha256=<hex>)."""
     if not signature_header:
         return False

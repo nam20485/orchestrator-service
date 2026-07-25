@@ -123,21 +123,13 @@ class BeadsLoop:
         plen = len(prefix)
         with self._lock:
             return {
-                "active": {
-                    k[plen:] for k in self._active_beads if k.startswith(prefix)
-                },
-                "halted": {
-                    k[plen:] for k in self._halted_beads if k.startswith(prefix)
-                },
+                "active": {k[plen:] for k in self._active_beads if k.startswith(prefix)},
+                "halted": {k[plen:] for k in self._halted_beads if k.startswith(prefix)},
                 "retry": {
-                    k[plen:]: dict(v)
-                    for k, v in self._retry_state.items()
-                    if k.startswith(prefix)
+                    k[plen:]: dict(v) for k, v in self._retry_state.items() if k.startswith(prefix)
                 },
                 "start_times": {
-                    k[plen:]: v
-                    for k, v in self._bead_start_times.items()
-                    if k.startswith(prefix)
+                    k[plen:]: v for k, v in self._bead_start_times.items() if k.startswith(prefix)
                 },
             }
 
@@ -172,13 +164,9 @@ class BeadsLoop:
             try:
                 self._poll_and_process_project(slug, project_root)
             except Exception:
-                logger.exception(
-                    "Error processing project=%s (%s)", slug, project_root
-                )
+                logger.exception("Error processing project=%s (%s)", slug, project_root)
 
-    def _poll_and_process_project(
-        self, project_slug: str, project_root: str
-    ) -> None:
+    def _poll_and_process_project(self, project_slug: str, project_root: str) -> None:
         """Poll one project for the next bead and process it."""
         if not _plan_tracked(project_root):
             self._warn_missing_plan(project_slug)
@@ -261,9 +249,7 @@ class BeadsLoop:
     def _get_next_bead_bvr(self, project_root: str) -> dict | None:
         """Query ``bvr --robot-next`` for the single highest-impact task."""
         try:
-            result = self._run_beads_cmd(
-                ["bvr", "--robot-next", "--format", "json"], project_root
-            )
+            result = self._run_beads_cmd(["bvr", "--robot-next", "--format", "json"], project_root)
         except FileNotFoundError:
             logger.debug("bvr not found — falling back to br ready")
             return None
@@ -344,9 +330,7 @@ class BeadsLoop:
 
     # ── bead processing ────────────────────────────────────────────────────
 
-    def _process_bead(
-        self, bead: dict, project_slug: str, project_root: str
-    ) -> None:
+    def _process_bead(self, bead: dict, project_slug: str, project_root: str) -> None:
         bead_id = bead.get("id", "")
         title = bead.get("title", bead_id)
         key = self._key(project_slug, bead_id)
@@ -382,8 +366,7 @@ class BeadsLoop:
             # detected dubious ownership", branch/ref errors) are actionable
             # instead of just an opaque exit code + traceback.
             logger.error(
-                "Failed to create worktree for bead %s (git exit %d).\n"
-                "command: %s\nstderr: %s",
+                "Failed to create worktree for bead %s (git exit %d).\ncommand: %s\nstderr: %s",
                 bead_id,
                 exc.returncode,
                 " ".join(exc.cmd or []),
@@ -399,9 +382,7 @@ class BeadsLoop:
         try:
             with self._lock:
                 prev_logs = str(self._retry_state[key].get("logs", ""))
-            success, logs = self._spawn_agent(
-                bead, ws_path, retries, project_root, prev_logs
-            )
+            success, logs = self._spawn_agent(bead, ws_path, retries, project_root, prev_logs)
 
             if success:
                 logger.info("Successfully completed bead %s", bead_id)
@@ -410,9 +391,7 @@ class BeadsLoop:
                     push_branch(ws_path, bead_id)
                     create_pr(ws_path, bead_id, title)
                 except Exception:
-                    logger.exception(
-                        "Failed to push/create PR for bead %s", bead_id
-                    )
+                    logger.exception("Failed to push/create PR for bead %s", bead_id)
                 with self._lock:
                     self._retry_state.pop(key, None)
             else:
@@ -456,9 +435,7 @@ class BeadsLoop:
             guide = bead_context.build_agent_guide(ws_path)
             bead_context.write_context_files(ws_path, guide)
         except Exception:  # noqa: BLE001 — context files are best-effort
-            logger.debug(
-                "Failed to write bead context files for %s", bead_id, exc_info=True
-            )
+            logger.debug("Failed to write bead context files for %s", bead_id, exc_info=True)
 
         try:
             snapshot = bead_context.progress_snapshot(
@@ -484,10 +461,7 @@ class BeadsLoop:
                 f"Fix the code, ensure tests pass, and run `br close {bead_id}`."
             )
         else:
-            prompt += (
-                f"\n\nWhen completed and ALL tests pass, you MUST run: "
-                f"`br close {bead_id}`."
-            )
+            prompt += f"\n\nWhen completed and ALL tests pass, you MUST run: `br close {bead_id}`."
         return prompt
 
     def _spawn_agent(  # pragma: no cover (subprocess integration — tested via mocks)
@@ -500,9 +474,7 @@ class BeadsLoop:
     ) -> tuple[bool, str]:
         bead_id = bead.get("id", "")
 
-        prompt = self._build_bead_prompt(
-            bead, retry_count, ws_path, project_root, previous_logs
-        )
+        prompt = self._build_bead_prompt(bead, retry_count, ws_path, project_root, previous_logs)
 
         logger.info(
             "Injecting prompt for bead %s into service (attempt %d, workspace=%s)",
@@ -514,9 +486,7 @@ class BeadsLoop:
         log_dir = self._settings.log_dir
         log_dir.mkdir(parents=True, exist_ok=True)
 
-        fd, prompt_name = tempfile.mkstemp(
-            prefix=f"bead-{bead_id}-", suffix=".md", dir=log_dir
-        )
+        fd, prompt_name = tempfile.mkstemp(prefix=f"bead-{bead_id}-", suffix=".md", dir=log_dir)
         prompt_path = Path(prompt_name)
         with os.fdopen(fd, "w", encoding="utf-8") as fh:
             fh.write(prompt)
@@ -580,9 +550,7 @@ class BeadsLoop:
                 status=status,
             )
             if status != "closed":
-                logger.warning(
-                    "Bead %s is still %s after agent exit.", bead_id, status
-                )
+                logger.warning("Bead %s is still %s after agent exit.", bead_id, status)
                 err_logs = stderr_path.read_text(encoding="utf-8", errors="replace")
                 return False, err_logs
 
@@ -600,9 +568,7 @@ class BeadsLoop:
         unknown" is traceable to its cause instead of being a silent dead-end.
         """
         try:
-            result = self._run_beads_cmd(
-                ["br", "show", bead_id, "--json"], project_root
-            )
+            result = self._run_beads_cmd(["br", "show", bead_id, "--json"], project_root)
         except FileNotFoundError:
             logger.warning("br show %s failed: br not found", bead_id)
             return "unknown"
@@ -623,9 +589,7 @@ class BeadsLoop:
         try:
             data = json.loads(stdout)
         except json.JSONDecodeError:
-            logger.warning(
-                "br show %s returned invalid JSON: %.300s", bead_id, stdout
-            )
+            logger.warning("br show %s returned invalid JSON: %.300s", bead_id, stdout)
             return "unknown"
 
         # `br show --json` may return a top-level array (one element for a
@@ -679,9 +643,7 @@ class BeadsLoop:
         logs are left untouched.
         """
         with self._lock:
-            self._retry_state[key]["count"] = (
-                self._retry_count(self._retry_state[key]) + 1
-            )
+            self._retry_state[key]["count"] = self._retry_count(self._retry_state[key]) + 1
             if logs is not self._NO_LOGS:
                 text = logs if isinstance(logs, str) else ""
                 self._retry_state[key]["logs"] = text[-3000:]

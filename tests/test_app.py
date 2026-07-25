@@ -119,9 +119,7 @@ def test_rejects_oversized_body(monkeypatch: pytest.MonkeyPatch) -> None:
     dispatch.assert_not_called()
 
 
-def test_accepts_issue_event(
-    client: TestClient, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_accepts_issue_event(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
     dispatch = MagicMock()
     monkeypatch.setattr("webhook_receiver.app.dispatch_to_opencode", dispatch)
     payload = {
@@ -175,9 +173,7 @@ def test_filters_issue_comment_to_prevent_echo_loop(
     assert response.json()["status"] == "ignored"
 
 
-def test_filters_issues_opened_event(
-    client: TestClient, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_filters_issues_opened_event(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
     """``issues.opened`` is not a dispatch trigger (only ``labeled`` is)."""
     dispatch = MagicMock()
     monkeypatch.setattr("webhook_receiver.app.dispatch_to_opencode", dispatch)
@@ -202,9 +198,7 @@ def test_filters_issues_opened_event(
     dispatch.assert_not_called()
 
 
-def test_filters_bot_actors(
-    client: TestClient, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_filters_bot_actors(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
     """A ``labeled`` event applied by an App/bot must not dispatch."""
     dispatch = MagicMock()
     monkeypatch.setattr("webhook_receiver.app.dispatch_to_opencode", dispatch)
@@ -230,9 +224,7 @@ def test_filters_bot_actors(
     dispatch.assert_not_called()
 
 
-def test_filters_non_workflow_label(
-    client: TestClient, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_filters_non_workflow_label(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
     """A ``labeled`` event with a non-workflow label must not dispatch."""
     dispatch = MagicMock()
     monkeypatch.setattr("webhook_receiver.app.dispatch_to_opencode", dispatch)
@@ -261,9 +253,7 @@ def test_filters_non_workflow_label(
 # ── _safe_dispatch: workspace bootstrap & root guard ──────────────────────
 
 
-def _post_issues(
-    client: TestClient, payload: dict, delivery: str = "d1"
-):
+def _post_issues(client: TestClient, payload: dict, delivery: str = "d1"):
     body = json.dumps(payload).encode()
     return client.post(
         "/webhooks/github",
@@ -393,9 +383,7 @@ def test_safe_dispatch_root_guard_refuses_dispatch(
     init_project = MagicMock()
     monkeypatch.setattr("webhook_receiver.app.init_project_workspace", init_project)
     # Force slug="" so project_workspace_path(base, "") == base → root guard fires.
-    monkeypatch.setattr(
-        "webhook_receiver.app._derive_project_slug", lambda payload: ""
-    )
+    monkeypatch.setattr("webhook_receiver.app._derive_project_slug", lambda payload: "")
 
     client = TestClient(create_app(_test_settings()))
     payload = {

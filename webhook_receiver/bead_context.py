@@ -144,9 +144,7 @@ def progress_snapshot(ws_path: str, bead_id: str, run_beads: BeadsRunner) -> str
 
     lines = [f"Progress: {closed}/{total} beads closed, {open_} open."]
     if other:
-        lines.append(
-            f"({other} in other states: ready/blocked/halted/active.)"
-        )
+        lines.append(f"({other} in other states: ready/blocked/halted/active.)")
 
     status_by_id = {b.get("id"): str(b.get("status", "")).lower() for b in beads}
     blockers = _blockers_for(bead_id, run_beads)

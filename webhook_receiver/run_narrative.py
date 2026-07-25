@@ -128,9 +128,7 @@ def _build_timeline(
 def _summarize_event(kind: str, agent: str | None, detail: str) -> str:
     """One-line human-readable summary for a single timeline event."""
     if kind == "delegation":
-        return f"Delegated to {agent or 'subagent'} agent" + (
-            f": {detail}" if detail else ""
-        )
+        return f"Delegated to {agent or 'subagent'} agent" + (f": {detail}" if detail else "")
     if kind == "delegation_done":
         return f"Subagent {agent or ''} returned".strip()
     if kind == "error":
@@ -211,9 +209,7 @@ def _group_timeline(timeline: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 def _verb_for_kind(kind: str) -> str:
-    return {"read": "Read", "glob": "Searched", "webfetch": "Fetched"}.get(
-        kind, "Processed"
-    )
+    return {"read": "Read", "glob": "Searched", "webfetch": "Fetched"}.get(kind, "Processed")
 
 
 # ── Stats ──────────────────────────────────────────────────────────────────

@@ -132,14 +132,10 @@ def test_build_prompt_no_description(tmp_path: Path, mock_empty_beads: None) -> 
     assert "Task Three" in prompt
 
 
-def test_build_prompt_no_first_attempt_no_warning(
-    tmp_path: Path, mock_empty_beads: None
-) -> None:
+def test_build_prompt_no_first_attempt_no_warning(tmp_path: Path, mock_empty_beads: None) -> None:
     loop = BeadsLoop(_test_settings())
     bead = {"id": "br-4", "title": "T", "description": "D"}
-    prompt = loop._build_bead_prompt(
-        bead, 0, str(tmp_path), "/workspace", previous_logs=""
-    )
+    prompt = loop._build_bead_prompt(bead, 0, str(tmp_path), "/workspace", previous_logs="")
     assert "WARNING" not in prompt
 
 
@@ -152,9 +148,7 @@ def test_build_prompt_writes_context_files(tmp_path: Path, mock_empty_beads: Non
     assert (tmp_path / "AGENTS.md").exists()
 
 
-def test_build_prompt_keeps_existing_agents_md(
-    tmp_path: Path, mock_empty_beads: None
-) -> None:
+def test_build_prompt_keeps_existing_agents_md(tmp_path: Path, mock_empty_beads: None) -> None:
     """An existing AGENTS.md (cloned repo) is never clobbered."""
     (tmp_path / "AGENTS.md").write_text("REPO INSTRUCTIONS", encoding="utf-8")
     loop = BeadsLoop(_test_settings())
@@ -164,9 +158,7 @@ def test_build_prompt_keeps_existing_agents_md(
     assert (tmp_path / "BEADS_AGENT_GUIDE.md").exists()
 
 
-def test_build_prompt_overview_from_canonical_root(
-    tmp_path: Path, mock_empty_beads: None
-) -> None:
+def test_build_prompt_overview_from_canonical_root(tmp_path: Path, mock_empty_beads: None) -> None:
     """Overview is built from the worktree (ws_path) which inherits the plan.
 
     A per-bead git worktree checks out the project repo, so if the plan is
@@ -207,9 +199,7 @@ def test_bvr_next_returns_bead(mock_run: MagicMock) -> None:
 
 @patch("webhook_receiver.beads_loop.subprocess.run")
 def test_bvr_next_nested_bead(mock_run: MagicMock) -> None:
-    mock_run.return_value = _mock_result(
-        json.dumps({"bead": {"id": "br-bvr2", "title": "Nested"}})
-    )
+    mock_run.return_value = _mock_result(json.dumps({"bead": {"id": "br-bvr2", "title": "Nested"}}))
     loop = BeadsLoop(_test_settings())
     bead = loop._get_next_bead_bvr("/workspace/proj")
     assert bead is not None
@@ -265,10 +255,14 @@ def test_get_next_bead_falls_back_to_br() -> None:
     loop = BeadsLoop(_test_settings())
     with (
         patch.object(loop, "_get_next_bead_bvr", return_value=None),
-        patch.object(loop, "_get_ready_beads", return_value=[
-            {"id": "br-a", "priority": 1},
-            {"id": "br-b", "priority": 2},
-        ]),
+        patch.object(
+            loop,
+            "_get_ready_beads",
+            return_value=[
+                {"id": "br-a", "priority": 1},
+                {"id": "br-b", "priority": 2},
+            ],
+        ),
     ):
         result = loop._get_next_bead("/workspace/proj")
         assert result is not None
@@ -317,9 +311,7 @@ def test_get_ready_beads_parses_issues_list(mock_run: MagicMock) -> None:
 
 @patch("webhook_receiver.beads_loop.subprocess.run")
 def test_get_ready_beads_parses_plain_list(mock_run: MagicMock) -> None:
-    mock_run.return_value = _mock_result(
-        json.dumps([{"id": "br-b", "title": "T2", "priority": 2}])
-    )
+    mock_run.return_value = _mock_result(json.dumps([{"id": "br-b", "title": "T2", "priority": 2}]))
     loop = BeadsLoop(_test_settings())
     beads = loop._get_ready_beads("/workspace/proj")
     assert len(beads) == 1
@@ -367,9 +359,7 @@ def test_get_ready_beads_non_dict_non_list_data(mock_run: MagicMock) -> None:
 
 
 @patch("webhook_receiver.beads_loop.subprocess.run")
-def test_get_ready_beads_not_initialized_logs_info_once(
-    mock_run: MagicMock, caplog
-) -> None:
+def test_get_ready_beads_not_initialized_logs_info_once(mock_run: MagicMock, caplog) -> None:
     """br ready NOT_INITIALIZED should log INFO once, then stay silent."""
     from subprocess import CalledProcessError
 
@@ -390,9 +380,7 @@ def test_get_ready_beads_not_initialized_logs_info_once(
 
 
 @patch("webhook_receiver.beads_loop.subprocess.run")
-def test_get_ready_beads_other_error_logs_error(
-    mock_run: MagicMock, caplog
-) -> None:
+def test_get_ready_beads_other_error_logs_error(mock_run: MagicMock, caplog) -> None:
     """Non-NOT_INITIALIZED errors should still log at ERROR level."""
     from subprocess import CalledProcessError
 
@@ -408,9 +396,7 @@ def test_get_ready_beads_other_error_logs_error(
 
 
 @patch("webhook_receiver.beads_loop.subprocess.run")
-def test_bvr_next_not_initialized_logs_info(
-    mock_run: MagicMock, caplog
-) -> None:
+def test_bvr_next_not_initialized_logs_info(mock_run: MagicMock, caplog) -> None:
     """bvr --robot-next with 'no workspace config' should log INFO, not WARNING."""
     from subprocess import CalledProcessError
 
@@ -463,18 +449,14 @@ def test_select_next_bead_default_priority() -> None:
 
 @patch("webhook_receiver.beads_loop.subprocess.run")
 def test_check_bead_status_closed(mock_run: MagicMock) -> None:
-    mock_run.return_value = _mock_result(
-        json.dumps({"id": "br-x", "status": "closed"})
-    )
+    mock_run.return_value = _mock_result(json.dumps({"id": "br-x", "status": "closed"}))
     loop = BeadsLoop(_test_settings())
     assert loop._check_bead_status("br-x", "/workspace/proj") == "closed"
 
 
 @patch("webhook_receiver.beads_loop.subprocess.run")
 def test_check_bead_status_open(mock_run: MagicMock) -> None:
-    mock_run.return_value = _mock_result(
-        json.dumps({"issue": {"id": "br-y", "status": "open"}})
-    )
+    mock_run.return_value = _mock_result(json.dumps({"issue": {"id": "br-y", "status": "open"}}))
     loop = BeadsLoop(_test_settings())
     assert loop._check_bead_status("br-y", "/workspace/proj") == "open"
 
@@ -760,9 +742,7 @@ def test_poll_processes_project_with_committed_plan(tmp_path) -> None:
     """
     project = tmp_path / "proj"
     (project / "plan_docs").mkdir(parents=True)
-    (project / "plan_docs" / "application_plan.md").write_text(
-        "# plan", encoding="utf-8"
-    )
+    (project / "plan_docs" / "application_plan.md").write_text("# plan", encoding="utf-8")
     (project / ".beads").mkdir()
     subprocess.run(
         ["git", "init", "--initial-branch=main"],
@@ -820,9 +800,7 @@ def test_poll_missing_plan_warns_throttled(tmp_path, monkeypatch, caplog) -> Non
 
     # Fake clock so we can cross the re-warn window deterministically.
     fake_now = [0.0]
-    monkeypatch.setattr(
-        "webhook_receiver.beads_loop.time.time", lambda: fake_now[0]
-    )
+    monkeypatch.setattr("webhook_receiver.beads_loop.time.time", lambda: fake_now[0])
 
     with (
         patch("webhook_receiver.beads_loop._plan_tracked", return_value=False),
@@ -837,9 +815,7 @@ def test_poll_missing_plan_warns_throttled(tmp_path, monkeypatch, caplog) -> Non
         loop._poll_and_process_project("proj", str(tmp_path / "proj"))  # throttled
 
     errors = [r for r in caplog.records if r.levelname == "ERROR"]
-    assert len(errors) == 2, (
-        f"expected exactly 2 throttled errors, got {len(errors)}"
-    )
+    assert len(errors) == 2, f"expected exactly 2 throttled errors, got {len(errors)}"
     mock_next.assert_not_called()
     assert "proj" in loop._plan_warned
 
