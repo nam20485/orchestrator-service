@@ -32,6 +32,3 @@ jobs:
           review_model: glm-5.2
           security_model: glm-5.2
           reasoning_effort: max
-          
-
-
