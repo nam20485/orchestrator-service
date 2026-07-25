@@ -17,8 +17,10 @@ orchestrator-webhook = "webhook_receiver.__main__:main"
 dev = [
     "pytest>=8",
     "pytest-cov>=6",
+    "pytest-xdist>=3.6",
     "httpx>=0.27",
     "ruff>=0.9",
+    "pre-commit>=4",
 ]
 
 [build-system]
@@ -33,7 +35,16 @@ target-version = "py311"
 line-length = 100
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "UP"]
+select = ["E", "F", "I", "UP", "C901"]
+
+[tool.ruff.lint.mccabe]
+max-complexity = 15
+
+[tool.ruff.lint.per-file-ignores]
+# Ratchet exemptions for pre-existing complexity above the max-complexity=15
+# threshold; tracked as deferred refactors in docs/agent-readiness-action-plan.md.
+"webhook_receiver/dashboard.py" = ["C901"]  # create_dashboard_router: 37
+"webhook_receiver/runner.py" = ["C901"]     # _run_completion_watcher: 22
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

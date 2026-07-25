@@ -72,8 +72,12 @@ function Get-CommandOrWarn {
 Push-Location $RepoRoot
 try {
     if ($All -or $Lint) {
-        Invoke-ValidateStep -Name 'ruff' -Action {
+        Invoke-ValidateStep -Name 'ruff check' -Action {
             uv run ruff check webhook_receiver tests
+        }
+
+        Invoke-ValidateStep -Name 'ruff format --check' -Action {
+            uv run ruff format --check webhook_receiver tests
         }
 
         if (Get-CommandOrWarn 'actionlint') {
@@ -111,11 +115,12 @@ try {
 
     if ($All -or $Test) {
         Invoke-ValidateStep -Name 'pytest' -Action {
-            uv run pytest tests/ -q `
+            uv run pytest tests/ -q -n auto `
                 --cov=webhook_receiver `
                 --cov-report=term-missing `
                 --cov-report=html:htmlcov `
-                --cov-report=xml:coverage.xml
+                --cov-report=xml:coverage.xml `
+                --cov-fail-under=85
         }
 
         Invoke-ValidateStep -Name 'pester' -Action {

@@ -24,4 +24,19 @@ Describe 'validate.ps1' {
         $content | Should -Match '\[switch\]\$Scan'
         $content | Should -Match '\[switch\]\$Test'
     }
+
+    It 'enforces ruff format --check in the lint step' {
+        $content = Get-Content -LiteralPath $script:ValidatePs1 -Raw
+        $content | Should -Match 'ruff format --check'
+    }
+
+    It 'runs pytest in parallel with xdist' {
+        $content = Get-Content -LiteralPath $script:ValidatePs1 -Raw
+        $content | Should -Match '-n auto'
+    }
+
+    It 'enforces the 85% coverage threshold' {
+        $content = Get-Content -LiteralPath $script:ValidatePs1 -Raw
+        $content | Should -Match '--cov-fail-under=85'
+    }
 }
