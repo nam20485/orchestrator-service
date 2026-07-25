@@ -21,23 +21,29 @@ This document lists every criterion that did **not** score full marks (repo-scop
 
 ## 🟢 Quick Wins (do these first) — 15 items
 
-| # | Criterion | Scope | Value | Effort | Score | Suggested Action |
-|---|-----------|-------|:-:|:-:|:-:|---|
-| 1 | `dependency_update_automation` | Repo | 5 | 1 | 5.00 | Add `.github/dependabot.yml` for the `uv`/pip and npm ecosystems, weekly schedule. |
-| 2 | `test_coverage_thresholds` | App | 5 | 1 | 5.00 | Add `--cov-fail-under=85` to the pytest invocation (matches AGENTS.md's own 85% target). |
-| 3 | `rollback_automation` | Repo | 4 | 1 | 4.00 | Document a rollback runbook using the existing `<branch>-<run_number>` image tags already published by docker-publish.yml. |
-| 4 | `pre_commit_hooks` | App | 4 | 1 | 4.00 | Add `.pre-commit-config.yaml` wiring the existing `ruff` and `scan-uncommitted-secrets` scripts. |
-| 5 | `codeowners` | Repo | 3 | 1 | 3.00 | Add a root `CODEOWNERS` file. |
-| 6 | `gitignore_comprehensive` | Repo | 3 | 1 | 3.00 | Add `.DS_Store`, `Thumbs.db`, root-level `node_modules/`; decide on `.vscode/` policy. |
-| 7 | `pr_templates` | Repo | 3 | 1 | 3.00 | Add `.github/pull_request_template.md`. |
-| 8 | `formatter` | App | 3 | 1 | 3.00 | Enable `ruff format --check` in `validate.ps1` (ruff is already a dependency). |
-| 9 | `cyclomatic_complexity` | App | 3 | 1 | 3.00 | Enable ruff's `C901` rule + `max-complexity` in `pyproject.toml`. |
-| 10 | `test_isolation` | App | 3 | 1 | 3.00 | Add `pytest-xdist`; run with `-n auto`. |
-| 11 | `api_schema_docs` | App | 3 | 1 | 3.00 | Add a script/CI step exporting FastAPI's `app.openapi()` to a committed `openapi.json`. |
-| 12 | `error_tracking_contextualized` | App | 4 | 2 | 2.00 | Add the Sentry SDK to `webhook_receiver` with DSN via env var. |
-| 13 | `health_checks` | App | 3 | 2 | 1.50 | Add Docker `HEALTHCHECK` to the root `Dockerfile` and `deploy/caddy/Dockerfile`. |
-| 14 | `release_notes_automation` | Repo | 3 | 2 | 1.50 | Add `release-please` or a conventional-commits changelog action. |
-| 15 | `devcontainer` | Repo | 3 | 2 | 1.50 | Add `.devcontainer/devcontainer.json` (Python 3.11 + Node 24 + `uv`). |
+Items 1, 2, 3, 4, 6, 8, 9, 10, 11, 12, 13, 14, 15 landed together on
+`dev/agent-readiness-quick-wins` (see
+`plan_docs/factory/2026-07-25-agent-readiness-quick-wins-items-1-15.md` for
+the implementation spec). Items 5 (`codeowners`) and 7 (`pr_templates`) were
+intentionally excluded from that PR and remain open.
+
+| # | Criterion | Scope | Value | Effort | Score | Status | Suggested Action |
+|---|-----------|-------|:-:|:-:|:-:|---|---|
+| 1 | `dependency_update_automation` | Repo | 5 | 1 | 5.00 | ✅ Done | Add `.github/dependabot.yml` for the `uv`/pip and npm ecosystems, weekly schedule. |
+| 2 | `test_coverage_thresholds` | App | 5 | 1 | 5.00 | ✅ Done | Add `--cov-fail-under=85` to the pytest invocation (matches AGENTS.md's own 85% target). |
+| 3 | `rollback_automation` | Repo | 4 | 1 | 4.00 | ✅ Done | Document a rollback runbook using the existing `<branch>-<run_number>` image tags already published by docker-publish.yml. |
+| 4 | `pre_commit_hooks` | App | 4 | 1 | 4.00 | ✅ Done | Add `.pre-commit-config.yaml` wiring the existing `ruff` and `scan-uncommitted-secrets` scripts. |
+| 5 | `codeowners` | Repo | 3 | 1 | 3.00 | ⏭ Deferred | Add a root `CODEOWNERS` file. |
+| 6 | `gitignore_comprehensive` | Repo | 3 | 1 | 3.00 | ✅ Done | Add `.DS_Store`, `Thumbs.db`, root-level `node_modules/`; decide on `.vscode/` policy. |
+| 7 | `pr_templates` | Repo | 3 | 1 | 3.00 | ⏭ Deferred | Add `.github/pull_request_template.md`. |
+| 8 | `formatter` | App | 3 | 1 | 3.00 | ✅ Done | Enable `ruff format --check` in `validate.ps1` (ruff is already a dependency). |
+| 9 | `cyclomatic_complexity` | App | 3 | 1 | 3.00 | ✅ Done (2 ratchet exemptions) | Enable ruff's `C901` rule + `max-complexity` in `pyproject.toml`. `dashboard.create_dashboard_router` (37) and `runner._run_completion_watcher` (22) exceed `max-complexity=15` and are per-file-ignored pending a dedicated refactor. |
+| 10 | `test_isolation` | App | 3 | 1 | 3.00 | ✅ Done | Add `pytest-xdist`; run with `-n auto`. |
+| 11 | `api_schema_docs` | App | 3 | 1 | 3.00 | ✅ Done | Add a script/CI step exporting FastAPI's `app.openapi()` to a committed `openapi.json`. |
+| 12 | `error_tracking_contextualized` | App | 4 | 2 | 2.00 | ✅ Done | Add the Sentry SDK to `webhook_receiver` with DSN via env var. |
+| 13 | `health_checks` | App | 3 | 2 | 1.50 | ✅ Done | Add Docker `HEALTHCHECK` to the root `Dockerfile` and `deploy/caddy/Dockerfile`. |
+| 14 | `release_notes_automation` | Repo | 3 | 2 | 1.50 | ✅ Done | Add `release-please` or a conventional-commits changelog action. Implemented as GitHub auto-generated release notes on tag (`.github/release.yml` + `.github/workflows/release.yml`). |
+| 15 | `devcontainer` | Repo | 3 | 2 | 1.50 | ✅ Done | Add `.devcontainer/devcontainer.json` (Python 3.11 + Node 24 + `uv`). |
 
 ## 🔵 Strategic Investments (high value, plan the work) — 8 items
 

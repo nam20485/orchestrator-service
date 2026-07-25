@@ -30,6 +30,9 @@
 - Compose `environment: - VAR` passes host shell env into the container; `${VAR}` adds `.env` interpolation—this project does not use `.env`.
 - Host client scripts: `scripts/prompt.ps1`, `scripts/attach.ps1` (PowerShell thin wrappers to local `opencode`; pwsh is a host prerequisite); one-shot via `opencode run --attach <url>`, interactive via `opencode attach <url>`.
 - GitHub webhook stack: `webhook_receiver/` FastAPI validates App webhooks with `OS_WEBHOOK_SECRET` and dispatches OpenCode via `scripts/prompt.ps1` (`-PromptFile` for large payloads); `webhook-receiver` (internal :8080) behind `webhook-proxy` (Caddy on host :80; prod TLS via `compose.https.yaml` for :443); path `/webhooks/github`. Hybrid auth: App for delivery/subscriptions; agent `gh`/API uses `GH_ORCHESTRATION_AGENT_TOKEN` (PAT), not installation JWT. Subscribing to `issues` requires App **Issues: Read** (read is enough for webhook delivery). Dev simulator at `/simulator` when `WEBHOOK_ENABLE_SIMULATOR=1` (off by default), `OS_WEBHOOK_SECRET` injected server-side. Local Funnel: `compose.yaml` only; prod: `COMPOSE_FILE=compose.yaml:compose.https.yaml`.
+- All three runtime images (`orchestratorservice`, `webhook-receiver`, `webhook-proxy`) declare a `HEALTHCHECK`; `compose.yaml` gates `webhook-receiver` on `orchestratorservice: condition: service_healthy` so dispatch can't fire before `opencode serve` is listening.
+- `webhook_receiver/observability.py` wraps Sentry (`sentry-sdk[fastapi]`, a required dependency): inert unless `SENTRY_DSN` is set; `init_sentry()` runs in `__main__.py`; `capture_dispatch_failure()` tags dispatch/bead failures (never raw payloads/secrets, `send_default_pii=False`).
+- `.devcontainer/devcontainer.json` provides a one-command reproducible dev environment (Python 3.11 + Node 24 + PowerShell + gh CLI + Docker-in-Docker; `postCreateCommand` runs `uv sync --group dev` + Pester + `pre-commit install`).
 
 ## Greater System
 
@@ -148,9 +151,9 @@ If the expected validation script does not exist:
 An automated test suite must be maintained, with results and coverage reports generated automatically. **Test coverage must stay > 85%** as new code is added.
 
 - Full suite: `pwsh -NoProfile -File ./scripts/validate.ps1 -Test` (or `-All` for lint + scan + test).
-- Python: `uv sync --group dev` then `uv run pytest tests/ -q`.
+- Python: `uv sync --group dev` then `uv run pytest tests/ -q -n auto`. `validate.ps1` runs pytest with `pytest-xdist` (`-n auto`) and enforces `--cov-fail-under=85`.
 - Pester: `pwsh -NoProfile -File ./test/run-pester-tests.ps1`.
-- Bash: `test/test-docker-entrypoint.sh`, `test/test-compose-config.sh`, `test/test-caddyfile.sh`, `test/test-opencode-json.sh`.
+- Bash: `test/test-docker-entrypoint.sh`, `test/test-compose-config.sh`, `test/test-caddyfile.sh`, `test/test-opencode-json.sh`, `test/test-docker-healthchecks.sh`, `test/test-openapi-schema.sh` (fails if `docs/openapi.json` drifts from `scripts/export-openapi.py`).
 - Webhook fixtures: `test/fixtures/github/` (use `FAKE-KEY-FOR-TESTING-…` only; never `ghp_`, `sk-`, `AKIA`, etc. in fixtures).
 
 ### Test Driven Development (TDD)
@@ -169,6 +172,7 @@ When implementing new features, use TDD:
 - Secret scan clean (`.cursor/skills/scan-uncommitted-secrets` or `validate.ps1 -Scan`).
 - No real API keys or tokens in committed files.
 - Always run the `/safe-commit` skill before committing.
+- The `.pre-commit-config.yaml` git hook (installed via `install-dev-tools.ps1` or `uv run pre-commit install`) runs `ruff check --fix`, `ruff format`, and the secret scanner automatically on `git commit`.
 
 ### Branching
 
@@ -223,7 +227,9 @@ PowerShell thin wrappers and helpers. Dot-source auth helpers; run others direct
 | Script | Purpose | When / how |
 |--------|---------|------------|
 | `validate.ps1` | Local validation (lint, scan, test) mirroring CI. | After any non-trivial change: `pwsh -NoProfile -File ./scripts/validate.ps1 -All` (or `-Lint`/`-Scan`/`-Test`). |
-| `install-dev-tools.ps1` | Installs uv dev deps, Pester, actionlint, shellcheck, jq, docker hints, and Beads (`br`, `bvr` via cargo+nightly). | Missing local tools: run once per machine before validating. |
+| `install-dev-tools.ps1` | Installs uv dev deps (incl. `pre-commit`, `pytest-xdist`), the `pre-commit` git hook, Pester, actionlint, shellcheck, jq, docker hints, and Beads (`br`, `bvr` via cargo+nightly). | Missing local tools: run once per machine before validating. |
+| `rollback.ps1` | Lists recent `docker-publish.yml` image tags and rolls the compose stack back to one via `compose.rollback.yaml`. | `pwsh -File ./scripts/rollback.ps1 -Branch main` to list, `-Tag main-123` to roll back. See `docs/rollback-runbook.md`. |
+| `export-openapi.py` | Exports the webhook_receiver FastAPI OpenAPI schema to the committed `docs/openapi.json`. | `uv run python scripts/export-openapi.py` after any route change; `--check` (run by `test/test-openapi-schema.sh`) fails on drift. |
 | `common-auth.ps1` | `Initialize-GitHubAuth` (interactive `gh auth login` fallback). | Dot-source from other scripts that need gh auth. |
 | `gh-auth.ps1` | `Initialize-GitHubAuth` with PAT support (`-Token` / `$GITHUB_AUTH_TOKEN`, non-interactive). | Dot-source when running unattended (CI, agent) with a PAT. |
 | `prompt.ps1` | Dispatch a one-shot OpenCode run via `opencode run --attach <url>`. Core orchestration launcher. | `pwsh -File ./scripts/prompt.ps1 -PromptFile <path>` (large payloads) or `-Prompt "<text>"`. |
