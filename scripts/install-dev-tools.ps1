@@ -21,8 +21,11 @@ uv is required but was not found on PATH. Install it first, then rerun this scri
 '@
     }
 
-    Write-Host 'Syncing Python dev dependencies (pytest, ruff, httpx)...' -ForegroundColor Cyan
+    Write-Host 'Syncing Python dev dependencies (pytest, ruff, httpx, pre-commit)...' -ForegroundColor Cyan
     uv sync --group dev
+
+    Write-Host 'Installing pre-commit git hook...' -ForegroundColor Cyan
+    uv run pre-commit install
 
     if (-not (Get-Module -ListAvailable -Name Pester | Where-Object { $_.Version -ge '5.0.0' })) {
         Write-Host 'Installing Pester 5...' -ForegroundColor Cyan

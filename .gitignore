@@ -79,6 +79,19 @@ venv.bak/
 # IDE / editor
 tempCodeRunnerFile.py
 .idea/
+.vscode/*
+!.vscode/settings.json
+
+# Pre-commit
+.pre-commit-cache/
+
+# OS cruft
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Node (root-level; per-app node_modules already covered by npm-debug.log rules elsewhere)
+node_modules/
 
 # Secrets (mounted at runtime via compose, never committed)
 auth/auth.json
