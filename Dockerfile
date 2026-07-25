@@ -132,5 +132,10 @@ RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
 EXPOSE 4099
 
+# opencode serve requires OPENCODE_SERVER_PASSWORD, so probe the TCP listener
+# rather than an authenticated HTTP route.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=40s --retries=3 \
+    CMD bash -c 'exec 3<>/dev/tcp/127.0.0.1/4099' || exit 1
+
 ENTRYPOINT ["docker-entrypoint.sh"]
 CMD ["opencode", "serve", "--hostname", "0.0.0.0", "--port", "4099", "--log-level", "INFO", "--print-logs"]

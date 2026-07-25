@@ -97,7 +97,8 @@ services:
       - OPENCODE_SERVER_LOG_PATH=${OPENCODE_SERVER_LOG_PATH:-/var/log/opencode-server/opencode.log}
       - DASHBOARD_TOKEN=${DASHBOARD_TOKEN:-}
     depends_on:
-      - orchestratorservice
+      orchestratorservice:
+        condition: service_healthy
     restart: unless-stopped
 
   webhook-proxy:
