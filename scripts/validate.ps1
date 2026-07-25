@@ -73,7 +73,7 @@ Push-Location $RepoRoot
 try {
     if ($All -or $Lint) {
         Invoke-ValidateStep -Name 'ruff' -Action {
-            uv run ruff check webhook_receiver tests
+            uv run ruff check webhook_receiver tests scripts/export-openapi.py
         }
 
         if (Get-CommandOrWarn 'actionlint') {
@@ -133,6 +133,7 @@ try {
             Write-Warning 'Skipping compose config, caddyfile, and docker-user (test): docker not available.'
         }
         Invoke-BashStep -Name 'docker healthchecks' -ScriptPath './test/test-docker-healthchecks.sh'
+        Invoke-BashStep -Name 'openapi schema' -ScriptPath './test/test-openapi-schema.sh'
         Invoke-BashStep -Name 'opencode.json (test)' -ScriptPath './test/test-opencode-json.sh'
         Invoke-BashStep -Name 'beads versions (test)' -ScriptPath './test/test-beads-versions-consistency.sh'
         Invoke-BashStep -Name 'webhook scripts' -ScriptPath './test/test-webhook-scripts.sh'
