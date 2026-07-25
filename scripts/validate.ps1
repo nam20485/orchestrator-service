@@ -137,6 +137,7 @@ try {
         else {
             Write-Warning 'Skipping compose config, caddyfile, and docker-user (test): docker not available.'
         }
+        Invoke-BashStep -Name 'docker healthchecks' -ScriptPath './test/test-docker-healthchecks.sh'
         Invoke-BashStep -Name 'opencode.json (test)' -ScriptPath './test/test-opencode-json.sh'
         Invoke-BashStep -Name 'beads versions (test)' -ScriptPath './test/test-beads-versions-consistency.sh'
         Invoke-BashStep -Name 'webhook scripts' -ScriptPath './test/test-webhook-scripts.sh'
