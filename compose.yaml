@@ -96,6 +96,12 @@ services:
       # delegation) and the kill is withheld.
       - OPENCODE_SERVER_LOG_PATH=${OPENCODE_SERVER_LOG_PATH:-/var/log/opencode-server/opencode.log}
       - DASHBOARD_TOKEN=${DASHBOARD_TOKEN:-}
+      # Sentry error tracking (webhook_receiver/observability.py). Inert
+      # unless SENTRY_DSN is set.
+      - SENTRY_DSN=${SENTRY_DSN:-}
+      - SENTRY_ENVIRONMENT=${SENTRY_ENVIRONMENT:-production}
+      - SENTRY_TRACES_SAMPLE_RATE=${SENTRY_TRACES_SAMPLE_RATE:-0.0}
+      - SENTRY_RELEASE=${SENTRY_RELEASE:-}
     depends_on:
       orchestratorservice:
         condition: service_healthy

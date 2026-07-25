@@ -105,6 +105,13 @@ class Settings:
     # run manifests, and the bvr pages bundle. Defaults to the in-container path
     # covered by the compose bind mount; tests override it with a tmp dir.
     log_dir: Path = field(default_factory=default_log_dir)
+    # ── Error tracking (Sentry) ──────────────────────────────────────────────
+    # Sentry is inert until sentry_dsn is set; see observability.py. Never
+    # required, never printed/logged (it is a bearer-style ingest URL).
+    sentry_dsn: str | None = None
+    sentry_environment: str = "production"
+    sentry_traces_sample_rate: float = 0.0
+    sentry_release: str | None = None
 
     @classmethod
     def from_env(cls) -> Settings:
@@ -158,4 +165,8 @@ class Settings:
                 "OPENCODE_SERVER_LOG_PATH",
                 "/home/app/.local/share/opencode/log/opencode.log",
             ),
+            sentry_dsn=(os.environ.get("SENTRY_DSN", "").strip() or None),
+            sentry_environment=os.environ.get("SENTRY_ENVIRONMENT", "production"),
+            sentry_traces_sample_rate=float(os.environ.get("SENTRY_TRACES_SAMPLE_RATE", "0.0")),
+            sentry_release=(os.environ.get("SENTRY_RELEASE", "").strip() or None),
         )

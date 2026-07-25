@@ -31,6 +31,10 @@ def test_settings_from_env_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
         "BEADS_MAX_RETRIES",
         "BEADS_WORKSPACE_ROOT",
         "DASHBOARD_TOKEN",
+        "SENTRY_DSN",
+        "SENTRY_ENVIRONMENT",
+        "SENTRY_TRACES_SAMPLE_RATE",
+        "SENTRY_RELEASE",
     ):
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setenv("OS_WEBHOOK_SECRET", "test-secret")
@@ -46,3 +50,21 @@ def test_settings_from_env_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
     assert cfg.dashboard_token is None
     # log_dir defaults to the in-container path the compose bind mount covers.
     assert cfg.log_dir.name == "orchestrator-webhook"
+    # Sentry is inert by default (no DSN configured).
+    assert cfg.sentry_dsn is None
+    assert cfg.sentry_environment == "production"
+    assert cfg.sentry_traces_sample_rate == 0.0
+    assert cfg.sentry_release is None
+
+
+def test_settings_from_env_reads_sentry_config(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("OS_WEBHOOK_SECRET", "test-secret")
+    monkeypatch.setenv("SENTRY_DSN", "https://FAKE-SENTRY-DSN-FOR-TESTING@o0.ingest.sentry.io/0")
+    monkeypatch.setenv("SENTRY_ENVIRONMENT", "staging")
+    monkeypatch.setenv("SENTRY_TRACES_SAMPLE_RATE", "0.25")
+    monkeypatch.setenv("SENTRY_RELEASE", "v1.2.3")
+    cfg = Settings.from_env()
+    assert cfg.sentry_dsn == "https://FAKE-SENTRY-DSN-FOR-TESTING@o0.ingest.sentry.io/0"
+    assert cfg.sentry_environment == "staging"
+    assert cfg.sentry_traces_sample_rate == 0.25
+    assert cfg.sentry_release == "v1.2.3"

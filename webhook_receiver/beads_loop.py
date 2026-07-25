@@ -14,6 +14,7 @@ from typing import Any
 from webhook_receiver import bead_context
 from webhook_receiver.config import Settings
 from webhook_receiver.event_store import EventStore
+from webhook_receiver.observability import capture_dispatch_failure
 from webhook_receiver.runner import _prompt_script_invocation, _stream_to_logger_and_file
 from webhook_receiver.workspace import (
     create_bead_worktree,
@@ -353,6 +354,12 @@ class BeadsLoop:
                 reason="max_retries_exceeded",
                 retries=retries,
                 project=project_slug,
+            )
+            capture_dispatch_failure(
+                f"Bead {bead_id} halted: max retries exceeded",
+                bead_id=bead_id,
+                project=project_slug,
+                retries=str(retries),
             )
             with self._lock:
                 self._halted_beads.add(key)

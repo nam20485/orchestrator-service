@@ -10,6 +10,7 @@ from webhook_receiver.app import create_app
 from webhook_receiver.beads_loop import BeadsLoop
 from webhook_receiver.config import Settings
 from webhook_receiver.event_store import EventStore
+from webhook_receiver.observability import init_sentry
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +26,11 @@ def main() -> None:
         level=getattr(logging, settings.log_level.upper(), logging.INFO),
         format="%(asctime)s %(levelname)s %(name)s %(message)s",
     )
+
+    if init_sentry(settings):
+        logger.info(
+            "Sentry error tracking initialized (environment=%s)", settings.sentry_environment
+        )
 
     event_store = EventStore()
     loop: BeadsLoop | None = None

@@ -15,6 +15,7 @@ from pathlib import Path
 from webhook_receiver.config import Settings
 from webhook_receiver.event_store import EventStore
 from webhook_receiver.filters import should_filter
+from webhook_receiver.observability import capture_dispatch_failure
 from webhook_receiver.run_stream import extract_tool_names
 from webhook_receiver.watchdog import (
     REASON_CONSECUTIVE_ERRORS,
@@ -667,6 +668,17 @@ def _run_completion_watcher(
             "tools": sorted(tools),
         },
     )
+
+    if failed:
+        capture_dispatch_failure(
+            f"Dispatch run failed: {kill_reason or 'non-zero exit'}",
+            exit_code=str(exit_code),
+            kill_reason=kill_reason,
+            timed_out=str(timed_out),
+            prompt_stem=prompt_stem,
+            repo=dispatch_ctx.repo_full_name if dispatch_ctx else None,
+            issue_number=str(dispatch_ctx.issue_number) if dispatch_ctx else None,
+        )
 
     if event_store is not None:
         if failed:
