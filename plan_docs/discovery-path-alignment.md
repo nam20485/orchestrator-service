@@ -1,7 +1,7 @@
 # Discovery Path Alignment — Bring the Webhook Orchestrator to the Golden Path
 
-**Status:** Draft for approval
-**Date:** 2026-07-03
+**Status:** PARTIALLY IMPLEMENTED. Tier 2.2 (per-run log bind mount in `compose.yaml`/`compose.development.yaml`) and the issue-linking work (early `gh project item-add` linkage in `orchestration_prompt.jinja2.md`) are shipped. Tier 1 (deterministic local-index-first discovery directive in the prompt) remains open.
+**Date:** 2026-07-03 (status updated 2026-07-30)
 **Scope:** Align the `orchestrator-service` webhook-dispatch discovery path with the proven
 GitHub-Actions "golden path" (`intel-agency/workflow-orchestration-queue-foxtrot54`).
 
