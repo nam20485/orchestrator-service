@@ -137,6 +137,17 @@ Why this is mandatory: these dispatches are **headless fire-and-forget** (no hum
 Action: in each `task` prompt that will produce scratch files, state explicitly:
 > "Write all scratch/driver scripts and rendered files to `<workspace>/.scratch/` (create it). Do NOT use `/tmp` or any path outside the workspace."
 
+## Task Tool — Session Resumption (`task_id`)
+
+The `task` tool's `task_id` parameter resumes an existing subagent session. It MUST be a session ID returned by a previous `task` call (format `ses_...`). Do NOT pass custom human strings like `"gh-init-phase1"` — the tool rejects anything that is not a valid session ID, and a failed first delegation wastes a round-trip.
+
+To resume a session for a follow-up phase:
+1. Capture the session ID (`ses_...`) from the first delegation's result.
+2. Pass it as `task_id` in the next `task` call to the same subagent.
+3. The subagent retains its full context from the previous phase — no need to re-pass it.
+
+If you do not need to resume (a fresh delegation), omit `task_id` entirely.
+
 ## Important Notes
 
 - NEVER author production code directly
