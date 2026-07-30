@@ -12,11 +12,11 @@ The system is a three-tier software factory built around the [Beads](https://git
 | **2. Planning** | `/plan-to-beads` skill | Scrum agent | `.beads/` DAG |
 | **3. Execution** | (automatic) | `BeadsLoop` background thread | Working software + PRs |
 
-The `BeadsLoop` runs as a background daemon thread in `webhook-receiver`. It scans `/workspace/<project-slug>/` for projects (subdirs containing `.beads/`), then for each project polls `br ready --json` and spawns isolated agents in per-bead git worktrees (`.worktrees/<bead-id>/`) to implement, test, and close each task.
+The `BeadsLoop` runs as a background daemon thread in `webhook-receiver`. It scans `/workspace/<project-slug>/` for projects (subdirs containing `.beads/`), then for each project selects the next bead via `bvr --robot-next` (graph-aware) — falling back to `br ready --json` + priority sort when `bvr` is unavailable — and spawns isolated agents in per-bead git worktrees (`.worktrees/<bead-id>/`) to implement, test, and close each task.
 
 > **"Ready at will."** The service starts before any work is planned. When no projects exist (no `.beads/` dirs found), `BeadsLoop` stays idle. When a user triggers `/plan-to-beads` in a project workspace, beads are created and the loop discovers the project on its next scan — no restart required. This is a **normal state**, not an error.
 
-**Normal states vs. real errors:** "beads not initialized" (`NOT_INITIALIZED`) and an empty `br ready --json` (no unblocked beads) are both **normal idle states**, not errors. Real errors are non-`NOT_INITIALIZED` failures from `br ready` (e.g. `db locked`), logged at `ERROR` level. An agent's failure to run `br close` is caught by retry logic (up to `BEADS_MAX_RETRIES`, default 3) — it does not crash the service.
+**Normal states vs. real errors:** "beads not initialized" (`NOT_INITIALIZED`) and an empty `bvr`/`br ready` result (no unblocked beads) are both **normal idle states**, not errors. Real errors are non-`NOT_INITIALIZED` failures from `bvr`/`br ready` (e.g. `db locked`), logged at `ERROR` level. An agent's failure to run `br close` is caught by retry logic (up to `BEADS_MAX_RETRIES`, default 3) — it does not crash the service.
 
 ## OpenCode server + webhook receiver (Docker)
 
@@ -28,7 +28,7 @@ export WORKSPACE_DIR='…'       # host directory mounted at /workspace (agent w
 docker compose up --build
 ```
 
-Provider credentials are injected at container start by `scripts/docker-entrypoint.sh` (which writes `/home/app/.local/share/opencode/auth.json` before `opencode serve`): `ZAI_CODING_API_KEY` (alias `ZAI_API_KEY`, for `zai-coding-plan/` models such as `glm-4.7`), `OPENROUTER_API_KEY`, and `MODEL_STUDIO_API_KEY` (Alibaba Model Studio Singapore, provider `bailian-payg`; defaults to `bailian-payg/qwen3.6-plus` large / `bailian-payg/qwen3.6-flash` small). Compose reads these from the host/CI environment — **no project `.env` file**.
+Provider credentials are injected at container start by `scripts/docker-entrypoint.sh` (which writes `/home/app/.local/share/opencode/auth.json` before `opencode serve`): `ZAI_CODING_API_KEY` (alias `ZAI_API_KEY`, for `zai-coding-plan/` models such as `glm-5`), `OPENROUTER_API_KEY`, and `MODEL_STUDIO_API_KEY` (Alibaba Model Studio Singapore, provider `bailian-payg`; sets provider auth only — the default model comes from `image/.opencode/opencode.json`, currently `zai-coding-plan/glm-5` large / `zai-coding-plan/glm-4.5-air` small). Compose reads these from the host/CI environment — **no project `.env` file**.
 
 `WORKSPACE_DIR` is **required** — it is the host directory bind-mounted into both `orchestratorservice` and `webhook-receiver` at `/workspace`. This is where agent sessions run. Projects live in subdirectories (`/workspace/<project-slug>/`), each containing its own `.beads/` DAG and per-bead git worktrees. Create it before first start (e.g. `mkdir -p ~/orchestrator-workspace && export WORKSPACE_DIR=~/orchestrator-workspace`).
 
@@ -66,12 +66,14 @@ sudo chown -R $(id -u):$(id -g) "$WORKSPACE_DIR"
 
 | Environment | Compose command | HTTPS edge |
 |-------------|-----------------|------------|
-| Local + [Tailscale Funnel](docs/github-app-webhook-setup.md#local-development-with-tailscale-funnel--docker-compose) | `docker compose up` | Funnel → `:80` (do **not** use `compose.https.yaml` while Funnel is on) |
+| Local + Tailscale Funnel | `docker compose up` | Funnel → `:80` (do **not** use `compose.https.yaml` while Funnel is on — Funnel and Caddy both bind host `:443`) |
 | Production (own domain) | `COMPOSE_FILE=compose.yaml:compose.https.yaml docker compose up` | Caddy + Let's Encrypt on `:443` |
 
 Point your GitHub App webhook at `https://<host>/webhooks/github`. For Caddy TLS, set `WEBHOOK_SITE_ADDRESS=hooks.example.com` (DNS must point here) and include `compose.https.yaml`. Default `:80` is HTTP only (Funnel/ngrok terminate HTTPS upstream).
 
-**Compose overlays:** base `compose.yaml` + optional `compose.https.yaml` merge (see [Docker Compose overlays](docs/github-app-webhook-setup.md#docker-compose-overlays-dev-vs-prod-https) in the webhook setup doc). Full setup: [docs/github-app-webhook-setup.md](docs/github-app-webhook-setup.md).
+**Local development with Tailscale Funnel:** run `tailscale funnel 80` to publish a stable `*.ts.net` HTTPS URL onto host `:80` (Caddy). Use `compose.yaml` only — do not add `compose.https.yaml` (both bind `:443`).
+
+**Compose overlays:** base `compose.yaml` defines the three services over HTTP on `:80`. The optional `compose.https.yaml` overlay merges on top and makes Caddy terminate TLS on `:443` (Let's Encrypt) when you own a domain pointing at the host. Local dev uses the base file alone; production uses `COMPOSE_FILE=compose.yaml:compose.https.yaml`.
 
 ## Client prompt (one-shot)
 
@@ -116,26 +118,31 @@ Point the app webhook to:
 https://<your-host>/webhooks/github
 ```
 
-Content type: `application/json`. Subscribe to **Issues** on the GitHub App. The receiver only dispatches the orchestrator for `issues.labeled` events carrying a workflow label (`orchestration:*`, `implementation:ready`, `implementation:complete`) from a non-bot actor; all other deliveries are acknowledged but ignored.
+Content type: `application/json`. Subscribe to **Issues** on the GitHub App. The receiver only dispatches the orchestrator for `issues.labeled` events from a non-bot actor carrying a workflow label; all other deliveries are acknowledged but ignored. The dispatch set (defined in `webhook_receiver/filters.py`) is:
+
+- labels in the `orchestration:*` or `gh-issue-tracking:*` prefix namespaces, or the exact labels `implementation:ready` / `implementation:complete`;
+- the special `gh-issue-tracking:direct-body` label runs the **issue body verbatim** as the orchestrator prompt. Because that prompt inherits the orchestration GitHub token and `--auto`, it is fail-closed-gated by `DIRECT_BODY_ALLOWED_SENDERS` (comma-separated trusted-sender allowlist; when unset/empty, or the sender is not listed, the delivery is ignored).
 
 ### Environment variables
+
+The authoritative, complete list (with defaults and descriptions) lives in [`docs/environment-variables.md`](docs/environment-variables.md). The most common ones:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `OS_WEBHOOK_SECRET` | *(required)* | Webhook secret for `X-Hub-Signature-256` |
 | `OPENCODE_SERVER_URL` | `http://localhost:4099` | OpenCode server for `prompt.ps1` |
 | `ORCHESTRATOR_WORKSPACE` | `/workspace` | `--dir` passed to `opencode run` |
-| `PROMPT_SCRIPT` | `scripts/prompt.ps1` | PowerShell prompt launcher (requires `pwsh`) |
-| `OPENCODE_MODEL` | `bailian-payg/qwen3.6-plus` | Model |
+| `OPENCODE_MODEL` | `zai-coding-plan/glm-5` | Model used for dispatched runs |
+| `OPENCODE_VARIANT` | `high` | Reasoning-effort variant passed to opencode via `--variant` |
 | `OPENCODE_AGENT` | `orchestrator` | Agent |
-| `WEBHOOK_MAX_PAYLOAD_CHARS` | `120000` | Max JSON chars embedded in prompt |
-| `WEBHOOK_MAX_BODY_BYTES` | `26214400` (25 MiB) | Reject webhook POST bodies larger than this |
 | `WEBHOOK_HOST` / `WEBHOOK_PORT` | `0.0.0.0` / `8080` | HTTP bind |
-| `WEBHOOK_ENABLE_SIMULATOR` | `0` | Serve dev UI at `/simulator` when set to `1` |
+| `WEBHOOK_ENABLE_SIMULATOR` | `0` | Serve dev UI at `/simulator` when set to `1` (also requires `DASHBOARD_TOKEN`) |
+| `DASHBOARD_TOKEN` | *(unset → disabled)* | Shared secret gating the dashboard **and** simulator |
 | `BEADS_ENABLED` | `true` | Enable the `BeadsLoop` background execution thread |
-| `BEADS_POLL_INTERVAL` | `10` | Seconds between `br ready --json` polls |
-| `BEADS_MAX_RETRIES` | `3` | Max retries per bead before halting for human intervention |
 | `BEADS_WORKSPACE_ROOT` | `/workspace` | Base directory containing per-project workspaces (`/workspace/<slug>/`) |
+
+The env doc additionally covers `DIRECT_BODY_ALLOWED_SENDERS`, the full watchdog set (`IDLE_TIMEOUT_SECS`, `HARD_CEILING_SECS`, `MAX_CONSECUTIVE_ERRORS`, `PERMISSION_ASK_GRACE_SECS`, …), `OPENCODE_SERVER_LOG_PATH`, and `TRACE_BLACKLIST_PATTERNS`.
+
 Per-dispatch run logs: `/tmp/orchestrator-webhook/prompt-*.md` (the prompt) and `prompt-*.stderr` (pwsh stderr).
 
 ### Webhook simulator (local dev)
@@ -149,7 +156,7 @@ http://localhost/simulator
 - **Safe (ping)** tab — signed `ping` delivery; returns **200**, no orchestration.
 - **Work events** tab — `issues`, `pull_request`, etc.; returns **202** and starts a real OpenCode run.
 
-For local simulator UI, set `WEBHOOK_ENABLE_SIMULATOR=1` before `docker compose up`. Secret is pre-filled from `OS_WEBHOOK_SECRET`; browser `sessionStorage` overrides if you edit the field.
+For local simulator UI, set both `WEBHOOK_ENABLE_SIMULATOR=1` **and** `DASHBOARD_TOKEN` before `docker compose up`. The simulator is token-gated the same way as the dashboard: with `WEBHOOK_ENABLE_SIMULATOR=1` but `DASHBOARD_TOKEN` unset, `/simulator` returns **401** ("Simulator requires DASHBOARD_TOKEN to be set") — present the token via `Authorization: Bearer`, `?token=`, or the `dashboard_token` cookie (`webhook_receiver/simulator.py`). Secret is pre-filled from `OS_WEBHOOK_SECRET`; browser `sessionStorage` overrides if you edit the field.
 
 ### Orchestration dashboard
 
@@ -161,7 +168,7 @@ http://localhost/dashboard
 
 UI status badges, sortable bead table with inline logs, event timeline, and a JSON API under `/api/dashboard/*`. Full reference: [docs/dashboard.md](docs/dashboard.md).
 
-> **Trusted-network only** — the dashboard has no authentication; run it only inside a trusted network like the rest of the receiver.
+> **Token-gated.** The dashboard is **disabled by default** (every route returns `404`) until `DASHBOARD_TOKEN` is set. Once set, requests must present that token via an `Authorization: Bearer` header, a `?token=` query parameter, or a `dashboard_token` cookie (constant-time compared); a missing/wrong token returns `401`. Set `DASHBOARD_TOKEN` before enabling it (`webhook_receiver/auth.py`).
 
 ### Health
 
@@ -197,5 +204,5 @@ gh run view <run-id> --log-failed
 
 These historical documents do **not** reflect the current architecture — do not use them for implementation guidance:
 
-- `plan_docs/archive/plan.md`, `plan_docs/archive/orchestration_supervisor.md`, `plan_docs/archive/maestro_architecture_options.md`
+- [`plan_docs/.archived/plan.md`](plan_docs/.archived/plan.md) (original OpenCode Server POR, port 4096→4099), [`plan_docs/.deferred/maestro_supervisor/orchestration_supervisor.md`](plan_docs/.deferred/maestro_supervisor/orchestration_supervisor.md) (future maestro/supervisor, not implemented), [`plan_docs/.deferred/maestro_supervisor/maestro_architecture_options.md`](plan_docs/.deferred/maestro_supervisor/maestro_architecture_options.md) (future architecture options, not implemented), and the archived webhook-setup guide under [`plan_docs/.archived/agent-loop-refactor/`](plan_docs/.archived/agent-loop-refactor/)
 - Current architecture (replaces the former `docs/agent-loop-dev-plans/` + `plan_docs/agent-loop-refactor/` pointers, which no longer exist): [`docs/deployment-compose.md`](docs/deployment-compose.md) and [`plan_docs/three-repo-oveall-architecture-inspection-update-plan.md`](plan_docs/three-repo-oveall-architecture-inspection-update-plan.md)
