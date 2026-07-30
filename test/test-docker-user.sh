@@ -43,10 +43,12 @@ capdrops="$(docker compose -f compose.yaml config --format json \
 [ "$capdrops" = "[]" ] || fail "compose.yaml missing cap_drop: ALL for (excluding webhook-proxy): ${capdrops}"
 echo "compose.yaml cap_drop: ok"
 
-# 1c. Services with cap_drop: ALL must re-add SETUID, SETGID, and CHOWN because
-#     the root-starting entrypoints call gosu/su-exec (needs SETUID+SETGID) and
-#     chown named-volume fixups (needs CHOWN). Without these, gosu's setuid(2)
-#     fails with EPERM and the container crash-loops.
+# 1c. Services with cap_drop: ALL must re-add the capabilities their root
+#     entrypoint needs. All such services need SETUID+SETGID (gosu/su-exec drop)
+#     and CHOWN (named-volume fixups). orchestratorservice additionally needs
+#     DAC_OVERRIDE: its entrypoint writes auth.json and runs memory.jsonl
+#     self-heal as root on files that are chowned to app after first start —
+#     without DAC_OVERRIDE, root gets EACCES on restart.
 required_caps="$(docker compose -f compose.yaml config --format json \
   | jq -c '[.services | to_entries[]
     | select((.value.cap_drop // []) | index("ALL") != null)
@@ -56,7 +58,14 @@ required_caps="$(docker compose -f compose.yaml config --format json \
     | select($missing | length > 0)
     | {service: $svc, missing_caps: $missing}]')"
 [ "$required_caps" = "[]" ] || fail "compose.yaml cap_drop: ALL services missing required cap_add (SETUID/SETGID/CHOWN): ${required_caps}"
-echo "compose.yaml cap_add for gosu/chown: ok"
+
+dac_override="$(docker compose -f compose.yaml config --format json \
+  | jq -c '[.services | to_entries[]
+    | select(.key == "orchestratorservice")
+    | select((.value.cap_add // []) | index("DAC_OVERRIDE") == null)
+    | {service: .key}]')"
+[ "$dac_override" = "[]" ] || fail "compose.yaml orchestratorservice missing cap_add: DAC_OVERRIDE (entrypoint writes app-owned files as root on restart): ${dac_override}"
+echo "compose.yaml cap_add for gosu/chown/dac_override: ok"
 
 # 2. Main Dockerfile: no USER directive (entrypoint drops via gosu), declares
 #    the APP_UID/APP_GID build args, and creates the app user.
