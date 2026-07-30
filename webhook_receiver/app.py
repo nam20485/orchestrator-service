@@ -223,7 +223,22 @@ def create_app(
     async def health() -> dict[str, str]:
         return {"status": "ok"}
 
-    @app.post("/webhooks/github")
+    @app.post(
+        "/webhooks/github",
+        status_code=202,
+        responses={
+            200: {"description": "Ping event acknowledged (pong)."},
+            202: {
+                "description": (
+                    "Webhook delivery accepted and dispatched, or filtered/ignored "
+                    "without dispatch (non-matching label, bot actor, etc.)."
+                )
+            },
+            400: {"description": "Invalid JSON body."},
+            401: {"description": "Invalid signature."},
+            413: {"description": "Request body too large."},
+        },
+    )
     async def github_webhook(
         request: Request, background_tasks: BackgroundTasks
     ) -> JSONResponse:

@@ -90,6 +90,7 @@ auth/auth.json
 .kilo/
 .gemini/
 .qwen/
+.zcode/
 gha-creds-*.json
 .pair/
 plan_docs/automated_iterative_root_cause_analysis/iterative_root_cause_analysis_via_automation_93175dfc.plan.md
