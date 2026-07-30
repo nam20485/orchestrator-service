@@ -1,9 +1,11 @@
 # CI Workflow Optimization — Build-Once-Reuse Spec
 
-> **Status:** DRAFT — awaiting approval before implementation.
-> **Date:** 2026-06-29
+> **Status:** PARTIALLY IMPLEMENTED.
+> - **Phase 1 (caching / concurrency / path filters) — SHIPPED** in `trivy.yml` and `validate.yml` (buildx + `cache-from/to: type=gha`, `concurrency`, path filters) and the cargo `--mount=type=cache` mounts in the Dockerfiles. The worst offender flagged below (cacheless `trivy.yml` Rust recompiles) is resolved.
+> - **Phase 2 (build-contexts reuse across all consumers) and Phase 3 (consolidation) — OPEN.** Today only `docker-publish.yml` uses the `build-contexts` beads-builder reuse; `trivy.yml`/`validate.yml` still fall back to the in-Dockerfile builder stage.
+>
+> **Date:** 2026-06-29 (status updated 2026-07-30)
 > **Author:** Analysis derived from `plan_docs/ci-workflow-performance-analysis.md` (evidence-based, measured timings).
-> **Approval required before any workflow or Dockerfile changes.**
 
 ---
 
