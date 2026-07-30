@@ -40,19 +40,75 @@
 
 .EXAMPLE
   ./scripts/dc.ps1 up main --build
-  Omitted ImageRef defaults to main; --build passes through.
+  Build all images from local Dockerfiles (layers compose.build.yaml) and start the stack.
 #>
->>>>>>> 6270a33 (feat(dc): support command abbreviations u, d, and l)
-# Always pull the freshest published image for the chosen ref so a stale
-# local cache can never shadow the current <branch>-latest tag. A caller
-# may still add `--build` via ExtraArgs to force a rebuild of that image.
-$composeArgs += '--pull', 'always'
+[CmdletBinding()]
+param(
+  [Parameter(Position = 0)]
+  [ValidateSet('up', 'down', 'logs', 'u', 'd', 'l')]
+  [string]$Command,
+
+  [Parameter(Position = 1)]
+  [ValidateSet('main', 'development', 'nam20485')]
+  [string]$ImageRef = 'main',
+
+  [Parameter(ValueFromRemainingArguments)]
+  [string[]]$ExtraArgs
+)
+
+Set-StrictMode -Version Latest
+$ErrorActionPreference = 'Stop'
+
+# Normalize abbreviated command aliases (u/d/l) to their canonical forms so the
+# rest of the script only deals with 'up', 'down', 'logs'.
+switch ($Command) {
+  'u' { $Command = 'up' }
+  'd' { $Command = 'down' }
+  'l' { $Command = 'logs' }
+}
+
+$repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
+$composeFile = Join-Path $repoRoot 'compose.yaml'
+if (-not (Test-Path -LiteralPath $composeFile)) {
+  throw "compose.yaml not found: $composeFile"
+}
+
+$hasBuild = $false
+if ($ExtraArgs) {
+  foreach ($a in $ExtraArgs) { if ($a -eq '--build') { $hasBuild = $true; break } }
+}
+
+$composeArgs = @('compose', '-f', $composeFile)
+if ($hasBuild) {
+  $composeArgs += '-f', (Join-Path $repoRoot 'compose.build.yaml')
+}
+$composeArgs += $Command
+
+# 'up' defaults to detached to match the documented `up -d` usage, unless the
+# caller passes a foreground/detach-conflicting flag via ExtraArgs.
+if ($Command -eq 'up') {
+  $foregroundFlags = @('--attach', '--abort-on-container-exit', '--wait')
+  $hasForeground = $false
+  if ($ExtraArgs) {
+    foreach ($a in $ExtraArgs) { if ($foregroundFlags -contains $a) { $hasForeground = $true; break } }
+  }
+  if (-not $hasForeground) {
+    $composeArgs += '-d'
+  }
+  # Always pull the freshest published image for the chosen ref so a stale
+  # local cache can never shadow the current <branch>-latest tag. Skip this
+  # in --build mode (compose.build.yaml sets pull_policy: never) so the
+  # locally-built image is used as-is.
+  if (-not $hasBuild) {
+    $composeArgs += '--pull', 'always'
+  }
 }
 if ($ExtraArgs) {
   $composeArgs += $ExtraArgs
 }
 
-$commandLine = "IMAGE_REF=$ImageRef => docker compose $Command"
+$buildTag = if ($hasBuild) { ' [local build]' } else { '' }
+$commandLine = "IMAGE_REF=$ImageRef => docker compose $Command$buildTag"
 Write-Host $commandLine -ForegroundColor Cyan
 
 # Scope IMAGE_REF to this compose invocation only; restoring (or removing) the
@@ -64,10 +120,12 @@ $exitCode = 0
 try {
   & docker @composeArgs
   $exitCode = $LASTEXITCODE
-} finally {
+}
+finally {
   if ($null -eq $prevImageRef) {
     Remove-Item Env:\IMAGE_REF -ErrorAction SilentlyContinue
-  } else {
+  }
+  else {
     $env:IMAGE_REF = $prevImageRef
   }
 }
@@ -121,42 +179,42 @@ exit $exitCode
   ./scripts/dc.ps1 up main --build
   Omitted ImageRef defaults to main; --build passes through.
 #>
-  Supported refs: main (default), development, nam20485. Each maps to the
-  branch tag published by docker-publish.yml (<branch>-latest).
+Supported refs: main (default), development, nam20485. Each maps to the
+branch tag published by docker-publish.yml (<branch>-latest).
 
-  For `up`, the wrapper always passes `--pull always` so a stale local image
-  cache can never shadow the current <branch>-latest tag. Pass `--build`
+for `up`, the wrapper always passes `--pull always` so a stale local image
+cache can never shadow the current <branch>-latest tag. Pass `--build`
   explicitly via ExtraArgs to rebuild the image locally instead.
 
-  Required env (set in your shell, never echoed by this script):
-    WORKSPACE_DIR            host path bind-mounted to /workspace
-    OPENCODE_SERVER_PASSWORD opencode server password
+Required env (set in your shell, never echoed by this script):
+WORKSPACE_DIR            host path bind-mounted to /workspace
+OPENCODE_SERVER_PASSWORD opencode server password
 
 .PARAMETER Command
-  The docker compose command to run. Allowed values: up, down, logs. Position 0.
+The docker compose command to run. Allowed values: up, down, logs. Position 0.
 
 .PARAMETER ImageRef
-  Published image tag (branch) to deploy. Allowed values: main (default),
-  development, nam20485. Each maps to the `<ref>-latest` tag published by
-  docker-publish.yml. Position 1.
+Published image tag (branch) to deploy. Allowed values: main (default),
+development, nam20485. Each maps to the `<ref>-latest` tag published by
+docker-publish.yml. Position 1.
 
 .PARAMETER ExtraArgs
-  Any additional arguments passed through verbatim to `docker compose`
+Any additional arguments passed through verbatim to `docker compose`
   (e.g. `-f` to follow logs, `--build` with `up` to rebuild locally).
 
 .EXAMPLE
-  ./scripts/dc.ps1 up development
-  Bring the stack up detached using the development-* images.
+./scripts/dc.ps1 up development
+Bring the stack up detached using the development-* images.
 
 .EXAMPLE
-  ./scripts/dc.ps1 down nam20485
-  Stop and remove the nam20485 stack.
+./scripts/dc.ps1 down nam20485
+Stop and remove the nam20485 stack.
 
 .EXAMPLE
-  ./scripts/dc.ps1 logs main -f
-  Tail logs for the main stack (extra args pass through to docker compose).
+./scripts/dc.ps1 logs main -f
+Tail logs for the main stack (extra args pass through to docker compose).
 
 .EXAMPLE
-  ./scripts/dc.ps1 up main --build
-  Omitted ImageRef defaults to main; --build passes through.
+./scripts/dc.ps1 up main --build
+Omitted ImageRef defaults to main; --build passes through.
 #>
