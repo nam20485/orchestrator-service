@@ -36,7 +36,7 @@
 
 .EXAMPLE
   ./scripts/dc.ps1 up main --build
-  Omitted ImageRef defaults to main; --build passes through.
+  Build all images from local Dockerfiles (layers compose.build.yaml) and start the stack.
 #>
 [CmdletBinding()]
 param(
@@ -69,7 +69,16 @@ if (-not (Test-Path -LiteralPath $composeFile)) {
     throw "compose.yaml not found: $composeFile"
 }
 
-$composeArgs = @('compose', '-f', $composeFile, $Command)
+$hasBuild = $false
+if ($ExtraArgs) {
+    foreach ($a in $ExtraArgs) { if ($a -eq '--build') { $hasBuild = $true; break } }
+}
+
+$composeArgs = @('compose', '-f', $composeFile)
+if ($hasBuild) {
+    $composeArgs += '-f', (Join-Path $repoRoot 'compose.build.yaml')
+}
+$composeArgs += $Command
 
 # 'up' defaults to detached to match the documented `up -d` usage, unless the
 # caller passes a foreground/detach-conflicting flag via ExtraArgs.
@@ -83,15 +92,19 @@ if ($Command -eq 'up') {
         $composeArgs += '-d'
     }
     # Always pull the freshest published image for the chosen ref so a stale
-    # local cache can never shadow the current <branch>-latest tag. A caller
-    # may still add `--build` via ExtraArgs to force a rebuild of that image.
-    $composeArgs += '--pull', 'always'
+    # local cache can never shadow the current <branch>-latest tag. Skip this
+    # in --build mode (compose.build.yaml sets pull_policy: never) so the
+    # locally-built image is used as-is.
+    if (-not $hasBuild) {
+        $composeArgs += '--pull', 'always'
+    }
 }
 if ($ExtraArgs) {
     $composeArgs += $ExtraArgs
 }
 
-$commandLine = "IMAGE_REF=$ImageRef => docker compose $Command"
+$buildTag = if ($hasBuild) { ' [local build]' } else { '' }
+$commandLine = "IMAGE_REF=$ImageRef => docker compose $Command$buildTag"
 Write-Host $commandLine -ForegroundColor Cyan
 
 # Scope IMAGE_REF to this compose invocation only; restoring (or removing) the
