@@ -46,16 +46,62 @@ An empty table with the message *"No beads found. Run /plan-to-beads to create t
 
 ## HTTP API
 
-All endpoints are JSON and live under `/api/dashboard`. Every endpoint requires authentication (see the note above): pass `DASHBOARD_TOKEN` as a `Bearer` token or `?token=` query parameter.
+All endpoints are JSON. Every endpoint requires authentication (see the note above): pass `DASHBOARD_TOKEN` as a `Bearer` token or `?token=` query parameter. Routes that accept a `?project=<slug>` query operate on that project's `.beads/`; without it they use the default workspace.
+
+### Beads / DAG (`/api/dashboard/*`)
 
 | Method | Path | Description |
 |--------|------|-------------|
 | `GET` | `/api/dashboard/overview` | Counts + BeadsLoop status (`running`, `poll_interval`, `max_retries`) |
 | `GET` | `/api/dashboard/beads` | All beads enriched with UI status, retry count, elapsed time |
+| `GET` | `/api/dashboard/beads/{bead_id}` | Single bead detail |
+| `GET` | `/api/dashboard/graph` | Bead dependency DAG (for graph rendering) |
 | `GET` | `/api/dashboard/active` | Beads currently being processed |
-| `GET` | `/api/dashboard/events?limit=N` | Last `N` events (`limit` is clamped to `> 0`; default 100) |
-| `GET` | `/api/dashboard/events/stream` | Server-Sent Events stream of live events (keepalive on idle) |
 | `GET` | `/api/dashboard/beads/{bead_id}/logs?tail=N` | Most recent stdout/stderr log for a bead (`tail` clamped to `[1,2000]`, default 200) |
+
+### Events (`/api/dashboard/*`)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/dashboard/events?limit=N` | Last `N` events (`limit` clamped to `> 0`; default 100) |
+| `GET` | `/api/dashboard/events/stream` | Server-Sent Events stream of live events (keepalive on idle; capped at 10 concurrent subscribers) |
+
+### Runs (`/api/dashboard/*`)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/dashboard/runs` | List of dispatch runs (per-run manifests) |
+| `GET` | `/api/dashboard/runs/{stem}/logs?tail=N` | A run's captured stdout/stderr (`tail` clamped to `[1,4000]`, default 400) |
+| `GET` | `/api/dashboard/runs/{stem}/narrative` | Synthesized narrative timeline of a run + its status |
+| `GET` | `/api/dashboard/run-events?stem=<stem>` | Typed tool-stream glyph events for a run (defaults to newest run) |
+
+### Webhooks (`/api/dashboard/*`)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/dashboard/webhooks?limit=N` | Recent signed webhook deliveries (default 500) |
+| `GET` | `/api/dashboard/webhooks/{delivery_id}` | A single webhook delivery by `X-GitHub-Delivery` id |
+
+### bvr pages bundle (`/api/dashboard/*`)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/api/dashboard/pages/refresh` | Force-regenerate the `bvr` static-pages bundle for the project |
+
+### HTML pages and static pages (browser-facing)
+
+These render the dashboard UI rather than returning JSON (all still token-gated):
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/dashboard` | Main dashboard page |
+| `GET` | `/dashboard/bead/{bead_id}` | Per-bead detail page |
+| `GET` | `/dashboard/runs` | Runs list page |
+| `GET` | `/dashboard/runs/{stem}` | Single-run detail page |
+| `GET` | `/dashboard/events` | Events timeline page |
+| `GET` | `/dashboard/webhooks` | Webhook deliveries page |
+| `GET` | `/dashboard/pages/` | Index of the generated `bvr` static-pages bundle |
+| `GET` | `/dashboard/pages/{file_path}` | A file from the `bvr` static-pages bundle |
 
 ### Event types
 
