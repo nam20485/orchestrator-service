@@ -1208,12 +1208,24 @@
         "operationId": "github_webhook_webhooks_github_post",
         "responses": {
           "200": {
+            "description": "Ping event acknowledged (pong)."
+          },
+          "202": {
             "content": {
               "application/json": {
                 "schema": {}
               }
             },
-            "description": "Successful Response"
+            "description": "Webhook delivery accepted and dispatched, or filtered/ignored without dispatch (non-matching label, bot actor, etc.)."
+          },
+          "400": {
+            "description": "Invalid JSON body."
+          },
+          "401": {
+            "description": "Invalid signature."
+          },
+          "413": {
+            "description": "Request body too large."
           }
         },
         "summary": "Github Webhook"

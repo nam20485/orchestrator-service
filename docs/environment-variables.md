@@ -86,9 +86,8 @@ Injected into the container(s) by the compose `environment:` blocks (with defaul
 | `NOTION_MCP_CONNECTIONS_API_KEY` | `orchestratorservice` | **No active consumer** in the shipped `image/.opencode` config — carried for a planned Notion MCP. Harmless if unset. |
 | `DIRECT_BODY_ALLOWED_SENDERS` | `webhook-receiver` | Fail-closed allowlist (GitHub logins) gating `gh-issue-tracking:direct-body` dispatch. |
 | `OPENCODE_SERVER_URL` | `webhook-receiver` | Hardcoded `http://orchestratorservice:4099`. |
-| `OPENCODE_SERVER_LOG_PATH` | `webhook-receiver` | Server log path for the idle watchdog. Default `/home/app/.local/share/opencode/log/opencode.log`. |
+| `OPENCODE_SERVER_LOG_PATH` | `webhook-receiver` | Server log path for the idle watchdog. Default `/var/log/opencode-server/opencode.log` (compose default; `config.py` code default is `/home/app/.local/share/opencode/log/opencode.log`, but compose mounts the shared server log over `/var/log/opencode-server`). |
 | `DASHBOARD_TOKEN` | `webhook-receiver` | Shared secret gating the dashboard **and** simulator. When unset, the dashboard is disabled (404) and the simulator returns 401 when enabled. |
-| `DIRECT_BODY_ALLOWED_SENDERS` | `webhook-receiver` | Fail-closed allowlist (GitHub logins) gating `gh-issue-tracking:direct-body` dispatch. |
 | `IMAGE_REF` | compose interpolation | Image tag suffix. Default `main`. |
 | `WEBHOOK_LOG_DIR`, `WEBHOOK_SITE_ADDRESS` | compose interpolation | Runner-log bind mount and Caddy site address. See `compose.yaml` defaults. |
 
