@@ -20,6 +20,7 @@ services:
       - SETUID
       - SETGID
       - CHOWN
+      - DAC_OVERRIDE
     environment:
       - ZAI_CODING_API_KEY=${ZAI_CODING_API_KEY}
       - ZAI_API_KEY=${ZAI_API_KEY}

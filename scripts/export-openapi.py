@@ -50,8 +50,13 @@ def _fixed_settings() -> Settings:
 
 
 def render_schema() -> str:
-    app = create_app(_fixed_settings())
-    schema = app.openapi()
+    from tempfile import TemporaryDirectory
+
+    from webhook_receiver.webhook_store import WebhookStore
+
+    with TemporaryDirectory(prefix="openapi-export-") as tmp:
+        app = create_app(_fixed_settings(), webhook_store=WebhookStore(Path(tmp)))
+        schema = app.openapi()
     return json.dumps(schema, indent=2, sort_keys=True) + "\n"
 
 
