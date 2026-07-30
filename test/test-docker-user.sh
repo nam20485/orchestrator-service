@@ -27,14 +27,15 @@ user_keys="$(docker compose -f compose.yaml config --format json \
 [ "$user_keys" = "[]" ] || fail "compose.yaml sets a runtime 'user:' (must be omitted): ${user_keys}"
 echo "compose.yaml has no runtime user: ok"
 
-# 1b. Compose must set no-new-privileges for all services (defense-in-depth for
-#     root-starting entrypoints). cap_drop: ALL for services that need no
-#     capabilities (webhook-proxy is exempt — its root entrypoint needs the full
-#     default cap set for su-exec drop + chown fixup, same as the others but not
-#     hardened here because it also uses a file capability).
+# 1b. Compose must set no-new-privileges for services using gosu/su-exec privilege
+#     drop (defense-in-depth for root-starting entrypoints). webhook-proxy is exempt:
+#     it relies on a file capability (setcap cap_net_bind_service=+ep) for privileged-
+#     port binding, which no_new_privs blocks at execve (capabilities(7)).
+#     cap_drop: ALL for services that need no capabilities (webhook-proxy exempt —
+#     its root entrypoint needs SETUID/SETGID + CHOWN for su-exec drop + chown fixup).
 nnps="$(docker compose -f compose.yaml config --format json \
-  | jq -c '[.services | to_entries[] | select((.value.security_opt // []) | index("no-new-privileges:true") == null) | {service: .key}]')"
-[ "$nnps" = "[]" ] || fail "compose.yaml missing security_opt: no-new-privileges:true for: ${nnps}"
+  | jq -c '[.services | to_entries[] | select(.key != "webhook-proxy") | select((.value.security_opt // []) | index("no-new-privileges:true") == null) | {service: .key}]')"
+[ "$nnps" = "[]" ] || fail "compose.yaml missing security_opt: no-new-privileges:true for (excluding webhook-proxy): ${nnps}"
 echo "compose.yaml no-new-privileges: ok"
 
 capdrops="$(docker compose -f compose.yaml config --format json \

@@ -47,7 +47,7 @@ Selectively apply 4 useful commits from `dev/agent-readiness-quick-wins` onto a 
 
 3. **Resolve conflict** in `scripts/validate.ps1`:
    - Keep the `nam20485` ruff line names (`'ruff'` not `'ruff check'`)
-   - Append `scripts/export-openapi.py` to both ruff check and ruff format lines
+    - Append `scripts/export-openapi.py` to the existing `uv run ruff check` line (no `ruff format` step exists on `nam20485` — commit `d9cc065` was skipped)
    - The `Invoke-BashStep -Name 'openapi schema'` line should apply cleanly
    - `git add scripts/validate.ps1 && git cherry-pick --continue`
 
