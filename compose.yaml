@@ -12,6 +12,14 @@ services:
       # monitor server-side activity during subagent execution.
       - opencode-logs:/home/app/.local/share/opencode/log
     restart: always
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - SETUID
+      - SETGID
+      - CHOWN
     environment:
       - ZAI_CODING_API_KEY=${ZAI_CODING_API_KEY}
       - ZAI_API_KEY=${ZAI_API_KEY}
@@ -100,6 +108,14 @@ services:
       orchestratorservice:
         condition: service_healthy
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - SETUID
+      - SETGID
+      - CHOWN
 
   webhook-proxy:
     image: ghcr.io/nam20485/orchestrator-service/caddy:${IMAGE_REF:-main}-latest
@@ -107,6 +123,12 @@ services:
     # CAP_NET_BIND_SERVICE allows non-root Caddy to bind privileged ports (:80/:443)
     cap_add:
       - CAP_NET_BIND_SERVICE
+    # no-new-privileges is safe here. cap_drop: ALL is NOT used because the
+    # root entrypoint needs SETUID/SETGID (su-exec drop) and CHOWN (named-volume
+    # fixup); file capabilities alone are bounding-set-compatible, but the
+    # entrypoint privilege drop is not.
+    security_opt:
+      - no-new-privileges:true
     # Host :80 — HTTP (local dev, Tailscale Funnel, ACME). For Caddy TLS on :443 in prod,
     # also use compose.https.yaml (see README) or COMPOSE_FILE=compose.yaml:compose.https.yaml
     ports:
