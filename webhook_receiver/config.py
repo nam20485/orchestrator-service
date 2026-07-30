@@ -73,7 +73,7 @@ class Settings:
     # if (a) it produces no stdout/stderr output for IDLE_TIMEOUT_SECS, (b) it
     # emits MAX_CONSECUTIVE_ERRORS error lines without a non-error line, or
     # (c) it exceeds HARD_CEILING_SECS regardless of activity. See watchdog.py
-    # and docs/idle-timeout-implementation-report.md for the full design
+    # and plan_docs/.archived/plan-server-activity-watchdog.md for the full design
     # rationale (ported from the battle-tested bash watchdog in
     # intel-agency/workflow-orchestration-service).
     #

@@ -2,7 +2,7 @@
 
 This documents the deployment we **actually have today**: a three-container Docker Compose stack fronted by Caddy. It covers the compose files, how they layer, local dev, how images are published, secrets, TLS, and the single-host production path — plus the limits of this approach.
 
-> For a comparison of deployment options (including Kubernetes via IaC) and recommendations, see [`docs/deployment-options.md`](deployment-options.md).
+> For a comparison of deployment options (including Kubernetes via IaC) and recommendations, see [`plan_docs/.deferred/prod-deployment/prod-deployment-plan.md`](../plan_docs/.deferred/prod-deployment/prod-deployment-plan.md).
 
 ## TL;DR
 
@@ -243,4 +243,4 @@ This is a single-host deployment. It does **not** provide:
 - **Orchestration resilience** — if a container dies, Docker restarts it, but there's no scheduler rebalancing, no health-gated rollout, no autoscaling.
 - **Stateless scaling** — `EventStore` is in-process; bead state is on disk under `/workspace`. Both pin you to one node.
 
-These gaps are what a Kubernetes (+ Terraform/Pulumi) path would address. See [`docs/deployment-options.md`](deployment-options.md) for the trade-off analysis and recommendations.
+These gaps are what a Kubernetes (+ Terraform/Pulumi) path would address. See [`plan_docs/.deferred/prod-deployment/prod-deployment-plan.md`](../plan_docs/.deferred/prod-deployment/prod-deployment-plan.md) for the trade-off analysis and recommendations.

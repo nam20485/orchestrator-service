@@ -3,7 +3,7 @@
 Replaces the previous single ``proc.wait(timeout=...)`` approach with
 three-tier monitoring adapted from the battle-tested bash watchdog in
 ``intel-agency/workflow-orchestration-service`` (see
-``docs/idle-timeout-implementation-report.md``).
+``plan_docs/.archived/plan-server-activity-watchdog.md``).
 
 The old system ran the opencode client and server in the same container and
 monitored the server process's ``/proc/<pid>/io`` counters. The new system runs

@@ -86,11 +86,68 @@ Injected into the container(s) by the compose `environment:` blocks (with defaul
 | `NOTION_MCP_CONNECTIONS_API_KEY` | `orchestratorservice` | **No active consumer** in the shipped `image/.opencode` config — carried for a planned Notion MCP. Harmless if unset. |
 | `DIRECT_BODY_ALLOWED_SENDERS` | `webhook-receiver` | Fail-closed allowlist (GitHub logins) gating `gh-issue-tracking:direct-body` dispatch. |
 | `OPENCODE_SERVER_URL` | `webhook-receiver` | Hardcoded `http://orchestratorservice:4099`. |
-| `OPENCODE_SERVER_LOG_PATH` | `webhook-receiver` | Server log path for the idle watchdog. Default `/var/log/opencode-server/opencode.log`. |
-| `DASHBOARD_TOKEN` | `webhook-receiver` | Optional dashboard auth token. Default empty. |
-| `BEADS_*`, `IDLE_TIMEOUT_SECS`, `ERROR_GRACE_SECS`, `HARD_CEILING_SECS`, `WATCHDOG_*`, `MAX_CONSECUTIVE_ERRORS`, `DISPATCH_TIMEOUT_SECS` | `webhook-receiver` | Beads loop + idle-watchdog tuning. All have sensible defaults — see `compose.yaml`. |
+| `OPENCODE_SERVER_LOG_PATH` | `webhook-receiver` | Server log path for the idle watchdog. Default `/var/log/opencode-server/opencode.log` (compose default; `config.py` code default is `/home/app/.local/share/opencode/log/opencode.log`, but compose mounts the shared server log over `/var/log/opencode-server`). |
+| `DASHBOARD_TOKEN` | `webhook-receiver` | Shared secret gating the dashboard **and** simulator. When unset, the dashboard is disabled (404) and the simulator returns 401 when enabled. |
 | `IMAGE_REF` | compose interpolation | Image tag suffix. Default `main`. |
 | `WEBHOOK_LOG_DIR`, `WEBHOOK_SITE_ADDRESS` | compose interpolation | Runner-log bind mount and Caddy site address. See `compose.yaml` defaults. |
+
+The full `webhook-receiver` runtime configuration (model selection, watchdog tuning, beads loop, trace filtering) is enumerated in the next section — all of it has code defaults in `webhook_receiver/config.py` and is optional to override.
+
+---
+
+## webhook-receiver runtime configuration
+
+Every variable below is read by `webhook_receiver/config.py` (`Settings.from_env()`) or `webhook_receiver/filters.py`, and has a code default — none are required for the stack to start. Defaults shown are the code defaults (`webhook_receiver/config.py:109-175`); the compose `environment:` blocks override a few of these for the in-container wiring.
+
+### Dispatch / opencode session
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `OPENCODE_MODEL` | `zai-coding-plan/glm-5` | Model used for dispatched runs (passed as `--model`). |
+| `OPENCODE_VARIANT` | `high` | Reasoning-effort variant passed via `--variant` (e.g. `low`/`medium`/`high`/`minimal`; empty string omits the flag). |
+| `OPENCODE_AGENT` | `orchestrator` | Agent passed as `--agent`. |
+| `ORCHESTRATOR_WORKSPACE` | `/workspace` | `--dir` passed to `opencode run`. |
+| `PROMPT_SCRIPT` | `scripts/prompt.ps1` | PowerShell prompt launcher (requires `pwsh`). |
+| `WEBHOOK_MAX_PAYLOAD_CHARS` | `120000` | Max JSON chars embedded in the rendered prompt. |
+| `WEBHOOK_MAX_BODY_BYTES` | `26214400` (25 MiB) | Reject webhook POST bodies larger than this. |
+
+### HTTP bind / simulator
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `WEBHOOK_HOST` / `WEBHOOK_PORT` | `0.0.0.0` / `8080` | HTTP bind for the FastAPI receiver. |
+| `WEBHOOK_LOG_LEVEL` | `info` | Logging level. |
+| `WEBHOOK_ENABLE_SIMULATOR` | *(unset → off)* | Serve the dev UI at `/simulator` when set to a truthy value. Also requires `DASHBOARD_TOKEN`. |
+
+### Beads loop
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `BEADS_ENABLED` | `true` | Enable the `BeadsLoop` background execution thread. |
+| `BEADS_POLL_INTERVAL` | `10` | Seconds between bead-selection polls. |
+| `BEADS_MAX_RETRIES` | `3` | Max retries per bead before halting for human intervention. |
+| `BEADS_WORKSPACE_ROOT` | `/workspace` | Base directory containing per-project workspaces (`/workspace/<slug>/`). |
+
+### Idle watchdog (`watchdog.py`)
+
+A run is killed if it (a) produces no stdout/stderr for `IDLE_TIMEOUT_SECS`, (b) emits `MAX_CONSECUTIVE_ERRORS` error lines without a non-error line, or (c) exceeds `HARD_CEILING_SECS` regardless of activity. The opencode server log is tracked as an activity signal via `OPENCODE_SERVER_LOG_PATH`.
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `IDLE_TIMEOUT_SECS` | `900` | Max stdout/stderr silence before the run is killed. |
+| `ERROR_GRACE_SECS` | `300` | Grace window for consecutive errors. |
+| `HARD_CEILING_SECS` | `5400` | Absolute wall-clock safety net (falls back to `DISPATCH_TIMEOUT_SECS` if set). |
+| `DISPATCH_TIMEOUT_SECS` | *(unset)* | Legacy wall-clock timeout; kept for backward compat, feeds `HARD_CEILING_SECS`. |
+| `WATCHDOG_POLL_SECS` | `30` | Seconds between watchdog poll intervals. |
+| `MAX_CONSECUTIVE_ERRORS` | `5` | Consecutive error lines (without a non-error line) that trigger a kill. |
+| `PERMISSION_ASK_GRACE_SECS` | `60` | Grace before an unanswered permission `ask` in the server log is treated as a fatal headless deadlock. |
+| `WATCHDOG_DEBUG` | *(unset → off)* | Enable verbose watchdog logging. |
+
+### Trace filtering (`filters.py`)
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `TRACE_BLACKLIST_PATTERNS` | *(unset → built-ins)* | Newline-separated regex patterns to drop from run-log noise. When unset, the built-in default set in `filters.py` is used (high-frequency, zero-signal opencode lines); ERROR/WARN lines are always kept. |
 
 ---
 

@@ -61,9 +61,13 @@ workflow was abandoned partway and the dispatch issue stayed open.
 
 ## Catching hung runs
 
-`DISPATCH_TIMEOUT_SECS` (env, default unset = wait forever) kills a run that exceeds the budget and
-flags it `failed`. Recommended value ≈ `5400` (the golden-path `project-setup` runtime) so a stuck
-run is surfaced instead of hanging silently.
+Runs are monitored by the **activity-aware idle watchdog** (`webhook_receiver/watchdog.py`), which replaces the old single wall-clock timeout. A run is killed and flagged `failed` if any of these trip:
+
+- **`IDLE_TIMEOUT_SECS`** (default `900` s) — no new stdout/stderr output for this long. As a defense against false positives when a run delegates to a subagent (client goes silent while the server keeps working), the opencode server log growth is also tracked as an activity signal (path via `OPENCODE_SERVER_LOG_PATH`); sustained server-log growth withholds the kill.
+- **`MAX_CONSECUTIVE_ERRORS`** (default `5`) — that many error lines in a row without an intervening non-error line.
+- **`HARD_CEILING_SECS`** (default `5400` s, ≈ golden-path `project-setup` runtime) — absolute wall-clock ceiling regardless of activity.
+
+`DISPATCH_TIMEOUT_SECS` is retained only as a **legacy backward-compat** knob: if `HARD_CEILING_SECS` is unset, it feeds the hard ceiling. The kill uses an escalating process-group termination so spawned child processes don't outlive the run. Full design: `plan_docs/.archived/plan-server-activity-watchdog.md`.
 
 ## Example triage (gap-miner-v2-delta48)
 

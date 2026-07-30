@@ -1,4 +1,6 @@
-# Diagnosis: gap-miner-v2-papa85 Run Issues
+# Idle Timeout Watchdog — Redesign Plan
+
+> Plan for the activity-aware idle-timeout watchdog (Issue 1, the bulk of this doc), derived from the `gap-miner-v2-papa85` run diagnosis. Issues 2–4 (milestone/project attachment, API rate-limit handling, trace filters) from the same run are recorded below for context.
 
 Run ID: `70c74cd7` | Repo: `nam20485/gap-miner-v2-papa85` | Date: 2026-07-11
 
