@@ -383,11 +383,13 @@ case (type = issues &&
           - /orchestrate-dynamic-workflow
               $workflow_name = implement-epic { $epic = $next_epic.number }
           - if implement-epic succeeds:
-            - postStatusUpdate("✅ `implement-epic` completed for epic #" + $next_epic.number + ". Applying `orchestration:epic-implemented` label.")
-            - apply label "orchestration:epic-implemented" to that epic issue (issue number $next_epic.number).
-            ## The existing `orchestration:epic-implemented` clause will fire on the next
-            ## webhook and run `review-epic-prs` → `report-progress` → `debrief-and-document`
-            ## → `orchestration:epic-complete`.
+            - postStatusUpdate("✅ `implement-epic` completed for epic #" + $next_epic.number + ". Applying `gh-issue-tracking:epic-implemented` label.")
+            - apply label "gh-issue-tracking:epic-implemented" to that epic issue (issue number $next_epic.number).
+            ## NEXT STEP (not yet implemented): a `gh-issue-tracking:epic-implemented` clause
+            ## should fire on the next webhook and run `review-epic-prs` → `report-progress`
+            ## → `debrief-and-document` → terminal completion. That review-PRs step is the
+            ## explicitly-deferred follow-on (see plan_docs/implement-next-epic.md). Until it
+            ## exists, applying this label records that implement-epic succeeded.
           - else → postStatusUpdate("❌ `implement-epic` failed for epic #" + $next_epic.number + ". See workflow run logs."), skip to ##Final.
         }
 
