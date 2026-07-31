@@ -20,6 +20,7 @@ from webhook_receiver.watchdog import (
     REASON_CONSECUTIVE_ERRORS,
     REASON_HARD_CEILING,
     REASON_IDLE_TIMEOUT,
+    REASON_PERMISSION_DEADLOCK,
     IdleWatchdog,
     WatchdogConfig,
     WatchdogState,
@@ -363,6 +364,11 @@ def _build_failure_body(
         reason = "hit the hard runtime ceiling"
     elif kill_reason == REASON_CONSECUTIVE_ERRORS:
         reason = f"hit {consecutive_errors} consecutive errors"
+    elif kill_reason == REASON_PERMISSION_DEADLOCK:
+        reason = (
+            "was killed: permission ask deadlock "
+            "(headless mode cannot answer permission prompts)"
+        )
     elif timed_out:
         reason = "timed out"
     else:

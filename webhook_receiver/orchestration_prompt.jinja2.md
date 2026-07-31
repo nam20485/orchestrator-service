@@ -380,17 +380,21 @@ case (type = issues &&
             - skip to ##Final.
 
           - postStatusUpdate("🤖 Next unimplemented epic found: #" + $next_epic.number + " — " + $next_epic.title + ". Starting `implement-epic`...")
+          - $epic_id = extract_epic_from_title($next_epic.title)
+          - if $epic_id is null:
+            - postStatusUpdate("❌ Could not parse epic identifier from issue title (#" + $next_epic.number + "). Cannot proceed with implementation.")
+            - comment on the issue with an error explaining the title could not be parsed, then skip to ##Final.
           - /orchestrate-dynamic-workflow
-              $workflow_name = implement-epic { $epic = $next_epic.number }
+              $workflow_name = implement-epic { $epic = $epic_id }
           - if implement-epic succeeds:
-            - postStatusUpdate("✅ `implement-epic` completed for epic #" + $next_epic.number + ". Applying `gh-issue-tracking:epic-implemented` label.")
+            - postStatusUpdate("✅ `implement-epic` completed for epic #" + $next_epic.number + " (" + $epic_id + "). Applying `gh-issue-tracking:epic-implemented` label.")
             - apply label "gh-issue-tracking:epic-implemented" to that epic issue (issue number $next_epic.number).
             ## NEXT STEP (not yet implemented): a `gh-issue-tracking:epic-implemented` clause
             ## should fire on the next webhook and run `review-epic-prs` → `report-progress`
             ## → `debrief-and-document` → terminal completion. That review-PRs step is the
             ## explicitly-deferred follow-on (see plan_docs/implement-next-epic.md). Until it
             ## exists, applying this label records that implement-epic succeeded.
-          - else → postStatusUpdate("❌ `implement-epic` failed for epic #" + $next_epic.number + ". See workflow run logs."), skip to ##Final.
+          - else → postStatusUpdate("❌ `implement-epic` failed for epic #" + $next_epic.number + " (" + $epic_id + "). See workflow run logs."), skip to ##Final.
         }
 
 case (default)

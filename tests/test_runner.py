@@ -13,6 +13,7 @@ from webhook_receiver.run_stream import extract_tool_names
 from webhook_receiver.runner import (
     DispatchContext,
     _base_args,
+    _build_failure_body,
     _dispatch_issue_closed,
     _dispatch_slug,
     _format_log_line,
@@ -27,7 +28,9 @@ from webhook_receiver.runner import (
     dispatch_to_opencode,
 )
 from webhook_receiver.watchdog import (
+    REASON_CONSECUTIVE_ERRORS,
     REASON_IDLE_TIMEOUT,
+    REASON_PERMISSION_DEADLOCK,
     WatchdogConfig,
     WatchdogState,
 )
@@ -550,6 +553,41 @@ class TestSanitizeForComment:
 
     def test_empty_string(self) -> None:
         assert _sanitize_for_comment("") == ""
+
+
+class TestBuildFailureBody:
+    """Direct unit tests for the kill-reason → failure-comment mapping."""
+
+    def test_permission_deadlock_failure_body(self) -> None:
+        body = _build_failure_body(
+            _ctx(),
+            exit_code=-15,
+            log_dir="runs/abc",
+            prompt_stem="runs/abc/prompt",
+            kill_reason=REASON_PERMISSION_DEADLOCK,
+        )
+        assert "permission ask deadlock" in body
+        assert "exited with status" not in body
+
+    def test_consecutive_errors_failure_body(self) -> None:
+        body = _build_failure_body(
+            _ctx(),
+            exit_code=-15,
+            log_dir="runs/abc",
+            prompt_stem="runs/abc/prompt",
+            kill_reason=REASON_CONSECUTIVE_ERRORS,
+            consecutive_errors=5,
+        )
+        assert "consecutive errors" in body
+
+    def test_plain_nonzero_exit_uses_status(self) -> None:
+        body = _build_failure_body(
+            _ctx(),
+            exit_code=1,
+            log_dir="runs/abc",
+            prompt_stem="runs/abc/prompt",
+        )
+        assert "exited with status 1" in body
 
 
 @patch("webhook_receiver.runner.subprocess.run")

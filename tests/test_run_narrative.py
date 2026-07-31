@@ -60,6 +60,15 @@ _MANIFEST_ZERO_WORK = {
     "tools": ["read", "grep"],
 }
 
+_MANIFEST_PERMISSION_DEADLOCK = {
+    "stem": "prompt-test",
+    "started_at": "2026-07-22T19:07:02Z",
+    "ended_at": "2026-07-22T19:15:00Z",
+    "exit_code": -15,
+    "classification": "permission_deadlock",
+    "kill_reason": "permission_deadlock",
+}
+
 
 # ── structure ──────────────────────────────────────────────────────────────
 
@@ -102,6 +111,13 @@ def test_summary_zero_work_status() -> None:
     result = parse_narrative("", _MANIFEST_ZERO_WORK)
     assert result["summary"]["status"] == "zero_work"
     assert "no execution tools" in result["summary"]["exit_message"].lower()
+
+
+def test_summary_permission_deadlock_status() -> None:
+    result = parse_narrative("", _MANIFEST_PERMISSION_DEADLOCK)
+    assert result["summary"]["status"] == "error"
+    assert "Watchdog killed" in result["summary"]["exit_message"]
+    assert "permission ask" in result["summary"]["exit_message"].lower()
 
 
 # ── timeline ───────────────────────────────────────────────────────────────
