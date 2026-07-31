@@ -320,7 +320,8 @@ def _stream_to_logger_and_file(
 # scrubbed before any error detail is posted to a public GitHub issue comment
 # to prevent accidental secret leakage from CLI stderr output.
 _SECRET_PATTERNS: list[re.Pattern[str]] = [
-    re.compile(r"gh[pousr]_[A-Za-z0-9]{36,}"),  # GitHub PATs
+    re.compile(r"gh[pousr]_[A-Za-z0-9]{36,}"),  # GitHub classic PATs
+    re.compile(r"github_pat_[A-Za-z0-9]{22,}"),  # GitHub fine-grained PATs
     re.compile(r"sk-[A-Za-z0-9]{20,}"),  # OpenAI-style API keys
     re.compile(r"[Bb]earer\s+[A-Za-z0-9._-]{20,}"),  # Bearer tokens
     re.compile(

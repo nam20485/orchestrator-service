@@ -632,6 +632,23 @@ class TestServerLogMonitor:
         mon = _ServerLogMonitor("", time.monotonic())
         assert mon.idle_secs(time.monotonic()) is None
 
+    def test_log_rotation_resets_baseline(self, tmp_path: Path) -> None:
+        """When the log is rotated/truncated (size < _pos), the monitor must
+        reset its baseline instead of silently going dormant until the file
+        regrows past its pre-rotation size.
+        """
+        log = tmp_path / "opencode.log"
+        log.write_text("x" * 1000, encoding="utf-8")
+        start = time.monotonic()
+        mon = _ServerLogMonitor(str(log), start)
+        # Confirm baseline is locked at 1000 bytes.
+        assert mon.idle_secs(start + 5) == pytest.approx(5)
+        # Simulate log rotation: file is truncated and a fresh entry written.
+        log.write_text("rotated entry\n", encoding="utf-8")
+        # After rotation, the monitor should treat the new content as activity
+        # (idle resets to ~0), not report ever-growing idle seconds.
+        assert mon.idle_secs(start + 10) == 0  # grew after reset
+
 
 # ── _PermissionAskMonitor: headless permission-ask deadlock detection ──────
 

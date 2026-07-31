@@ -39,6 +39,17 @@ def _parse_optional_int(name: str) -> int | None:
     return int(raw)
 
 
+def _resolve_hard_ceiling() -> int:
+    """Resolve hard_ceiling_secs with explicit None checks (0 is meaningful)."""
+    hard = _parse_optional_int("HARD_CEILING_SECS")
+    if hard is not None:
+        return hard
+    legacy = _parse_optional_int("DISPATCH_TIMEOUT_SECS")
+    if legacy is not None:
+        return legacy
+    return 5400
+
+
 @dataclass(frozen=True)
 class Settings:
     host: str
@@ -152,11 +163,7 @@ class Settings:
             dispatch_timeout=_parse_optional_int("DISPATCH_TIMEOUT_SECS"),
             idle_timeout_secs=int(os.environ.get("IDLE_TIMEOUT_SECS", "900")),
             error_grace_secs=int(os.environ.get("ERROR_GRACE_SECS", "300")),
-            hard_ceiling_secs=(
-                _parse_optional_int("HARD_CEILING_SECS")
-                or _parse_optional_int("DISPATCH_TIMEOUT_SECS")
-                or 5400
-            ),
+            hard_ceiling_secs=_resolve_hard_ceiling(),
             watchdog_poll_secs=int(os.environ.get("WATCHDOG_POLL_SECS", "30")),
             max_consecutive_errors=int(
                 os.environ.get("MAX_CONSECUTIVE_ERRORS", "5")
