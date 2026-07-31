@@ -226,17 +226,32 @@ class _PermissionAskMonitor:
             sm = self._SESSION_RE.search(text)
             if sm:
                 self._session_id = sm.group(1)
-        if self._REPLIED_RE.search(text):
-            # An ask in flight was resolved — no longer deadlocked. Do NOT return
-            # here: the same chunk may also contain a new ``message=asking`` that
-            # must still be scanned for below.
+        # Position-based ask/reply resolution. Both signals can appear in the
+        # same chunk (30s polls batch many events), so we cannot clear-then-set
+        # unconditionally — that would re-mark an already-answered ask as
+        # pending (``ask → reply``) or drop a genuine new ask (it IS set, but
+        # the prior unconditional clear masked the resolved state). Instead,
+        # compare the byte offsets of the LAST reply and LAST ask:
+        #   - a reply after the last ask → the newest ask was answered → cleared
+        #   - an ask at/after the last reply → a fresh unanswered ask → recorded
+        last_reply = None
+        for m in self._REPLIED_RE.finditer(text):
+            last_reply = m
+
+        last_ask = None
+        for m in self._ASK_RE.finditer(text):
+            last_ask = m
+
+        if last_reply is not None and (
+            last_ask is None or last_reply.start() > last_ask.start()
+        ):
+            # The most recent ask in this chunk was resolved, and no newer ask
+            # followed it — no pending deadlock.
             self._last_ask_time = None
-        last_match = None
-        for match in self._ASK_RE.finditer(text):
-            last_match = match
-        if last_match is not None:
+            return
+        if last_ask is not None:
             self._last_ask_time = now
-            self._last_ask_detail = last_match.group(0).strip()[:160]
+            self._last_ask_detail = last_ask.group(0).strip()[:160]
 
     @property
     def pending_ask(self) -> tuple[float, str] | None:

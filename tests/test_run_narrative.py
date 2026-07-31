@@ -117,7 +117,11 @@ def test_summary_permission_deadlock_status() -> None:
     result = parse_narrative("", _MANIFEST_PERMISSION_DEADLOCK)
     assert result["summary"]["status"] == "error"
     assert "Watchdog killed" in result["summary"]["exit_message"]
-    assert "permission ask" in result["summary"]["exit_message"].lower()
+    # The message describes a permission prompt/headless deadlock. Assert the
+    # stable noun "permission" rather than the exact phrasing, which the
+    # reviewer-sanctioned wording changed from "permission ask" to
+    # "permission prompt".
+    assert "permission" in result["summary"]["exit_message"].lower()
 
 
 # ── timeline ───────────────────────────────────────────────────────────────
