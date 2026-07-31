@@ -152,6 +152,8 @@ class _ServerLogMonitor:
             size = self._path.stat().st_size
         except OSError:
             return None
+        if size < self._pos:
+            self._pos = 0  # log rotated/truncated — reset baseline
         if size > self._pos:
             self._pos = size
             self._last_growth = now

@@ -522,11 +522,18 @@ class TestSanitizeForComment:
     # in the source file (avoids tripping the pre-commit secret scanner).
     _FAKE_GHP = "ghp_" + "A" * 36
     _FAKE_SK = "sk-" + "B" * 24
+    _FAKE_FG_PAT = "github_pat_" + "C" * 22
 
     def test_github_pat_redacted(self) -> None:
         msg = f"Error: auth failed with {self._FAKE_GHP}"
         sanitized = _sanitize_for_comment(msg)
         assert "ghp_" not in sanitized
+        assert "[REDACTED]" in sanitized
+
+    def test_github_fine_grained_pat_redacted(self) -> None:
+        msg = f"Error: auth failed with {self._FAKE_FG_PAT}"
+        sanitized = _sanitize_for_comment(msg)
+        assert "github_pat_" not in sanitized
         assert "[REDACTED]" in sanitized
 
     def test_openai_key_redacted(self) -> None:
