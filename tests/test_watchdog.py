@@ -714,6 +714,35 @@ class TestPermissionAskMonitor:
         assert pending[0] == now
         assert "external_directory" in pending[1]
 
+    def test_asked_then_replied_same_chunk(self, tmp_path: Path) -> None:
+        # An ask followed by its reply in the SAME chunk → resolved (no pending
+        # ask). The position-based comparison sees the reply AFTER the ask, so
+        # the newest ask was answered and _last_ask_time must be cleared. The
+        # prior unconditional clear-then-set logic re-marked this as pending.
+        log = tmp_path / "opencode.log"
+        log.write_text("baseline\n", encoding="utf-8")
+        mon = _PermissionAskMonitor(str(log))
+        now = time.monotonic()
+        with log.open("a", encoding="utf-8") as fh:
+            fh.write(
+                "message=asking id=per_1 permission=external_directory "
+                'patterns=["/tmp/x/*"]\n'
+                'timestamp=... message=replied reply="always"\n'
+            )
+        mon.poll(now)
+        assert mon.pending_ask is None
+
+    def test_only_reply_no_ask_same_chunk(self, tmp_path: Path) -> None:
+        # A reply with no ask at all → nothing pending (covers the last_ask is
+        # None branch of the position-based comparison).
+        log = tmp_path / "opencode.log"
+        log.write_text("baseline\n", encoding="utf-8")
+        mon = _PermissionAskMonitor(str(log))
+        with log.open("a", encoding="utf-8") as fh:
+            fh.write('timestamp=... message=replied reply="always"\n')
+        mon.poll(time.monotonic())
+        assert mon.pending_ask is None
+
     def test_does_not_match_evaluated(self, tmp_path: Path) -> None:
         # `message=evaluated ... action.action=ask` is the evaluation log, not
         # the "prompting the user" signal — it must NOT be treated as a pending

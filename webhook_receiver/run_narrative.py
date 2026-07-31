@@ -22,11 +22,17 @@ _CLASSIFICATION_STATUS: dict[str, str] = {
 }
 
 # Watchdog kill-reason → human-readable exit message prefix.
+# ``process_exit`` is included defensively even though the runner never writes
+# it as a ``kill_reason`` (self-exits keep ``kill_reason=None``): it guards the
+# ``_KILL_REASON_MESSAGE.get(kill_reason, ...)`` fallback so a future code path
+# that sets ``kill_reason=process_exit`` renders a sensible message instead of
+# the generic ``Killed (process_exit)``.
 _KILL_REASON_MESSAGE: dict[str, str] = {
     "idle_timeout": "Watchdog killed: agent went idle (no output)",
     "hard_ceiling": "Watchdog killed: hit the hard runtime ceiling",
     "consecutive_errors": "Watchdog killed: consecutive errors exceeded threshold",
-    "permission_deadlock": "Watchdog killed: unanswered permission ask (headless deadlock)",
+    "permission_deadlock": "Watchdog killed: stuck on an unanswered permission prompt",
+    "process_exit": "Process exited",
 }
 
 # Exit-code → human readable note for non-watchdog failures.
