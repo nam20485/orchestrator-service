@@ -6,11 +6,12 @@ on:
 
 jobs:
   wiki-refresh:
-    # Scope the GITHUB_TOKEN to the minimum required (checkout only).
-    # The workflow generates wiki files locally via `droid exec`; it does not
-    # commit or push, so read access is sufficient.
+    # Least-privilege scope for `GITHUB_TOKEN`: checkout needs `contents: read`,
+    # and committing the refreshed wiki back to the branch needs `contents: write`.
+    # The token is explicitly scoped (rather than relying on the repo default) so
+    # it never carries more than this workflow requires.
     permissions:
-      contents: read
+      contents: write
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -22,3 +23,18 @@ jobs:
         run: droid exec --auto high "/wiki"
         env:
           FACTORY_API_KEY: ${{ secrets.FACTORY_API_KEY }}
+
+      # Persist the regenerated `droid-wiki/` docs back to the branch so the
+      # committed wiki stays in sync with the code. Commits pushed by the default
+      # `GITHUB_TOKEN` do not re-trigger `push` workflows, so there is no loop.
+      - name: Commit refreshed wiki
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add droid-wiki/
+          if git diff --cached --quiet; then
+            echo "No wiki changes to commit."
+            exit 0
+          fi
+          git commit -m "docs(wiki): auto-refresh droid-wiki"
+          git push
