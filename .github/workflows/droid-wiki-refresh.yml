@@ -6,6 +6,11 @@ on:
 
 jobs:
   wiki-refresh:
+    # Scope the GITHUB_TOKEN to the minimum required (checkout only).
+    # The workflow generates wiki files locally via `droid exec`; it does not
+    # commit or push, so read access is sufficient.
+    permissions:
+      contents: read
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
