@@ -72,8 +72,12 @@ class TestClassifyLine:
     def test_error_glyph_is_error(self) -> None:
         assert classify_line("✗ memory_add_observations failed") is SignalKind.ERROR
 
-    def test_failed_keyword_is_error(self) -> None:
-        assert classify_line("operation failed") is SignalKind.ERROR
+    def test_pytest_failed_line_is_normal(self) -> None:
+        # Normal pytest output like "1 failed, 5 passed" must not trip the
+        # consecutive-error watchdog (only genuine CLI/framework error signals do).
+        assert classify_line("1 failed, 5 passed in 2.34s") is SignalKind.NORMAL
+        assert classify_line("FAILED tests/test_foo.py::test_bar") is SignalKind.NORMAL
+        assert classify_line("operation failed") is SignalKind.NORMAL
 
     def test_blank_line_is_normal(self) -> None:
         assert classify_line("") is SignalKind.NORMAL
@@ -688,6 +692,27 @@ class TestPermissionAskMonitor:
             fh.write('timestamp=... message=replied reply="always"\n')
         mon.poll(time.monotonic())
         assert mon.pending_ask is None
+
+    def test_replied_then_asked_same_chunk(self, tmp_path: Path) -> None:
+        # A single log chunk containing BOTH a reply (clearing the old ask) and a
+        # subsequent new ask must still surface the new ask — the reply must not
+        # cause an early return that skips the _ASK_RE scan.
+        log = tmp_path / "opencode.log"
+        log.write_text("baseline\n", encoding="utf-8")
+        mon = _PermissionAskMonitor(str(log))
+        now = time.monotonic()
+        with log.open("a", encoding="utf-8") as fh:
+            fh.write(
+                "message=asking id=per_1 permission=bash patterns=[]\n"
+                'timestamp=... message=replied reply="always"\n'
+                "message=asking id=per_2 permission=external_directory "
+                'patterns=["/tmp/x/*"]\n'
+            )
+        mon.poll(now)
+        pending = mon.pending_ask
+        assert pending is not None
+        assert pending[0] == now
+        assert "external_directory" in pending[1]
 
     def test_does_not_match_evaluated(self, tmp_path: Path) -> None:
         # `message=evaluated ... action.action=ask` is the evaluation log, not
