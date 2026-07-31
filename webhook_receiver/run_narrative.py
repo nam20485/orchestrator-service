@@ -18,6 +18,7 @@ _CLASSIFICATION_STATUS: dict[str, str] = {
     "idle_timeout": "timeout",
     "hard_ceiling": "timeout",
     "consecutive_errors": "error",
+    "permission_deadlock": "error",
 }
 
 # Watchdog kill-reason → human-readable exit message prefix.
@@ -25,7 +26,7 @@ _KILL_REASON_MESSAGE: dict[str, str] = {
     "idle_timeout": "Watchdog killed: agent went idle (no output)",
     "hard_ceiling": "Watchdog killed: hit the hard runtime ceiling",
     "consecutive_errors": "Watchdog killed: consecutive errors exceeded threshold",
-    "process_exit": "Process exited",
+    "permission_deadlock": "Watchdog killed: unanswered permission ask (headless deadlock)",
 }
 
 # Exit-code → human readable note for non-watchdog failures.

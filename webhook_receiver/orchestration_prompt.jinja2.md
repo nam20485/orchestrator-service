@@ -81,6 +81,21 @@ These are reusable procedures referenced by the clause logic below. When a claus
 >
 > **Returns:** `{ phase, line_item }` or `null`.
 
+### find_next_unimplemented_epic()
+
+> Finds the next epic issue that has not yet been implemented. Used by the `gh-issue-tracking:init-success` clause, where the triggering issue is the main plan issue and the epics already exist as its GitHub sub-issues (created by `/gh-issue-tracking-init`).
+>
+> **Steps:**
+> 1. Get the sub-issues of the triggering issue (the main plan issue) via `gh api repos/{owner}/{repo}/issues/{issue_number}/sub_issues` or the equivalent GraphQL query.
+> 2. Filter for sub-issues that carry the `epic` label (e.g. `gh api ... | jq '.[] | select(.labels[].name == "epic")'`).
+> 3. Sort the remaining epic issues by `number` ascending to preserve plan order.
+> 4. For each epic issue in order:
+>    - If the epic is **not** labeled `implementation:complete`, this is the next unimplemented epic. Return it.
+>    - If the epic is labeled `implementation:complete`, skip it and continue.
+> 5. If **every** epic is already complete, return `null` — there is nothing left to implement.
+>
+> **Returns:** `{ number, title }` of the next unimplemented epic issue, or `null`.
+
 ### extract_epic_from_title(title)
 
 > Parses the issue title to extract the epic identifier string.
@@ -352,13 +367,34 @@ case (type = issues &&
         action = labeled &&
         labels contains: "gh-issue-tracking:init-success")
         {
-          ## /gh-issue-tracking-init skill completed successfully — begin epic creation loop.
+          ## /gh-issue-tracking-init skill completed successfully — begin epic implementation.
           ## Label-driven: matches on `gh-issue-tracking:init-success` regardless of title format.
-          ## Human or delegating agent applies this label when the plan is reviewed and ready.
+          ## The triggering issue is the main plan issue; the epics already exist as its
+          ## GitHub sub-issues (created by /gh-issue-tracking-init), so no create-epic step
+          ## is needed — just find the next unimplemented one and implement it.
 
-          - postStatusUpdate("🤖 Orchestrator matched `gh-issue-tracking:init-success` clause. Scanning for next unimplemented story issue item...")
+          - postStatusUpdate("🤖 Orchestrator matched `gh-issue-tracking:init-success` clause. Scanning for next unimplemented epic...")
+          - $next_epic = find_next_unimplemented_epic()
+          - if $next_epic is null:
+            - postStatusUpdate("✅ All epics are already complete. The implementation plan is fully implemented.")
+            - skip to ##Final.
 
-          - postStatusUpdate("🤖 Orchestrator `gh-issue-tracking:init-success` clause. Finished (no implementation yet.)")
+          - postStatusUpdate("🤖 Next unimplemented epic found: #" + $next_epic.number + " — " + $next_epic.title + ". Starting `implement-epic`...")
+          - $epic_id = extract_epic_from_title($next_epic.title)
+          - if $epic_id is null:
+            - postStatusUpdate("❌ Could not parse epic identifier from issue title (#" + $next_epic.number + "). Cannot proceed with implementation.")
+            - comment on the issue with an error explaining the title could not be parsed, then skip to ##Final.
+          - /orchestrate-dynamic-workflow
+              $workflow_name = implement-epic { $epic = $epic_id }
+          - if implement-epic succeeds:
+            - postStatusUpdate("✅ `implement-epic` completed for epic #" + $next_epic.number + " (" + $epic_id + "). Applying `gh-issue-tracking:epic-implemented` label.")
+            - apply label "gh-issue-tracking:epic-implemented" to that epic issue (issue number $next_epic.number).
+            ## NEXT STEP (not yet implemented): a `gh-issue-tracking:epic-implemented` clause
+            ## should fire on the next webhook and run `review-epic-prs` → `report-progress`
+            ## → `debrief-and-document` → terminal completion. That review-PRs step is the
+            ## explicitly-deferred follow-on (see plan_docs/implement-next-epic.md). Until it
+            ## exists, applying this label records that implement-epic succeeded.
+          - else → postStatusUpdate("❌ `implement-epic` failed for epic #" + $next_epic.number + " (" + $epic_id + "). See workflow run logs."), skip to ##Final.
         }
 
 case (default)

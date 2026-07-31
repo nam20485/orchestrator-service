@@ -39,7 +39,6 @@ import signal
 import subprocess
 import threading
 import time
-import urllib.error
 import urllib.request
 from dataclasses import dataclass
 from enum import Enum
@@ -60,7 +59,6 @@ _ERROR_PATTERNS: list[re.Pattern[str]] = [
     re.compile(r"Rate limit", re.IGNORECASE),
     re.compile(r"^\s*Error:", re.IGNORECASE),
     re.compile(r"✗"),  # opencode error glyph
-    re.compile(r"\bfailed\b", re.IGNORECASE),
 ]
 
 
@@ -229,9 +227,10 @@ class _PermissionAskMonitor:
             if sm:
                 self._session_id = sm.group(1)
         if self._REPLIED_RE.search(text):
-            # An ask in flight was resolved — no longer deadlocked.
+            # An ask in flight was resolved — no longer deadlocked. Do NOT return
+            # here: the same chunk may also contain a new ``message=asking`` that
+            # must still be scanned for below.
             self._last_ask_time = None
-            return
         last_match = None
         for match in self._ASK_RE.finditer(text):
             last_match = match
