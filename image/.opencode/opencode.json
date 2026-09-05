@@ -131,30 +131,8 @@
         "glm-5.1": {
           "name": "GLM 5.1",
         },
-      },
-    },
-    // Google AI Studio — built-in provider, reads GEMINI_API_KEY from env.
-    "google": {
-      "models": {
-        "gemini-3.5-flash": {
-          "name": "Gemini 3.5 Flash",
-        },
-      },
-    },
-    // NVIDIA NIM — built-in provider (build.nvidia.com). Credentials and the
-    // NIM base URL are resolved from env: NVIDIA_NIM_API_KEY and
-    // NVIDIA_NIM_BASE_URL (defaults to https://integrate.api.nvidia.com/v1).
-    // The built-in "nvidia" provider normally reads NVIDIA_API_KEY, so the
-    // apiKey option below overrides it to use the NIM key.
-    "nvidia": {
-      "options": {
-        "apiKey": "{env:NVIDIA_NIM_API_KEY}",
-        "baseURL": "{env:NVIDIA_NIM_BASE_URL}",
-      },
-      "models": {
-        "minimaxai/minimax-m3": {
-          "name": "MiniMax M3",
-          "tool_call": true,
+        "glm-5.3": {
+          "name": "GLM 5.3"
         },
       },
     },
