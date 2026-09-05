@@ -16,8 +16,23 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
-      - name: Install Factory Droid
-        run: curl -fsSL https://app.factory.ai/cli | sh
+      # Direct pinned download instead of `curl ... | sh`: the vendor install
+      # script is fetched fresh on every run, but this job holds
+      # `contents: write` and pushes to the branch — the executed code must be
+      # immutable and reviewable. Version and sha256 are pinned here; version
+      # bumps are deliberate PRs. (Checksum independently verified against the
+      # vendor-published .sha256 at pin time.)
+      - name: Install Factory Droid (pinned)
+        run: |
+          DROID_VERSION='0.213.0'
+          DROID_SHA256='6f4cf5c65238be359c21a60c75dbbe31c90ffa6c860ed45fcc10e7fbae3250ff'
+          install_dir="$HOME/.local/bin"
+          mkdir -p "$install_dir"
+          curl -fsSL -o "$install_dir/droid" \
+            "https://downloads.factory.ai/factory-cli/releases/${DROID_VERSION}/linux/x64/droid"
+          echo "${DROID_SHA256}  $install_dir/droid" | sha256sum --check --strict -
+          chmod +x "$install_dir/droid"
+          echo "$install_dir" >> "$GITHUB_PATH"
 
       - name: Generate wiki
         run: droid exec --auto high "/wiki"
