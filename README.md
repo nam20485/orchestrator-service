@@ -132,7 +132,7 @@ The authoritative, complete list (with defaults and descriptions) lives in [`doc
 | `OS_WEBHOOK_SECRET` | *(required)* | Webhook secret for `X-Hub-Signature-256` |
 | `OPENCODE_SERVER_URL` | `http://localhost:4099` | OpenCode server for `prompt.ps1` |
 | `ORCHESTRATOR_WORKSPACE` | `/workspace` | `--dir` passed to `opencode run` |
-| `OPENCODE_MODEL` | `zai-coding-plan/glm-5` | Model used for dispatched runs |
+| `OPENCODE_MODEL` | `qwencloud/qwen3.8-max` | Model used for dispatched runs |
 | `OPENCODE_VARIANT` | `high` | Reasoning-effort variant passed to opencode via `--variant` |
 | `OPENCODE_AGENT` | `orchestrator` | Agent |
 | `WEBHOOK_HOST` / `WEBHOOK_PORT` | `0.0.0.0` / `8080` | HTTP bind |
