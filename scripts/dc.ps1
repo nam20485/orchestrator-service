@@ -3,7 +3,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Position = 0)]
-    [ValidateSet('up', 'down', 'logs')]
+    [ValidateSet('up', 'down', 'logs', 'u', 'd', 'l')]
     [string]$Command,
 
     [Parameter(Position = 1)]
@@ -17,13 +17,30 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
+# Normalize abbreviated command aliases (u/d/l) to their canonical forms so the
+# rest of the script only deals with 'up', 'down', 'logs'.
+switch ($Command) {
+    'u' { $Command = 'up' }
+    'd' { $Command = 'down' }
+    'l' { $Command = 'logs' }
+}
+
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $composeFile = Join-Path $repoRoot 'compose.yaml'
 if (-not (Test-Path -LiteralPath $composeFile)) {
     throw "compose.yaml not found: $composeFile"
 }
 
-$composeArgs = @('compose', '-f', $composeFile, $Command)
+$hasBuild = $false
+if ($ExtraArgs) {
+    foreach ($a in $ExtraArgs) { if ($a -eq '--build') { $hasBuild = $true; break } }
+}
+
+$composeArgs = @('compose', '-f', $composeFile)
+if ($hasBuild) {
+    $composeArgs += '-f', (Join-Path $repoRoot 'compose.build.yaml')
+}
+$composeArgs += $Command
 
 # 'up' defaults to detached to match the documented `up -d` usage, unless the
 # caller passes a foreground/detach-conflicting flag via ExtraArgs.
@@ -37,15 +54,19 @@ if ($Command -eq 'up') {
         $composeArgs += '-d'
     }
     # Always pull the freshest published image for the chosen ref so a stale
-    # local cache can never shadow the current <branch>-latest tag. A caller
-    # may still add `--build` via ExtraArgs to force a rebuild of that image.
-    $composeArgs += '--pull', 'always'
+    # local cache can never shadow the current <branch>-latest tag. Skip this
+    # in --build mode (compose.build.yaml sets pull_policy: never) so the
+    # locally-built image is used as-is.
+    if (-not $hasBuild) {
+        $composeArgs += '--pull', 'always'
+    }
 }
 if ($ExtraArgs) {
     $composeArgs += $ExtraArgs
 }
 
-$commandLine = "IMAGE_REF=$ImageRef => docker compose $Command"
+$buildTag = if ($hasBuild) { ' [local build]' } else { '' }
+$commandLine = "IMAGE_REF=$ImageRef => docker compose $Command$buildTag"
 Write-Host $commandLine -ForegroundColor Cyan
 
 # Scope IMAGE_REF to this compose invocation only; restoring (or removing) the
@@ -57,10 +78,12 @@ $exitCode = 0
 try {
     & docker @composeArgs
     $exitCode = $LASTEXITCODE
-} finally {
+}
+finally {
     if ($null -eq $prevImageRef) {
         Remove-Item Env:\IMAGE_REF -ErrorAction SilentlyContinue
-    } else {
+    }
+    else {
         $env:IMAGE_REF = $prevImageRef
     }
 }
@@ -77,6 +100,8 @@ exit $exitCode
 
   Supported refs: main (default), development, nam20485. Each maps to the
   branch tag published by docker-publish.yml (<branch>-latest).
+
+  Command abbreviations are accepted: u=up, d=down, l=logs.
 
   For `up`, the wrapper always passes `--pull always` so a stale local image
   cache can never shadow the current <branch>-latest tag. Pass `--build`

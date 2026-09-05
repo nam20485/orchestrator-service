@@ -30,7 +30,7 @@ FROM debian:trixie-20260518-slim
 LABEL org.opencontainers.image.title=orchestrator-webhook
 
 ARG DEBIAN_FRONTEND=noninteractive
-ARG OPENCODE_VERSION=1.15.13
+ARG OPENCODE_VERSION=1.18.4
 ARG POWERSHELL_VERSION=7.6.2
 ARG APP_UID=1000
 ARG APP_GID=1000
@@ -96,6 +96,15 @@ RUN HOME=/home/app git config --global user.name "orchestrator-bot" \
 # Ensure the app user owns its home directory (installers wrote as root)
 RUN chown -R app:app /home/app
 
+# Pre-create the opencode XDG data dir so the opencode-logs named volume
+# (mounted at .../opencode/log by compose.yaml) doesn't create a root-owned
+# parent. Docker creates mount-point parents as root:root when the path is
+# absent from the image; the app user (gosu drop) then can't mkdir siblings
+# like repos/ (EACCES errno -13) when the opencode client initializes.
+RUN mkdir -p /home/app/.local/share/opencode/log \
+    && mkdir -p /home/app/.local/share/opencode/repos \
+    && chown -R app:app /home/app/.local/share/opencode
+
 # Beads ecosystem binaries (br + bvr) from the Rust builder stage. In
 # docker-publish.yml this stage is overridden with the published GHCR beads
 # image so Rust is compiled once.
@@ -134,6 +143,9 @@ ENV PROMPT_SCRIPT=/app/scripts/prompt.ps1 \
     WEBHOOK_PORT=8080
 
 EXPOSE 8080
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+    CMD curl -fsS "http://127.0.0.1:${WEBHOOK_PORT}/health" || exit 1
 
 # Privilege drop via the webhook entrypoint (chowns the log mount, then gosu
 # drops to app). No USER directive — container starts as root.

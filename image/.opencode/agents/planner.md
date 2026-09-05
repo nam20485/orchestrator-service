@@ -16,6 +16,12 @@ tools:
   webfetch: true
 permission:
   bash: deny
+  # Defense-in-depth only (INERT for task subagents in opencode v1.18.4).
+  # If honored, an external-dir write fails fast via deny instead of
+  # hanging on `ask`. Scratch MUST go in-workspace (<workspace>/.scratch),
+  # never /tmp — see AGENTS.md "Subagent scratch" rule.
+  external_directory:
+    "*": deny
 ---
 
 You are a planner creating executable roadmaps and work breakdowns.

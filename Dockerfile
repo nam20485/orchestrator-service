@@ -23,7 +23,7 @@ FROM debian:trixie-20260518-slim
 LABEL Name=orchestratorservice Version=0.0.1
 
 ARG DEBIAN_FRONTEND=noninteractive
-ARG OPENCODE_VERSION=1.17.8
+ARG OPENCODE_VERSION=1.18.4
 #ARG DOTNET_SDK_VERSION=10.0.300
 ARG NODE_LTS_VERSION=24.14.0
 ARG POWERSHELL_VERSION=7.6.2
@@ -131,6 +131,11 @@ COPY scripts/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
 EXPOSE 4099
+
+# opencode serve requires OPENCODE_SERVER_PASSWORD, so probe the TCP listener
+# rather than an authenticated HTTP route.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=40s --retries=3 \
+    CMD bash -c 'exec 3<>/dev/tcp/127.0.0.1/4099' || exit 1
 
 ENTRYPOINT ["docker-entrypoint.sh"]
 CMD ["opencode", "serve", "--hostname", "0.0.0.0", "--port", "4099", "--log-level", "INFO", "--print-logs"]

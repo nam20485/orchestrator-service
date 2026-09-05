@@ -90,6 +90,7 @@ auth/auth.json
 .kilo/
 .gemini/
 .qwen/
+.zcode/
 gha-creds-*.json
 .pair/
 plan_docs/automated_iterative_root_cause_analysis/iterative_root_cause_analysis_via_automation_93175dfc.plan.md
@@ -103,5 +104,9 @@ traces/gap-miner-v2-delta48-373i6gxj.md
 traces/gap-miner-v2-delta48-373i6gxj.stderr
 traces/gap-miner-v2-delta48-373i6gxj.stdout
 traces/golden-path-foxtrot54.log.txt
+# raw captured dispatch logs (keep the run-report analysis doc above)
+traces/gap-miner-v2-golf38-api-error.md
 # stray host downloads unrelated to the project
 amdgpu-install_*.deb
+# machine-local opencode client error logs
+.opencode/*-error.txt

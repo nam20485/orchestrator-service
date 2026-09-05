@@ -8,13 +8,29 @@ services:
     volumes:
       - opencode-memory:/app/.memory
       - ${WORKSPACE_DIR:?WORKSPACE_DIR is required}:/workspace
+      # Share the opencode server log so the webhook-receiver's watchdog can
+      # monitor server-side activity during subagent execution.
+      - opencode-logs:/home/app/.local/share/opencode/log
     restart: always
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - SETUID
+      - SETGID
+      - CHOWN
+      - DAC_OVERRIDE
     environment:
       - ZAI_CODING_API_KEY=${ZAI_CODING_API_KEY}
       - ZAI_API_KEY=${ZAI_API_KEY}
+      # Exa MCP server (neural web search, code-context lookup, crawling).
+      - EXA_API_KEY=${EXA_API_KEY}
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
       - MODEL_STUDIO_API_KEY=${MODEL_STUDIO_API_KEY}
-      - MS_DS_API_KEY=${MS_DS_API_KEY}
+      - QWENCLOUD_TOKEN_PLAN_API_KEY=${QWENCLOUD_TOKEN_PLAN_API_KEY}
+      # Alternate model providers (optional — only used when selected).
+      - CLINE_API_KEY=${CLINE_API_KEY}
       - GEMINI_API_KEY=${GEMINI_API_KEY}
       - NOTION_MCP_CONNECTIONS_API_KEY=${NOTION_MCP_CONNECTIONS_API_KEY}
       - GH_ORCHESTRATION_AGENT_TOKEN=${GH_ORCHESTRATION_AGENT_TOKEN}
@@ -32,12 +48,26 @@ services:
       # Persist runner/beads logs so a torn-down/failed run stays diagnosable.
       # runner.py and beads_loop.py both write here (Path(tempfile.gettempdir())/"orchestrator-webhook").
       - ${WEBHOOK_LOG_DIR:-./traces/runner}:/tmp/orchestrator-webhook
+      # Read-only mount of the opencode server log (written by
+      # orchestratorservice) at a path that does NOT collide with the opencode
+      # client's own data dir. The client also writes ~/.local/share/opencode/
+      # log/opencode.log, so mounting the shared server log over that exact path
+      # read-only made the client's FileSystem.open fail ("Read-only file
+      # system") and crash on startup. Mounting elsewhere lets the watchdog
+      # read the server log while the client keeps a writable log of its own.
+      - opencode-logs:/var/log/opencode-server:ro
     environment:
       - OS_WEBHOOK_SECRET=${OS_WEBHOOK_SECRET}
       - OPENCODE_SERVER_URL=http://orchestratorservice:4099
       - OPENCODE_SERVER_PASSWORD=${OPENCODE_SERVER_PASSWORD:?OPENCODE_SERVER_PASSWORD is required}
       - GH_ORCHESTRATION_AGENT_TOKEN=${GH_ORCHESTRATION_AGENT_TOKEN}
       - GITHUB_TOKEN=${GITHUB_TOKEN}
+      # Trusted-sender allowlist (GitHub usernames/logins, comma-separated) for
+      # gh-issue-tracking:direct-body dispatch. direct-body runs the issue body
+      # verbatim with the orchestration token + --auto,
+      # so it is fail-closed when unset. The webhook payload's sender.login is
+      # matched against this list (see filters.should_dispatch).
+      - DIRECT_BODY_ALLOWED_SENDERS=${DIRECT_BODY_ALLOWED_SENDERS}
       - WEBHOOK_ENABLE_SIMULATOR=${WEBHOOK_ENABLE_SIMULATOR:-0}
       - BEADS_ENABLED=${BEADS_ENABLED:-true}
       - BEADS_POLL_INTERVAL=${BEADS_POLL_INTERVAL:-10}
@@ -48,10 +78,43 @@ services:
       # stuck tool from stalling the pipeline indefinitely (e.g. a subagent
       # deadlocked on an unanswerable external_directory ask). 2700s = 45 min.
       - DISPATCH_TIMEOUT_SECS=${DISPATCH_TIMEOUT_SECS:-2700}
+      # ── Idle watchdog ───────────────────────────────────────────────────
+      # The watchdog monitors dispatched runs for activity and kills them on
+      # idle, consecutive errors, or hard ceiling. See webhook_receiver/watchdog.py.
+      # IDLE_TIMEOUT_SECS: kill after no output from client OR server for this long.
+      # 1800s (30 min) — raised from 900s (15 min) because subagent delegations
+      # routinely take >15 min; the server-log mtime signal (below) is the primary
+      # guard against false-positive kills during active subagent work.
+      - IDLE_TIMEOUT_SECS=${IDLE_TIMEOUT_SECS:-1800}
+      # ERROR_GRACE_SECS: grace window for consecutive-error bursts.
+      - ERROR_GRACE_SECS=${ERROR_GRACE_SECS:-300}
+      # HARD_CEILING_SECS: absolute maximum runtime (falls back to DISPATCH_TIMEOUT_SECS).
+      - HARD_CEILING_SECS=${HARD_CEILING_SECS:-5400}
+      # WATCHDOG_POLL_SECS: watchdog polling interval.
+      - WATCHDOG_POLL_SECS=${WATCHDOG_POLL_SECS:-30}
+      # MAX_CONSECUTIVE_ERRORS: abort after N consecutive error lines.
+      - MAX_CONSECUTIVE_ERRORS=${MAX_CONSECUTIVE_ERRORS:-5}
+      # WATCHDOG_DEBUG: emit heartbeats even when process is active.
+      - WATCHDOG_DEBUG=${WATCHDOG_DEBUG:-false}
+      # OPENCODE_SERVER_LOG_PATH: path to the opencode server's log file (shared
+      # via the opencode-logs volume). The watchdog checks its mtime as a
+      # secondary activity signal — if the client stdout is silent but the server
+      # log is being written, the agent is actively working (e.g. subagent
+      # delegation) and the kill is withheld.
+      - OPENCODE_SERVER_LOG_PATH=${OPENCODE_SERVER_LOG_PATH:-/var/log/opencode-server/opencode.log}
       - DASHBOARD_TOKEN=${DASHBOARD_TOKEN:-}
     depends_on:
-      - orchestratorservice
+      orchestratorservice:
+        condition: service_healthy
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - SETUID
+      - SETGID
+      - CHOWN
 
   webhook-proxy:
     image: ghcr.io/nam20485/orchestrator-service/caddy:${IMAGE_REF:-main}-latest
@@ -59,6 +122,11 @@ services:
     # CAP_NET_BIND_SERVICE allows non-root Caddy to bind privileged ports (:80/:443)
     cap_add:
       - CAP_NET_BIND_SERVICE
+    # no-new-privileges is NOT used here: it blocks file capabilities at execve
+    # (capabilities(7)), which would prevent Caddy's setcap cap_net_bind_service=+ep
+    # from granting privileged-port binding after the su-exec drop to the caddy user.
+    # cap_drop: ALL is also NOT used because the root entrypoint needs SETUID/SETGID
+    # (su-exec drop) and CHOWN (named-volume fixup).
     # Host :80 — HTTP (local dev, Tailscale Funnel, ACME). For Caddy TLS on :443 in prod,
     # also use compose.https.yaml (see README) or COMPOSE_FILE=compose.yaml:compose.https.yaml
     ports:
@@ -75,5 +143,6 @@ services:
 
 volumes:
   opencode-memory:
+  opencode-logs:
   caddy_data:
   caddy_config:

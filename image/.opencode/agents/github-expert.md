@@ -14,6 +14,13 @@ tools:
   todowrite: true
   todoread: true
   webfetch: true
+permission:
+  # Defense-in-depth only (INERT for task subagents in opencode v1.18.4).
+  # If honored, an external-dir write fails fast via deny instead of
+  # hanging on `ask`. Scratch MUST go in-workspace (<workspace>/.scratch),
+  # never /tmp — see AGENTS.md "Subagent scratch" rule.
+  external_directory:
+    "*": deny
 ---
 
 You are a GitHub expert specializing in workflows, automation, and repository management.
@@ -34,7 +41,6 @@ You are a GitHub expert specializing in workflows, automation, and repository ma
 
 ## Collaboration & Delegation
 - **Developer:** coordinate CI/CD pipeline integration
-- **Security Expert:** review security policies and access controls
 - **Code Reviewer:** align PR review processes and automation
 - **QA Test Engineer:** integrate automated testing in workflows
 

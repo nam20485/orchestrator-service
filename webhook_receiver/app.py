@@ -24,6 +24,7 @@ from webhook_receiver.github import verify_signature
 from webhook_receiver.prompts import build_orchestrator_prompt
 from webhook_receiver.runner import DispatchContext, dispatch_to_opencode
 from webhook_receiver.simulator import create_simulator_router
+from webhook_receiver.webhook_store import WebhookStore
 from webhook_receiver.workspace import (
     ensure_project_from_clone,
     init_project_workspace,
@@ -128,6 +129,8 @@ def _safe_dispatch(
     prompt: str,
     store: EventStore,
     payload: dict[str, Any],
+    webhook_store: WebhookStore | None = None,
+    delivery_id: str = "",
 ) -> None:
     """Background task: ensure workspace exists, then dispatch to opencode.
 
@@ -169,7 +172,11 @@ def _safe_dispatch(
             "attempting dispatch with existing workspace state"
         )
     dispatch_ctx = _dispatch_context_from_payload(payload)
-    dispatch_to_opencode(settings, prompt, store, dispatch_ctx)
+    prompt_stem = dispatch_to_opencode(settings, prompt, store, dispatch_ctx)
+    if webhook_store and delivery_id and isinstance(prompt_stem, str):
+        webhook_store.record(
+            delivery_id, decision="allowed", prompt_stem=prompt_stem
+        )
 
 
 def _dispatch_context_from_payload(
@@ -187,7 +194,8 @@ def _dispatch_context_from_payload(
         return None
     # The label that triggered this dispatch (``issues.labeled``). Used by the
     # completion watcher to gate the close-on-success incomplete check to the
-    # ``orchestration:dispatch`` clause only (other labels don't close the issue).
+    # clauses that close the issue on success (``orchestration:dispatch`` and
+    # ``gh-issue-tracking:direct-body``); other labels don't close the issue.
     trigger_label = str((payload.get("label") or {}).get("name") or "").strip() or None
     return DispatchContext(
         repo_full_name=repo_full,
@@ -201,9 +209,11 @@ def create_app(
     settings: Settings | None = None,
     event_store: EventStore | None = None,
     beads_loop: BeadsLoop | None = None,
+    webhook_store: WebhookStore | None = None,
 ) -> FastAPI:
     cfg = settings or Settings.from_env()
     store = event_store or EventStore()
+    wh_store = webhook_store or WebhookStore(cfg.log_dir)
     app = FastAPI(
         title="Orchestrator GitHub Webhook Receiver",
         version="0.1.0",
@@ -213,7 +223,22 @@ def create_app(
     async def health() -> dict[str, str]:
         return {"status": "ok"}
 
-    @app.post("/webhooks/github")
+    @app.post(
+        "/webhooks/github",
+        status_code=202,
+        responses={
+            200: {"description": "Ping event acknowledged (pong)."},
+            202: {
+                "description": (
+                    "Webhook delivery accepted and dispatched, or filtered/ignored "
+                    "without dispatch (non-matching label, bot actor, etc.)."
+                )
+            },
+            400: {"description": "Invalid JSON body."},
+            401: {"description": "Invalid signature."},
+            413: {"description": "Request body too large."},
+        },
+    )
     async def github_webhook(
         request: Request, background_tasks: BackgroundTasks
     ) -> JSONResponse:
@@ -259,12 +284,24 @@ def create_app(
             payload.get("sender", {}).get("login", "?"),
         )
 
+        sender_login = payload.get("sender", {}).get("login", "?")
+        repo_full_name = payload.get("repository", {}).get("full_name", "?")
+        label_name = (payload.get("label") or {}).get("name", "")
+
         store.emit(
             "webhook_received",
             delivery_id=delivery_id,
             event=event,
             action=payload.get("action", ""),
-            repo=payload.get("repository", {}).get("full_name", "?"),
+            repo=repo_full_name,
+        )
+        wh_store.record(
+            delivery_id,
+            event=event,
+            action=payload.get("action", ""),
+            repo=repo_full_name,
+            sender=sender_login,
+            label=label_name,
         )
         logger.debug(
             "Webhook headers delivery_id=%s content-length=%s content-type=%s",
@@ -294,6 +331,11 @@ def create_app(
                 action=payload.get("action", ""),
                 reason=reason,
             )
+            wh_store.record(
+                delivery_id,
+                decision="denied",
+                reason=reason,
+            )
             return JSONResponse(
                 {
                     "status": "ignored",
@@ -303,6 +345,8 @@ def create_app(
                 },
                 status_code=202,
             )
+
+        wh_store.record(delivery_id, decision="allowed", reason=reason)
 
         prompt = build_orchestrator_prompt(
             delivery_id=delivery_id,
@@ -338,7 +382,13 @@ def create_app(
         )
 
         background_tasks.add_task(
-            _safe_dispatch, project_settings, prompt, store, payload
+            _safe_dispatch,
+            project_settings,
+            prompt,
+            store,
+            payload,
+            wh_store,
+            delivery_id,
         )
 
         logger.info(
@@ -369,6 +419,7 @@ def create_app(
             beads_loop,
             dashboard_token=cfg.dashboard_token,
             log_dir=cfg.log_dir,
+            webhook_store=wh_store,
         )
     )
     app.include_router(create_dashboard_page_router(dashboard_token=cfg.dashboard_token))

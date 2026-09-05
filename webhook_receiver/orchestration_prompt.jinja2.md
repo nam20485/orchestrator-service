@@ -81,6 +81,21 @@ These are reusable procedures referenced by the clause logic below. When a claus
 >
 > **Returns:** `{ phase, line_item }` or `null`.
 
+### find_next_unimplemented_epic()
+
+> Finds the next epic issue that has not yet been implemented. Used by the `gh-issue-tracking:init-success` clause, where the triggering issue is the main plan issue and the epics already exist as its GitHub sub-issues (created by `/gh-issue-tracking-init`).
+>
+> **Steps:**
+> 1. Get the sub-issues of the triggering issue (the main plan issue) via `gh api repos/{owner}/{repo}/issues/{issue_number}/sub_issues` or the equivalent GraphQL query.
+> 2. Filter for sub-issues that carry the `epic` label (e.g. `gh api ... | jq '.[] | select(.labels[].name == "epic")'`).
+> 3. Sort the remaining epic issues by `number` ascending to preserve plan order.
+> 4. For each epic issue in order:
+>    - If the epic is **not** labeled `implementation:complete`, this is the next unimplemented epic. Return it.
+>    - If the epic is labeled `implementation:complete`, skip it and continue.
+> 5. If **every** epic is already complete, return `null` — there is nothing left to implement.
+>
+> **Returns:** `{ number, title }` of the next unimplemented epic issue, or `null`.
+
 ### extract_epic_from_title(title)
 
 > Parses the issue title to extract the epic identifier string.
@@ -260,11 +275,17 @@ case (type = issues &&
        action = labeled &&
        labels contains: "orchestration:dispatch")
        {
-          ## Dynamic workflow dispatch — triggered by orchestration:dispatch label.
-          ## The issue title defaults to "orchestrate-dynamic-workflow" and the body
-          ## contains the workflow name and arguments.
-          - postStatusUpdate("🤖 Orchestrator triggered — matched `orchestration:dispatch` clause. Parsing dispatch body...")
-          - $dispatch = parse_workflow_dispatch_body(body)
+           ## Dynamic workflow dispatch — triggered by orchestration:dispatch label.
+           ## The issue title defaults to "orchestrate-dynamic-workflow" and the body
+           ## contains the workflow name and arguments.
+           - postStatusUpdate("🤖 Orchestrator triggered — matched `orchestration:dispatch` clause. Parsing dispatch body...")
+           ## Link the dispatch issue to the project board early so it is tracked even
+           ## if the run fails mid-way (prevents orphaned dispatch issues with no
+           ## milestone/project/PR trail — see gap-miner-v2-papa85 run 70c74cd7).
+           ## Best-effort: discover the project via `gh project list --owner <owner> --limit 5`
+           ## and `gh project item-add <num> --owner <owner> --url <issue-url>`. Skip
+           ## silently if no project is found or the add fails — this must not block the run.
+           - $dispatch = parse_workflow_dispatch_body(body)
           - if $dispatch is null → comment on the issue with an error explaining the body could not be parsed, then skip to ##Final.
           - postStatusUpdate("🤖 Orchestrator triggered — invoking `{$dispatch.workflow_name}` dynamic workflow...")
           - /orchestrate-dynamic-workflow
@@ -288,6 +309,96 @@ case (type = issues &&
             - postStatusUpdate("❌ `{$dispatch.workflow_name}` failed. See details below:\n{summary of failure reason and any potential next steps}")
             - leave the issue open.
        }
+
+case (type = issues &&
+       action = labeled &&
+       labels contains: "gh-issue-tracking:direct-body")
+       {
+            ## Direct-body dispatch — triggered by the gh-issue-tracking:direct-body label.
+            ## Unlike orchestration:dispatch, NO workflow name is parsed and NO arguments
+            ## are extracted. The ENTIRE issue body is passed VERBATIM as a prompt, so an
+            ## issue carrying arbitrary commands/instructions can be dispatched by simply
+            ## labeling it. Nothing in the body is interpreted as workflow syntax.
+            ##
+            ## SECURITY: direct-body is the widest dispatch surface (it runs arbitrary
+            ## instructions with the orchestration token + --auto).
+            ## The webhook receiver gates it to an explicit trusted-sender allowlist
+            ## (env DIRECT_BODY_ALLOWED_SENDERS) BEFORE this clause can ever run — and
+            ## the gate checks the issue's FULL label set, not just the triggering
+            ## label, so a lingering direct-body label cannot bypass it via a later
+            ## differently-labeled event. A dispatch reaching here was already
+            ## authorized. The body must STILL be
+            ## treated as untrusted content: never echo secrets, and prefer scoping work
+            ## to the dispatching repo rather than cross-repo mutation.
+           - postStatusUpdate("🤖 Orchestrator matched `gh-issue-tracking:direct-body` clause. Running the issue body directly as a prompt...")
+           ## Link the issue to the project board early (best-effort) so it is tracked
+           ## even if the run fails mid-way (prevents orphaned issues). Discover the
+           ## project via `gh project list --owner <owner> --limit 5` and
+           ## `gh project item-add <num> --owner <owner> --url <issue-url>`. Skip
+           ## silently if no project is found or the add fails — this must not block the run.
+           - $body = the issue body from EVENT_DATA (e.g. `event.issue.body`).
+           - if $body is null or empty:
+             - postStatusUpdate("❌ Issue body is empty — nothing to run.")
+             - comment on the issue with an error explaining the body was empty, then skip to ##Final.
+            - postStatusUpdate("🤖 Running issue body directly as the prompt...")
+            ## Pass the body through UNCHANGED — it IS the prompt. Do NOT parse a workflow
+            ## name and do NOT wrap it in `$workflow_name = ...` syntax; just dispatch the
+            ## slash-commands or arbitrary instructions it contains, exactly as written.
+            - Run the issue body verbatim as the prompt:
+                $body
+            - if the body execution succeeds:
+              - postStatusUpdate("✅ Direct-body execution completed.")
+             ## PUBLISH & VERIFY — do NOT post "finished" or close until any work is
+             ## reachable on the remote. Local commits that are never pushed trap the
+             ## work inside the container. Mirror the orchestration:dispatch gate.
+             - Determine the working branch: `git rev-parse --abbrev-ref HEAD` in the project workspace.
+             - If the branch is the default branch (`main` or `master`): SKIP publish (never push to the default branch). Log a warning and proceed straight to the close step.
+             - Else if there is no `origin` remote (`git remote get-url origin` fails): SKIP publish. Log a warning that no remote is configured and proceed to the close step.
+             - Else:
+               - If `origin/<branch>` is absent OR `git log origin/<branch>..HEAD` is non-empty (there are unpushed commits): run `git push -u origin <branch>`.
+               - If push fails: postStatusUpdate("❌ Direct-body succeeded locally but `git push` failed. The work is not on the remote. Leaving the issue open for retry."), then leave the issue open and skip to ##Final.
+               - Verify a PR exists: `gh pr list --head <branch> --json number`.
+                 - If no PR exists: `gh pr create --head <branch> --title "direct-body: <summary>" --body "<derived from the issue>"`.
+                 - If PR creation fails: postStatusUpdate("❌ Branch pushed but `gh pr create` failed. Leaving the issue open for retry."), then leave the issue open and skip to ##Final.
+             - close the issue with a final postStatusUpdate("🏁 Direct-body dispatch complete — finished with no errors.") then close it.
+            - if the body execution fails:
+              - postStatusUpdate("❌ Direct-body execution failed. See details below:\n{summary of failure reason and any potential next steps}")
+             - leave the issue open.
+       }
+
+case (type = issues &&
+        action = labeled &&
+        labels contains: "gh-issue-tracking:init-success")
+        {
+          ## /gh-issue-tracking-init skill completed successfully — begin epic implementation.
+          ## Label-driven: matches on `gh-issue-tracking:init-success` regardless of title format.
+          ## The triggering issue is the main plan issue; the epics already exist as its
+          ## GitHub sub-issues (created by /gh-issue-tracking-init), so no create-epic step
+          ## is needed — just find the next unimplemented one and implement it.
+
+          - postStatusUpdate("🤖 Orchestrator matched `gh-issue-tracking:init-success` clause. Scanning for next unimplemented epic...")
+          - $next_epic = find_next_unimplemented_epic()
+          - if $next_epic is null:
+            - postStatusUpdate("✅ All epics are already complete. The implementation plan is fully implemented.")
+            - skip to ##Final.
+
+          - postStatusUpdate("🤖 Next unimplemented epic found: #" + $next_epic.number + " — " + $next_epic.title + ". Starting `implement-epic`...")
+          - $epic_id = extract_epic_from_title($next_epic.title)
+          - if $epic_id is null:
+            - postStatusUpdate("❌ Could not parse epic identifier from issue title (#" + $next_epic.number + "). Cannot proceed with implementation.")
+            - comment on the issue with an error explaining the title could not be parsed, then skip to ##Final.
+          - /orchestrate-dynamic-workflow
+              $workflow_name = implement-epic { $epic = $epic_id }
+          - if implement-epic succeeds:
+            - postStatusUpdate("✅ `implement-epic` completed for epic #" + $next_epic.number + " (" + $epic_id + "). Applying `gh-issue-tracking:epic-implemented` label.")
+            - apply label "gh-issue-tracking:epic-implemented" to that epic issue (issue number $next_epic.number).
+            ## NEXT STEP (not yet implemented): a `gh-issue-tracking:epic-implemented` clause
+            ## should fire on the next webhook and run `review-epic-prs` → `report-progress`
+            ## → `debrief-and-document` → terminal completion. That review-PRs step is the
+            ## explicitly-deferred follow-on (see plan_docs/implement-next-epic.md). Until it
+            ## exists, applying this label records that implement-epic succeeded.
+          - else → postStatusUpdate("❌ `implement-epic` failed for epic #" + $next_epic.number + " (" + $epic_id + "). See workflow run logs."), skip to ##Final.
+        }
 
 case (default)
       {

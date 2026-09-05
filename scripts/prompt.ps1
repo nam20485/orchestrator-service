@@ -10,10 +10,13 @@ param (
     $Workspace = "/workspace",
     [Parameter()]
     [String]
-    $Model = "zai-coding-plan/glm-5",
+    $Model = 'qwencloud/qwen3.8-max',
     [Parameter()]
     [String]
     $Agent = "orchestrator",
+    [Parameter()]
+    [String]
+    $Variant = "",
     [Parameter()]
     [String]
     $Format = "default",
@@ -25,7 +28,7 @@ param (
     $PrintLogs = "true",
     [Parameter()]
     [String]
-    $DangerouslySkipPermissions = "true",
+    $Auto = "true",
     [Parameter()]
     [String]
     $Thinking = "true",
@@ -71,14 +74,24 @@ $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $hostWorkspaceDir = Get-WorkspaceDirFromEnvOrDotEnv
 $Workspace = Resolve-ProjectWorkspace -Workspace $Workspace -Project $Project -HostWorkspaceDir $hostWorkspaceDir
 
-opencode run `
-    --attach $ServerUrl `
-    --dir $Workspace `
-    --model $Model `
-    --agent $Agent `
-    --thinking $Thinking `
-    --dangerously-skip-permissions $DangerouslySkipPermissions `
-    --format $Format `
-    --print-logs $PrintLogs `
-    --log-level $LogLevel `
-    $Prompt
+# opencode boolean flags (--thinking, --auto, --print-logs) take NO argument
+# (yargs [boolean]); passing an explicit value (e.g. "--auto true") leaks
+# "true" as a positional message token, corrupting the prompt. Include each
+# flag only when its (string) param is truthy.
+$runArgs = @(
+    "run",
+    "--attach", $ServerUrl,
+    "--dir",    $Workspace,
+    "--model",  $Model,
+    "--agent",  $Agent,
+    "--format", $Format,
+    "--log-level", $LogLevel
+)
+if ($Thinking -eq 'true')  { $runArgs += "--thinking" }
+if ($Auto -eq 'true')      { $runArgs += "--auto" }
+if ($PrintLogs -eq 'true') { $runArgs += "--print-logs" }
+if ($Variant) {
+    $runArgs += @("--variant", $Variant)
+}
+$runArgs += $Prompt
+opencode @runArgs

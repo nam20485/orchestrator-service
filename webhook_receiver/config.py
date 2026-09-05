@@ -39,6 +39,17 @@ def _parse_optional_int(name: str) -> int | None:
     return int(raw)
 
 
+def _resolve_hard_ceiling() -> int:
+    """Resolve hard_ceiling_secs with explicit None checks (0 is meaningful)."""
+    hard = _parse_optional_int("HARD_CEILING_SECS")
+    if hard is not None:
+        return hard
+    legacy = _parse_optional_int("DISPATCH_TIMEOUT_SECS")
+    if legacy is not None:
+        return legacy
+    return 5400
+
+
 @dataclass(frozen=True)
 class Settings:
     host: str
@@ -57,16 +68,50 @@ class Settings:
     beads_poll_interval: int
     beads_max_retries: int
     beads_workspace_root: str
+    # Reasoning-effort variant passed to opencode via --variant (e.g. "high",
+    # "medium", "minimal"). Sets the orchestrator session default; subagents may
+    # override per-agent via the opencode.json "agent" block. Empty string
+    # omits --variant entirely (uses the provider default). GLM-5 supports
+    # low/medium/high (high is the ceiling — there is no "max").
+    variant: str = "high"
     # Shared secret required to access the dashboard UI and APIs. When unset
     # (default) the entire dashboard surface is disabled and returns 404, so
     # the receiver cannot leak beads data through the proxy by default.
     dashboard_token: str | None = None
-    # Optional hard wall-clock timeout (seconds) for a dispatched opencode run.
-    # When set (env DISPATCH_TIMEOUT_SECS), a run exceeding it is killed and a
-    # failure comment is posted. None (default) = no timeout (wait forever).
-    # Recommended value ~5400 (≈ the golden-path project-setup runtime) so a
-    # hung run is killed and flagged instead of waiting forever.
+    # ── Idle watchdog configuration ─────────────────────────────────────────
+    # The watchdog replaces the previous single wall-clock timeout
+    # (DISPATCH_TIMEOUT_SECS) with activity-aware monitoring. A run is killed
+    # if (a) it produces no stdout/stderr output for IDLE_TIMEOUT_SECS, (b) it
+    # emits MAX_CONSECUTIVE_ERRORS error lines without a non-error line, or
+    # (c) it exceeds HARD_CEILING_SECS regardless of activity. See watchdog.py
+    # and plan_docs/.archived/plan-server-activity-watchdog.md for the full design
+    # rationale (ported from the battle-tested bash watchdog in
+    # intel-agency/workflow-orchestration-service).
+    #
+    # HARD_CEILING_SECS is the absolute safety net. It accepts the legacy
+    # DISPATCH_TIMEOUT_SECS env var for backward compatibility.
     dispatch_timeout: int | None = None
+    idle_timeout_secs: int = 900
+    error_grace_secs: int = 300
+    hard_ceiling_secs: int | None = 5400
+    watchdog_poll_secs: int = 30
+    max_consecutive_errors: int = 5
+    watchdog_debug: bool = False
+    # Grace window before an unanswered permission `ask` (detected in the
+    # opencode server log) is treated as a fatal headless deadlock and the run
+    # is killed. In headless dispatches no `ask` can be answered, so this is
+    # short; it only absorbs a transiently-logged ask that opencode resolves
+    # via a saved "always" approval (impossible for skip-perms subagents).
+    permission_ask_grace_secs: int = 60
+    # Path to the opencode server's log file, shared via the opencode-logs
+    # volume (see compose.yaml). The watchdog treats it as a per-dispatch
+    # activity signal by tracking byte growth since the run started: if the
+    # client stdout is silent (blocked on a subagent delegation) but the server
+    # log keeps growing, the agent is working and the kill is withheld. A
+    # non-growing or pre-existing log does not reset the idle clock, so it
+    # cannot mask a stuck run the way a global mtime check would. Empty string
+    # disables the signal (falls back to client-only monitoring).
+    server_log_path: str = "/home/app/.local/share/opencode/log/opencode.log"
     # Directory runner.py / beads_loop.py / dashboard.py use for per-run logs,
     # run manifests, and the bvr pages bundle. Defaults to the in-container path
     # covered by the compose bind mount; tests override it with a tmp dir.
@@ -91,26 +136,35 @@ class Settings:
                 os.environ.get("PROMPT_SCRIPT", str(_default_prompt_script()))
             ).resolve(),
             workspace=os.environ.get("ORCHESTRATOR_WORKSPACE", "/workspace"),
-            model=os.environ.get("OPENCODE_MODEL", "zai-coding-plan/glm-5"),
+            model=os.environ.get("OPENCODE_MODEL", "qwencloud/qwen3.8-max"),
+            variant=os.environ.get("OPENCODE_VARIANT", "high"),
             agent=os.environ.get("OPENCODE_AGENT", "orchestrator"),
-            max_payload_chars=int(
-                os.environ.get("WEBHOOK_MAX_PAYLOAD_CHARS", "120000")
-            ),
+            max_payload_chars=int(os.environ.get("WEBHOOK_MAX_PAYLOAD_CHARS", "120000")),
             max_body_bytes=int(
                 os.environ.get("WEBHOOK_MAX_BODY_BYTES", str(_DEFAULT_MAX_BODY_BYTES))
             ),
             log_level=os.environ.get("WEBHOOK_LOG_LEVEL", "info").lower(),
-            enable_simulator=os.environ.get("WEBHOOK_ENABLE_SIMULATOR", "")
-            .strip()
-            .lower()
+            enable_simulator=os.environ.get("WEBHOOK_ENABLE_SIMULATOR", "").strip().lower()
             in ("1", "true", "yes"),
-            beads_enabled=os.environ.get("BEADS_ENABLED", "true")
-            .strip()
-            .lower()
+            beads_enabled=os.environ.get("BEADS_ENABLED", "true").strip().lower()
             in ("1", "true", "yes"),
             beads_poll_interval=int(os.environ.get("BEADS_POLL_INTERVAL", "10")),
             beads_max_retries=int(os.environ.get("BEADS_MAX_RETRIES", "3")),
             beads_workspace_root=os.environ.get("BEADS_WORKSPACE_ROOT", "/workspace"),
             dashboard_token=(os.environ.get("DASHBOARD_TOKEN", "").strip() or None),
+            # Legacy wall-clock timeout (kept for backward compat; feeds
+            # hard_ceiling_secs when HARD_CEILING_SECS is not set).
             dispatch_timeout=_parse_optional_int("DISPATCH_TIMEOUT_SECS"),
+            idle_timeout_secs=int(os.environ.get("IDLE_TIMEOUT_SECS", "900")),
+            error_grace_secs=int(os.environ.get("ERROR_GRACE_SECS", "300")),
+            hard_ceiling_secs=_resolve_hard_ceiling(),
+            watchdog_poll_secs=int(os.environ.get("WATCHDOG_POLL_SECS", "30")),
+            max_consecutive_errors=int(os.environ.get("MAX_CONSECUTIVE_ERRORS", "5")),
+            watchdog_debug=os.environ.get("WATCHDOG_DEBUG", "").strip().lower()
+            in ("1", "true", "yes"),
+            permission_ask_grace_secs=int(os.environ.get("PERMISSION_ASK_GRACE_SECS", "60")),
+            server_log_path=os.environ.get(
+                "OPENCODE_SERVER_LOG_PATH",
+                "/home/app/.local/share/opencode/log/opencode.log",
+            ),
         )

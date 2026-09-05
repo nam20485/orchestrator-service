@@ -17,15 +17,16 @@
 ## Learned Workspace Facts
 
 - Docker image uses `debian:trixie-20260518-slim`, runs `opencode serve` on `0.0.0.0:4099`, and bundles Node.js 24.14.0, pwsh 7.6.2 LTS, uv, gh CLI, Python3, ripgrep, jq, and agent utilities (git, make, openssh-client, gnupg, patch, xz-utils, file, procps); Node and pwsh install from linux-x64 `.tar.gz` tarballs (image is amd64-only; PowerShell uses GitHub tarball because Microsoft apt repo fails on trixie SHA1 policy).
-- Authoritative architecture docs: `plan_docs/agent-loop-refactor/architecture.md` and `plan_docs/agent-loop-refactor/application_plan.md` (three-tier Beads pipeline). Original OpenCode server POR (`plan_docs/archive/plan.md`), supervisor spec (`plan_docs/archive/orchestration_supervisor.md`), and maestro options (`plan_docs/archive/maestro_architecture_options.md`) are archived and do NOT reflect current architecture.
-- OpenCode server config source of truth is repo `image/` (`opencode.json`, `AGENTS.md`, `.opencode/agents/`, `.opencode/commands/`); Dockerfile copies those into `/app` (no full-repo `COPY . .`), then installs the `.opencode/` tree into the global config dir (`/home/app/.config/opencode`) so `opencode serve` auto-loads it. The entrypoint does NOT export `OPENCODE_CONFIG`/`OPENCODE_CONFIG_DIR` — `opencode serve` auto-loads config from `~/.config/opencode`.
+- Authoritative architecture refs: `docs/deployment-compose.md` (docker-compose runtime) and `plan_docs/three-repo-oveall-architecture-inspection-update-plan.md` (multi-repo software factory: template `intel-agency/agent-context` + factory `nam20485/workflow-launch2` + this runtime + `nam20485/agent-instructions` workflow store). Original OpenCode server POR (`plan_docs/.archived/plan.md`), supervisor spec (`plan_docs/.deferred/maestro_supervisor/orchestration_supervisor.md`), and maestro options (`plan_docs/.deferred/maestro_supervisor/maestro_architecture_options.md`) are archived/deferred and do NOT reflect current architecture.
+- OpenCode server config source of truth is the repo `image/.opencode/` tree (`opencode.json`, `AGENTS.md` — the docker image's AGENTS.md — plus `agents/`, `commands/`, `skills/`); top-level `image/` also ships `local_ai_instruction_modules/` and `.github/` but holds no loose config files. The Dockerfile `COPY image/ /app/`, then relocates `.opencode/` into the global config dir (`/home/app/.config/opencode`) so `opencode serve` auto-loads it (no full-repo `COPY . .`). The entrypoint does NOT export `OPENCODE_CONFIG`/`OPENCODE_CONFIG_DIR` — `opencode serve` auto-loads config from `~/.config/opencode`.
 - Agent sessions run in `/workspace` (compose bind mount `${WORKSPACE_DIR}:/workspace`; host-side subdir is created by `scripts/prompt.ps1` before attach); `/app` is server config only—keep working tree separate from OpenCode install/config.
-- Root repo `AGENTS.md` is Cursor memory plus host-repo validation docs; the container uses `image/AGENTS.md` copied to `/app/AGENTS.md` (overwrites any root copy).
-- Provider auth: `scripts/docker-entrypoint.sh` writes `/home/app/.local/share/opencode/auth.json` from host/CI env vars before `opencode serve` starts; supported vars include `ZAI_CODING_API_KEY` (or `ZAI_API_KEY`), `OPENROUTER_API_KEY`, and `MODEL_STUDIO_API_KEY`; Alibaba Model Studio Singapore (`bailian-payg`) defaults to `bailian-payg/qwen3.6-plus` with `bailian-payg/qwen3.6-flash` as `small_model`.
+- Root repo `AGENTS.md` is Cursor memory plus host-repo validation docs; the **running agents' context** is `image/.opencode/AGENTS.md`, which the Dockerfile installs to the global config dir `/home/app/.config/opencode/AGENTS.md` (loaded because `opencode.json` sets `instructions: ["AGENTS.md"]`). Keep it aligned with the real docker-compose/Python-webhook runtime — it is NOT a GitHub template/devcontainer repo.
+- Provider auth: `scripts/docker-entrypoint.sh` writes `/home/app/.local/share/opencode/auth.json` from host/CI env vars before `opencode serve` starts; supported vars include `ZAI_CODING_API_KEY` (or `ZAI_API_KEY`), `OPENROUTER_API_KEY`, and `MODEL_STUDIO_API_KEY` (Alibaba Model Studio Singapore, provider `bailian-payg` — sets provider auth only, not the model). The default model comes from `image/.opencode/opencode.json`: `qwencloud/qwen3.8-max` (orchestrator) / `zai-coding-plan/glm-5.3-flash` (subagents) / `zai-coding-plan/glm-5.3-flash` small. The default `qwencloud/qwen3.8-max` authenticates via `QWENCLOUD_TOKEN_PLAN_API_KEY`, which is **not** written to `auth.json` by the entrypoint — it reaches the container through the compose `environment:` passthrough and is read via `{env:QWENCLOUD_TOKEN_PLAN_API_KEY}` in `image/.opencode/opencode.json`.
 - Non-root execution: all three containers run as non-root (`app` UID 1000 by default via gosu entrypoint; Caddy runs as a `caddy` user created in the image — the pinned `caddy:2.10.0-alpine` ships no non-root user — via a root entrypoint + `su-exec` drop, with `:80`/`:443` granted by a file capability on `/usr/bin/caddy` (`setcap cap_net_bind_service=+ep`) plus compose `cap_add: CAP_NET_BIND_SERVICE`). Workspace files are operator-owned — no `sudo` for cleanup. The `app`/`caddy` users are baked at **build** time (`ARG APP_UID`/`APP_GID` configure `app` only); the compose files set **no** runtime `user:` because it would bypass the root→`gosu`/`su-exec` drop and break ownership on non-1000 hosts. To run as a different UID, **rebuild** with `--build-arg APP_UID=$(id -u) --build-arg APP_GID=$(id -g)` (via `compose.build.yaml`), not a runtime env var. One-time migration for pre-existing root-owned files: `sudo chown -R $(id -u):$(id -g) $WORKSPACE_DIR`.
 - `zai-coding-plan/glm-4.7` needs `ZAI_CODING_API_KEY`; `OPENROUTER_API_KEY` alone does not authenticate that provider.
 - MCP `memory-graph` in `image/opencode.json` uses `@modelcontextprotocol/server-memory` with `MEMORY_FILE_PATH=/app/.memory/memory.jsonl`; compose volume `opencode-memory` persists it. **Single-writer invariant:** only the Orchestrator calls memory write tools (`create_entities`/`create_relations`/`add_observations`/`delete_*`); subagents are READ-ONLY and return facts via a `## Memory Save Requests` hand-off (concurrent writers corrupt the jsonl store). The `scripts/docker-entrypoint.sh` self-heals a corrupted `memory.jsonl` at startup.
 - OpenCode config: use `default_agent` (not `agent`); remote MCPs like `microsoft-learn` need `type: "remote"` and `enabled: true`.
+- **Permission model: `"permission": "allow"` in `opencode.json` + `--auto` CLI flag** (DEFINITIVE FIX, 2026-07-24). The prior `--dangerously-skip-permissions` flag was a **rejected opencode PR** (#14583, closed Feb 2026) — silently ignored by opencode v1.18.4, meaning every dispatch ran with zero permission bypass and bash commands resolved to `ask` → deadlock. The fix is two-layer: (1) `image/.opencode/opencode.json` sets `"permission": "allow"` which is a **server-side config** that governs ALL sessions including task-spawned subagents — no `ask` events can fire; (2) `scripts/prompt.ps1` passes `--auto` (the documented opencode flag that auto-approves anything not explicitly denied) as belt-and-suspenders. The watchdog `_PermissionAskMonitor` (60s grace) remains as a safety net for any edge case. Subagent scratch should still prefer `<workspace>/.scratch/` over `/tmp` as defense-in-depth, but the deadlock is now prevented at the server level.
 - Compose `environment: - VAR` passes host shell env into the container; `${VAR}` adds `.env` interpolation—this project does not use `.env`.
 - Host client scripts: `scripts/prompt.ps1`, `scripts/attach.ps1` (PowerShell thin wrappers to local `opencode`; pwsh is a host prerequisite); one-shot via `opencode run --attach <url>`, interactive via `opencode attach <url>`.
 - GitHub webhook stack: `webhook_receiver/` FastAPI validates App webhooks with `OS_WEBHOOK_SECRET` and dispatches OpenCode via `scripts/prompt.ps1` (`-PromptFile` for large payloads); `webhook-receiver` (internal :8080) behind `webhook-proxy` (Caddy on host :80; prod TLS via `compose.https.yaml` for :443); path `/webhooks/github`. Hybrid auth: App for delivery/subscriptions; agent `gh`/API uses `GH_ORCHESTRATION_AGENT_TOKEN` (PAT), not installation JWT. Subscribing to `issues` requires App **Issues: Read** (read is enough for webhook delivery). Dev simulator at `/simulator` when `WEBHOOK_ENABLE_SIMULATOR=1` (off by default), `OS_WEBHOOK_SECRET` injected server-side. Local Funnel: `compose.yaml` only; prod: `COMPOSE_FILE=compose.yaml:compose.https.yaml`.
@@ -40,10 +41,10 @@ The GitHub Actions + webhook-driven AI orchestration runtime. It is the running 
 
 ### nam20485/workflow-launch2 (repo factory)
 
-The repo that stamps out new project instances from a GitHub template. Two scripts form the entry point:
+The repo that stamps out new project instances from the **`intel-agency/agent-context`** GitHub template. The canonical entry point is one script that chains the full pipeline:
 
-- **`scripts/create-repo-from-slug.ps1`** — thin entry point. Params: `-Slug` (required, validated `^[A-Za-z0-9_.-]+$`), `-Visibility` (`public`/`private`, default `public`), `-Owner` (default `intel-agency`), `-Yes`, `-LaunchAgent`, `-Count` (default `1`). It delegates to `create-repo-with-plan-docs.ps1` with `-PlanDocsDir ./plan_docs/$Slug`.
-- **`scripts/create-repo-with-plan-docs.ps1`** — the full pipeline (`#requires -Version 7.0`). Creates one or more repos named `<RepoName>-<randomSuffix>` (letter suffixes appended when `-Count > 1`) under `-Owner`, creates the repo secret `GEMINI_API_KEY` and a `VERSION_PREFIX` repo variable, clones each locally, copies the slug's `plan_docs/` into the new repo's `plan_docs/`, replaces template placeholders (template name → new repo name, template owner → owner), commits, pushes, then triggers `project-setup`. Params: `-RepoName`, `-Owner`, `-PlanDocsDir`, `-CloneParentDir`, `-Visibility`, `-DryRun`, `-Yes`, `-LaunchEditor`, `-Count`. The GitHub template it clones is `intel-agency/ai-new-workflow-app-template` (not this repo directly).
+- **`scripts/create-repo-agent-context.ps1`** — entry point (params: `-Slug`, `-Owner` default `nam20485`, `-Visibility`, `-Count`, `-Yes`, `-TriggerHierarchyInit`). It chains: `create-repo-with-plan-docs.ps1` (engine: `gh repo create --template intel-agency/agent-context`, name `<Slug>-<suffix>`, seed `plan_docs/<slug>/`, placeholder + `AGENTS.md` anchor replace, seed commit+push) → `cleanup-template-state.ps1` (Class-2: blank `.agents/memory.md`, clear template plans) → `import-labels.ps1` (`.github/.labels.json`) → `trigger-gh-issue-tracking-init.ps1` (file the dispatch issue).
+- **`scripts/create-repo-with-plan-docs.ps1`** — the shared engine underneath (`-SkipProjectSetup` is additive). `create-repo-from-slug.ps1` + template `ai-new-workflow-app-template` + the `orchestration:dispatch` trigger are the **legacy, superseded** path.
 
 Each slug under `plan_docs/` is an application spec keyed by app-name slug (e.g. `gap-miner-v2`, `accp`, `Helix3D`, `advanced-memory-v0`, `job-command-center`); that slug directory's plan/architecture docs are seeded into the new repo's `plan_docs/`.
 
@@ -53,14 +54,14 @@ The canonical, single-source-of-truth repository for dynamic workflows and workf
 
 ### How a new project is created
 
-1. `workflow-launch2` runs `create-repo-from-slug.ps1 -Slug <app>` → `create-repo-with-plan-docs.ps1` creates `<app>-<randomSuffix>` from the `ai-new-workflow-app-template` template, seeds `plan_docs/` from the slug directory, replaces template placeholders, commits, and pushes.
-2. The factory then runs `trigger-project-setup.ps1`, which opens a dispatch issue on the new repo (label `orchestration:dispatch`, body `/orchestrate-dynamic-workflow` + `$workflow_name = project-setup`). Separately, the instance's `validate` CI runs on push.
-3. The webhook receiver dispatches the orchestrator, which fetches the `project-setup` workflow + assignments from `agent-instructions` and walks the per-assignment script to completion.
-4. The codename suffixes (e.g. `gap-miner-v2-delta48`, `…-november10`) are each a distinct instance created this way — useful for A/B comparisons such as the glm-4.7-vs-glm-5 delegation experiment.
+1. `workflow-launch2` runs `create-repo-agent-context.ps1 -Slug <app>`, which creates `<app>-<suffix>` from the **`intel-agency/agent-context`** template, seeds `plan_docs/` from the slug directory, replaces template placeholders (incl. the `AGENTS.md` `**GitHub template repo**` → `**project instance**` anchor), runs Class-2 cleanup, imports labels, commits, and pushes.
+2. The factory then files the dispatch issue via `trigger-gh-issue-tracking-init.ps1`: **label `gh-issue-tracking:direct-body`**, body **`/gh-issue-tracking-init`** (gated by `DIRECT_BODY_ALLOWED_SENDERS`). *(Legacy: `orchestration:dispatch` + `/orchestrate-dynamic-workflow project-setup` — superseded for agent-context clones.)*
+3. A GitHub webhook delivers the `issues:labeled` event to this repo's `webhook_receiver` (FastAPI), which matches the label, renders the prompt, and dispatches a non-interactive `opencode run --attach http://orchestratorservice:4099 --dir /workspace/<slug> --agent orchestrator` via `scripts/prompt.ps1`. The orchestrator fetches workflow definitions fresh from `agent-instructions` at dispatch time.
+4. The codename suffixes (e.g. `gap-miner-v2-tango85`, `…-delta48`) are each a distinct instance created this way — useful for A/B comparisons such as the glm-4.7-vs-glm-5 delegation experiment.
 
 ## Current Architecture
 
-The system is a **three-tier software factory** built around the Beads DAG ecosystem. Authoritative architecture docs: `plan_docs/agent-loop-refactor/architecture.md` and `plan_docs/agent-loop-refactor/application_plan.md`.
+The system is a **three-tier software factory** built around the Beads DAG ecosystem. Authoritative architecture refs: `docs/deployment-compose.md` (runtime) and `plan_docs/three-repo-oveall-architecture-inspection-update-plan.md` (multi-repo factory).
 
 ### Three-Tier Pipeline
 
@@ -107,10 +108,10 @@ The Beads pipeline is **additive**. The existing label-driven orchestration (`or
 
 These docs are **historical/archived** and do NOT reflect current architecture. Do not use them for implementation guidance:
 
-- `plan_docs/archive/plan.md` — Original OpenCode Server POR. Uses port 4096 (now 4099). Describes `scripts/opencode/prompt.sh` (now `scripts/prompt.ps1`). Predates the beads integration.
-- `plan_docs/archive/orchestration_supervisor.md` — Future maestro/supervisor design. NOT implemented. Describes leapfrog recovery pattern.
-- `plan_docs/archive/maestro_architecture_options.md` — Future architecture options for the maestro. NOT implemented.
-- `docs/agent-loop-dev-plans/` — Original refactor plans with inaccuracies. Corrected by `plan_docs/agent-loop-refactor/architecture.md` ("Corrections from Original Plans" section).
+- `plan_docs/.archived/plan.md` — Original OpenCode Server POR. Uses port 4096 (now 4099). Describes `scripts/opencode/prompt.sh` (now `scripts/prompt.ps1`). Predates the beads integration.
+- `plan_docs/.deferred/maestro_supervisor/orchestration_supervisor.md` — Future maestro/supervisor design. NOT implemented. Describes leapfrog recovery pattern.
+- `plan_docs/.deferred/maestro_supervisor/maestro_architecture_options.md` — Future architecture options for the maestro. NOT implemented.
+- Current architecture (replaces the former `docs/agent-loop-dev-plans/` + `plan_docs/agent-loop-refactor/` pointers, which no longer exist): `docs/deployment-compose.md` and `plan_docs/three-repo-oveall-architecture-inspection-update-plan.md`.
 
 ## Validation
 
@@ -199,6 +200,7 @@ Use orchestration agents to **decompose and delegate** work instead of implement
 - Always make the smallest, most surgical change possible.
 - Only make changes that are necessary to fix the issue at hand.
 - Ignore areas not relevant to the current task.
+- **Bash tool: never use heredocs (`<<'EOF'`)** — the tool-parameter JSON serializer cannot handle literal `<` characters. For multi-line commit messages or any multi-line string, use a plain double-quoted string with embedded newlines: `git commit -m "first line\n\nsecond line"`. For multi-line file writes, use the `write` tool instead.
 
 ## Investigation
 
@@ -231,8 +233,15 @@ PowerShell thin wrappers and helpers. Dot-source auth helpers; run others direct
 | `import-labels.ps1` | Sync labels from a JSON export (`gh api .../labels`) into a repo (create/update/`-DeleteMissing`). | `pwsh -File ./scripts/import-labels.ps1 -Repo owner/repo -LabelsFile ./.labels.json [-DeleteMissing]`. |
 | `create-milestones.ps1` | Create milestones from `-Titles` or `-TitlesFile`. | `pwsh -File ./scripts/create-milestones.ps1 -Repo owner/repo -Titles "Phase 1","Phase 2" [-DryRun] [-SkipExisting]`. |
 | `test-github-permissions.ps1` | Verify gh auth + scopes (repo, project) and repo/milestone/branch/PR operations. | `pwsh -File ./scripts/test-github-permissions.ps1 -Owner <user>`; add `-AutoFixAuth` to refresh scopes. |
+| `dc.ps1` | Thin `docker compose` wrapper that selects the published image tag via `IMAGE_REF` (add `-Build` to build local images). | `pwsh -File ./scripts/dc.ps1 …` in place of `docker compose …`. |
+| `export-openapi.py` | Export the `webhook_receiver` FastAPI OpenAPI schema to `docs/openapi.json` with deterministic config. | `python scripts/export-openapi.py` (regenerates the committed `docs/openapi.json`). |
+| `git-trust.sh` | Mark bind-mounted repos safe for git so root-running containers don't reject them. | Runs inside containers / dot-sourced; not invoked manually by operators. |
+| `init-project-workspace.ps1` | Initialize a per-project workspace directory + git repo (shared helper, dot-sourced by `prompt.ps1`/`attach.ps1`). | Dot-sourced; creates `/workspace/<slug>/` before attach. |
+| `link-github-tracker.ps1` | Backfill/repair: link GitHub issues to a Project V2 + milestone and link PRs to issues. | `pwsh -File ./scripts/link-github-tracker.ps1 -Owner <o> -Repo <r> …`. |
+| `sync-agent-instruction-indices.ps1` | Reconcile two local agent-instruction indices against canonical `nam20485/agent-instructions` via the GitHub Contents API. | `pwsh -File ./scripts/sync-agent-instruction-indices.ps1`. |
+| `webhook-entrypoint.sh` | `webhook-receiver` container entrypoint: chowns the run-log bind mount to the app user, then drops privileges via `gosu`. | Runs as the container entrypoint; not invoked manually. |
 
-Notes: `prompt.ps1`/`attach.ps1` resolve server URL as: `-ServerUrl` > `$OPENCODE_SERVER_URL` > `$OPENCODE_HOST`/`$OPENCODE_PORT` > `http://localhost:4099`. They rely on host `OPENCODE_SERVER_PASSWORD` (never hardcoded). Default model in `prompt.ps1` is `zai-coding-plan/glm-4.7`.
+Notes: `prompt.ps1`/`attach.ps1` resolve server URL as: `-ServerUrl` > `$OPENCODE_SERVER_URL` > `$OPENCODE_HOST`/`$OPENCODE_PORT` > `http://localhost:4099`. They rely on host `OPENCODE_SERVER_PASSWORD` (never hardcoded). Default model in `prompt.ps1` is `qwencloud/qwen3.8-max`. `prompt.ps1` passes `--auto` by default (param `$Auto = "true"`) and appends `--variant <value>` only when `-Variant` is supplied (default empty → omitted); it also supports `-Thinking`/`-PrintLogs`.
 
 ## After Push
 
@@ -313,7 +322,7 @@ Always use sequential-thinking and the Memory knowledge-graph for all non-trivia
 
 ### Web & Repository Research (Z.AI MCP)
 
-Three **remote** Z.AI MCP servers authenticate via the `Authorization: {env:Z_AI_API_KEY}` header and require no local install. Use them for reliable, structured external information retrieval instead of ad-hoc fetching.
+Three **remote** Z.AI MCP servers authenticate via the `Authorization: {env:ZAI_CODING_API_KEY}` header and require no local install. Use them for reliable, structured external information retrieval instead of ad-hoc fetching.
 
 - **`web-search-prime`** → `webSearchPrime` — Web search returning titles, URLs, summaries, site names, and icons. Use for best-practice surveys, competitive analysis, dependency/API research, and factual questions needing current external info. Key params: `content_size` (`medium` default, `high` for comprehensive), `location` (`cn` / `us`), `search_domain_filter` (whitelist a domain), `search_recency_filter` (`oneDay` / `oneWeek` / `oneMonth` / `oneYear` / `noLimit`). Keep queries ≤ 70 chars.
 - **`web-reader`** → `webReader` — Fetches a URL and converts it to large-model-friendly input (markdown/text/html). Returns page title, main content, metadata, and optional link/image summaries. Use to read API docs, articles, release notes, and reference pages. Prefer this over generic `webfetch` when available.
@@ -327,7 +336,7 @@ Decision points:
 
 ### Exa Search (MCP)
 
-The **remote** Exa MCP server authenticates via `exaApiKey={env:EXA_API_KEY}` and requires no local install. Use it as a complement to Z.AI when its neural search, code-context, or crawling fits better.
+The **remote** Exa MCP server authenticates via the `x-api-key` header (`{env:EXA_API_KEY}`) and requires no local install. Use it as a complement to Z.AI when its neural search, code-context, or crawling fits better.
 
 - **`web_search_exa`** — Keyword/neural web search. Fallback when Z.AI `webSearchPrime` is rate-limited.
 - **`web_search_advanced_exa`** — Filtered search (date, domain, text-match, count). Scoped queries.

@@ -53,8 +53,34 @@ def should_filter(line: str) -> bool:
 
 _EVENT_ALLOW: set[str] = {"issues"}
 _ACTION_ALLOW: set[str] = {"labeled"}
-_LABEL_PREFIXES: tuple[str, ...] = ("orchestration:",)
+# Both colon-prefixed namespaces are dispatch-trigger label spaces: every
+# ``orchestration:*`` and ``gh-issue-tracking:*`` label maps to a match clause
+# in orchestration_prompt.jinja2.md. The gh-issue-tracking hierarchy taxonomy
+# uses BARE names (plan/epic/story/task — see skill labels.json), so these
+# prefixes never collide with organizational labels.
+_LABEL_PREFIXES: tuple[str, ...] = ("orchestration:", "gh-issue-tracking:")
 _LABEL_EXACT: set[str] = {"implementation:ready", "implementation:complete"}
+
+# The ``gh-issue-tracking:direct-body`` label dispatches the ENTIRE issue body
+# VERBATIM as the orchestrator prompt (no workflow-name parsing or argument
+# boundary — see the prompt's direct-body clause). The resulting run inherits
+# the orchestration GitHub token plus ``--auto``, so
+# unrestricted access would let anyone with label rights escalate to arbitrary
+# privileged-agent execution (a confused-deputy risk). It is therefore gated
+# to an explicit allowlist of trusted sender logins (env
+# ``DIRECT_BODY_ALLOWED_SENDERS``, comma-separated). When the allowlist is
+# unset/empty, direct-body dispatch is fail-closed (rejected).
+_DIRECT_BODY_LABEL = "gh-issue-tracking:direct-body"
+
+
+def _direct_body_allowed_senders() -> set[str]:
+    """Lowercased set of trusted senders permitted to use direct-body dispatch.
+
+    Read live from the environment on each call so test/runtime overrides take
+    effect without a module reload.
+    """
+    raw = os.environ.get("DIRECT_BODY_ALLOWED_SENDERS", "")
+    return {s.strip().lower() for s in raw.split(",") if s.strip()}
 
 
 def _is_workflow_label(name: str) -> bool:
@@ -90,4 +116,33 @@ def should_dispatch(event: str, payload: dict) -> tuple[bool, str]:
     label_name = str((payload.get("label") or {}).get("name") or "")
     if not _is_workflow_label(label_name):
         return False, f"label {label_name!r} not workflow-relevant"
+
+    # direct-body executes the issue body VERBATIM as the orchestrator prompt
+    # with the orchestration token + --auto. The prompt's direct-body clause
+    # matches on the issue's FULL label set (``labels contains: ...``), not the
+    # triggering label — and a denied direct-body dispatch leaves the label on
+    # the issue. A later labeled event with any other workflow label would
+    # re-select that clause, so the allowlist must gate on the issue's current
+    # labels as well as the trigger: every dispatch that can run the body
+    # verbatim requires an explicitly trusted sender (env
+    # ``DIRECT_BODY_ALLOWED_SENDERS``, comma-separated). When the allowlist is
+    # unset/empty, direct-body dispatch is fail-closed (rejected).
+    issue_labels = {
+        str(lbl.get("name") or "").strip().lower()
+        for lbl in (payload.get("issue") or {}).get("labels") or []
+        if isinstance(lbl, dict)
+    }
+    if _DIRECT_BODY_LABEL in issue_labels or label_name.lower() == _DIRECT_BODY_LABEL:
+        allowed_senders = _direct_body_allowed_senders()
+        if not allowed_senders:
+            return (
+                False,
+                "direct-body dispatch disabled "
+                "(set DIRECT_BODY_ALLOWED_SENDERS to enable)",
+            )
+        if sender.lower() not in allowed_senders:
+            return (
+                False,
+                f"direct-body dispatch not permitted for sender {sender!r}",
+            )
     return True, "allowed"
