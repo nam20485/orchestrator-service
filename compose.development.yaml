@@ -19,7 +19,7 @@ services:
       - EXA_API_KEY=${EXA_API_KEY}
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
       - MODEL_STUDIO_API_KEY=${MODEL_STUDIO_API_KEY}
-      - MS_DS_API_KEY=${MS_DS_API_KEY}
+      - QWENCLOUD_TOKEN_PLAN_API_KEY=${QWENCLOUD_TOKEN_PLAN_API_KEY}
       # Alternate model providers (optional — only used when selected).
       - NVIDIA_NIM_API_KEY=${NVIDIA_NIM_API_KEY}
       - NVIDIA_NIM_BASE_URL=${NVIDIA_NIM_BASE_URL}

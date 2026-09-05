@@ -136,23 +136,17 @@ class Settings:
                 os.environ.get("PROMPT_SCRIPT", str(_default_prompt_script()))
             ).resolve(),
             workspace=os.environ.get("ORCHESTRATOR_WORKSPACE", "/workspace"),
-            model=os.environ.get("OPENCODE_MODEL", "zai-coding-plan/glm-5"),
+            model=os.environ.get("OPENCODE_MODEL", "qwencloud/qwen3.8-max"),
             variant=os.environ.get("OPENCODE_VARIANT", "high"),
             agent=os.environ.get("OPENCODE_AGENT", "orchestrator"),
-            max_payload_chars=int(
-                os.environ.get("WEBHOOK_MAX_PAYLOAD_CHARS", "120000")
-            ),
+            max_payload_chars=int(os.environ.get("WEBHOOK_MAX_PAYLOAD_CHARS", "120000")),
             max_body_bytes=int(
                 os.environ.get("WEBHOOK_MAX_BODY_BYTES", str(_DEFAULT_MAX_BODY_BYTES))
             ),
             log_level=os.environ.get("WEBHOOK_LOG_LEVEL", "info").lower(),
-            enable_simulator=os.environ.get("WEBHOOK_ENABLE_SIMULATOR", "")
-            .strip()
-            .lower()
+            enable_simulator=os.environ.get("WEBHOOK_ENABLE_SIMULATOR", "").strip().lower()
             in ("1", "true", "yes"),
-            beads_enabled=os.environ.get("BEADS_ENABLED", "true")
-            .strip()
-            .lower()
+            beads_enabled=os.environ.get("BEADS_ENABLED", "true").strip().lower()
             in ("1", "true", "yes"),
             beads_poll_interval=int(os.environ.get("BEADS_POLL_INTERVAL", "10")),
             beads_max_retries=int(os.environ.get("BEADS_MAX_RETRIES", "3")),
@@ -165,16 +159,10 @@ class Settings:
             error_grace_secs=int(os.environ.get("ERROR_GRACE_SECS", "300")),
             hard_ceiling_secs=_resolve_hard_ceiling(),
             watchdog_poll_secs=int(os.environ.get("WATCHDOG_POLL_SECS", "30")),
-            max_consecutive_errors=int(
-                os.environ.get("MAX_CONSECUTIVE_ERRORS", "5")
-            ),
-            watchdog_debug=os.environ.get("WATCHDOG_DEBUG", "")
-            .strip()
-            .lower()
+            max_consecutive_errors=int(os.environ.get("MAX_CONSECUTIVE_ERRORS", "5")),
+            watchdog_debug=os.environ.get("WATCHDOG_DEBUG", "").strip().lower()
             in ("1", "true", "yes"),
-            permission_ask_grace_secs=int(
-                os.environ.get("PERMISSION_ASK_GRACE_SECS", "60")
-            ),
+            permission_ask_grace_secs=int(os.environ.get("PERMISSION_ASK_GRACE_SECS", "60")),
             server_log_path=os.environ.get(
                 "OPENCODE_SERVER_LOG_PATH",
                 "/home/app/.local/share/opencode/log/opencode.log",

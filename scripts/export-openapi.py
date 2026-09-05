@@ -35,7 +35,7 @@ def _fixed_settings() -> Settings:
         opencode_server_url="http://orchestratorservice:4099",
         prompt_script=REPO_ROOT / "scripts" / "prompt.ps1",
         workspace="/workspace",
-        model="zai-coding-plan/glm-5",
+        model="qwencloud/qwen3.8-max",
         agent="orchestrator",
         max_payload_chars=120000,
         max_body_bytes=25 * 1024 * 1024,

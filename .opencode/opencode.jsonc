@@ -1,10 +1,12 @@
 {
   "$schema": "https://opencode.ai/config.json",
   "lsp": true,
-  "instructions": ["AGENTS.md"],
+  "instructions": [
+    "AGENTS.md"
+  ],
   "default_agent": "orchestrator",
-  "model": "zai-coding-plan/glm-5.2",
-  "small_model": "zai-coding-plan/glm-4.5-air",
+  "model": "qwencloud/qwen3.8-max",
+  "small_model": "zai-coding-plan/glm-5.3-flash",
   "mcp": {
     "sequential-thinking": {
       "type": "local",
@@ -16,9 +18,19 @@
     },
     "memory-graph": {
       "type": "local",
-      "command": ["npx", "-y", "@modelcontextprotocol/server-memory"],
+      "command": [
+        "npx",
+        "-y",
+        "@modelcontextprotocol/server-memory"
+      ],
       "environment": {
-        "MEMORY_FILE_PATH": "/app/.memory/memory.jsonl",
+        // Host-side project config: use the host memory store (same file as
+        // the global ~/.config/opencode/opencode.jsonc). The container copy
+        // (image/.opencode/opencode.json) keeps /app/.memory/memory.jsonl
+        // (persisted by the `opencode-memory` compose volume) — /app does
+        // not exist on the host. {env:HOME} keeps this portable across
+        // contributors instead of hardcoding one developer's home dir.
+        "MEMORY_FILE_PATH": "{env:HOME}/.local/share/opencode/memory.jsonl",
       },
     },
     "web-reader": {
@@ -44,7 +56,10 @@
     },
     "exa": {
       "type": "remote",
-      "url": "https://mcp.exa.ai/mcp?tools=web_search_exa,web_fetch_exa,web_search_advanced_exa,get_code_context_exa,crawling_exa&exaApiKey={env:EXA_API_KEY}",
+      "url": "https://mcp.exa.ai/mcp?tools=web_search_exa,web_fetch_exa,web_search_advanced_exa,get_code_context_exa,crawling_exa",
+      "headers": {
+        "x-api-key": "{env:EXA_API_KEY}",
+      },
       "enabled": true,
     },
   },
@@ -62,78 +77,17 @@
         "glm-5.2": {
           "name": "GLM 5.2",
         },
+        "glm-5.3": {
+          "name": "GLM 5.3",
+        },
+        "glm-5.3-flash": {
+          "name": "GLM 5.3 Flash",
+        },
         "glm-4.7": {
           "name": "GLM 4.7",
         },
         "glm-4.5-air": {
           "name": "GLM 4.5 Air",
-        },
-      },
-    },
-    // OpenCode Go subscription — built-in provider (creds resolved from
-    // auth.json; env fallback OPENCODE_GO_API_KEY).
-    "opencode-go": {
-      "models": {
-        // @ai-sdk/openai-compatible  — https://opencode.ai/zen/go/v1/chat/completions
-        "glm-5.2": {
-          "name": "GLM 5.2",
-        },
-        "glm-5.1": {
-          "name": "GLM 5.1",
-        },
-        "kimi-k2.7-code": {
-          "name": "Kimi K2.7 Code",
-        },
-        "kimi-k2.6": {
-          "name": "Kimi K2.6",
-        },
-        "deepseek-v4-pro": {
-          "name": "DeepSeek V4 Pro",
-        },
-        "deepseek-v4-flash": {
-          "name": "DeepSeek V4 Flash",
-        },
-        "mimo-v2.5": {
-          "name": "MiMo V2.5",
-        },
-        "mimo-v2.5-pro": {
-          "name": "MiMo V2.5 Pro",
-        },
-        // @ai-sdk/anthropic          — https://opencode.ai/zen/go/v1/messages
-        "minimax-m3": {
-          "name": "MiniMax M3",
-        },
-        "minimax-m2.7": {
-          "name": "MiniMax M2.7",
-        },
-        "minimax-m2.5": {
-          "name": "MiniMax M2.5",
-        },
-        "qwen3.7-max": {
-          "name": "Qwen 3.7 Max",
-        },
-        "qwen3.7-plus": {
-          "name": "Qwen 3.7 Plus",
-        },
-        "qwen3.6-plus": {
-          "name": "Qwen 3.6 Plus",
-        },
-      },
-    },
-    // NVIDIA NIM — built-in provider (build.nvidia.com). Credentials and the
-    // NIM base URL are resolved from env: NVIDIA_NIM_API_KEY and
-    // NVIDIA_NIM_BASE_URL (defaults to https://integrate.api.nvidia.com/v1).
-    // The built-in "nvidia" provider normally reads NVIDIA_API_KEY, so the
-    // apiKey option below overrides it to use the NIM key.
-    "nvidia": {
-      "options": {
-        "apiKey": "{env:NVIDIA_NIM_API_KEY}",
-        "baseURL": "{env:NVIDIA_NIM_BASE_URL}",
-      },
-      "models": {
-        "minimaxai/minimax-m3": {
-          "name": "MiniMax M3",
-          "tool_call": true,
         },
       },
     },
@@ -179,6 +133,107 @@
           "name": "Qwen 3.7 Plus",
         },
       },
+    },
+    "qwencloud": {
+      "npm": "@ai-sdk/anthropic",
+      "name": "QwenCloud",
+      "options": {
+        "baseURL": "https://token-plan.ap-southeast-1.maas.aliyuncs.com/apps/anthropic/v1",
+        "apiKey": "{env:QWENCLOUD_TOKEN_PLAN_API_KEY}"
+      },
+      "models": {
+        "qwen3.8-max": {
+          "name": "Qwen3.8 Max",
+          "limit": {
+            "context": 983616,
+            "output": 131072
+          },
+          "options": {
+            "thinking": {
+              "type": "enabled", // always enabled by default/cannot be disabled
+              "budgetTokens": 99072
+            },
+            "temperature": 0.6, // >= 0.6
+            "reasoning": true,
+          },
+        },
+        "qwen3.8-flash": {
+          "name": "Qwen3.8 Flash",
+          "limit": {
+            "context": 983616,
+            "output": 65536
+          },
+          "options": {
+            "thinking": {
+              "type": "enabled",
+              "budgetTokens": 16384,
+            },
+          },
+        },
+        "qwen3.7-max": {
+          "name": "Qwen3.7 Max",
+          "options": {
+            "thinking": {
+              "type": "enabled",
+              "budgetTokens": 8192,
+            },
+          },
+        },
+        "qwen3.7-plus": {
+          "name": "Qwen3.7 Plus",
+          "modalities": {
+            "input": [
+              "text",
+              "image"
+            ],
+            "output": [
+              "text"
+            ],
+          },
+          "options": {
+            "thinking": {
+              "type": "enabled",
+              "budgetTokens": 8192,
+            },
+          },
+        },
+        "qwen3.6-plus": {
+          "name": "Qwen3.6 Plus",
+          "modalities": {
+            "input": [
+              "text",
+              "image"
+            ],
+            "output": [
+              "text"
+            ],
+          },
+          "options": {
+            "thinking": {
+              "type": "enabled",
+              "budgetTokens": 8192,
+            },
+          },
+        },
+        "qwen3.6-flash": {
+          "name": "Qwen3.6 Flash",
+          "modalities": {
+            "input": [
+              "text",
+              "image"
+            ],
+            "output": [
+              "text"
+            ],
+          },
+          "options": {
+            "thinking": {
+              "type": "enabled",
+              "budgetTokens": 8192,
+            }
+          }
+        }
+      }
     }
   }
 }
