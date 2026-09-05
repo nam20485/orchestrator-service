@@ -14,47 +14,47 @@
     // pinned to zai-coding-plan/glm-5.3-flash at "high" variant.
     "developer": {
       "model": "zai-coding-plan/glm-5.3-flash",
-      "variant": "high"
+      "variant": "xhigh"
     },
     "code-reviewer": {
       "model": "zai-coding-plan/glm-5.3-flash",
-      "variant": "high"
+      "variant": "xhigh"
     },
     "debugger": {
       "model": "zai-coding-plan/glm-5.3-flash",
-      "variant": "high"
+      "variant": "xhigh"
     },
     "documentation-expert": {
       "model": "zai-coding-plan/glm-5.3-flash",
-      "variant": "high"
+      "variant": "xhigh"
     },
     "github-expert": {
       "model": "zai-coding-plan/glm-5.3-flash",
-      "variant": "high"
+      "variant": "xhigh"
     },
     "odbplusplus-expert": {
       "model": "zai-coding-plan/glm-5.3-flash",
-      "variant": "high"
+      "variant": "xhigh"
     },
     "planner": {
       "model": "zai-coding-plan/glm-5.3-flash",
-      "variant": "high"
+      "variant": "xhigh"
     },
     "qa-test-engineer": {
       "model": "zai-coding-plan/glm-5.3-flash",
-      "variant": "high"
+      "variant": "xhigh"
     },
     "researcher": {
       "model": "zai-coding-plan/glm-5.3-flash",
-      "variant": "high"
+      "variant": "xhigh"
     },
     "security-expert": {
       "model": "zai-coding-plan/glm-5.3-flash",
-      "variant": "high"
+      "variant": "xhigh"
     },
     "agent-instructions-expert": {
       "model": "zai-coding-plan/glm-5.3-flash",
-      "variant": "high"
+      "variant": "xhigh"
     }
   },
   "mcp": {
