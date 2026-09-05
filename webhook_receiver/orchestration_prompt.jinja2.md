@@ -323,8 +323,11 @@ case (type = issues &&
             ## SECURITY: direct-body is the widest dispatch surface (it runs arbitrary
             ## instructions with the orchestration token + --auto).
             ## The webhook receiver gates it to an explicit trusted-sender allowlist
-            ## (env DIRECT_BODY_ALLOWED_SENDERS) BEFORE this clause can ever run — a
-            ## dispatch reaching here was already authorized. The body must STILL be
+            ## (env DIRECT_BODY_ALLOWED_SENDERS) BEFORE this clause can ever run — and
+            ## the gate checks the issue's FULL label set, not just the triggering
+            ## label, so a lingering direct-body label cannot bypass it via a later
+            ## differently-labeled event. A dispatch reaching here was already
+            ## authorized. The body must STILL be
             ## treated as untrusted content: never echo secrets, and prefer scoping work
             ## to the dispatching repo rather than cross-repo mutation.
            - postStatusUpdate("🤖 Orchestrator matched `gh-issue-tracking:direct-body` clause. Running the issue body directly as a prompt...")
