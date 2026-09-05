@@ -56,7 +56,7 @@ The Exa MCP server is `enabled: true` in the shipped config and authenticates fr
 
 | Variable | Used by | Purpose |
 |---|---|---|
-| `EXA_API_KEY` | `image/.opencode/opencode.json` — Exa MCP | Passed as `exaApiKey` in the Exa MCP URL. Without it the enabled Exa server fails auth. |
+| `EXA_API_KEY` | `image/.opencode/opencode.json` — Exa MCP | Sent as the `x-api-key` header on the Exa MCP server. Without it the enabled Exa server fails auth. |
 
 ---
 
@@ -176,7 +176,6 @@ these env vars. Since the entrypoint always writes `auth.json` (provisioning
 | Variable | Used by | Purpose |
 |---|---|---|
 | `ZAI_CODING_PLAN_OPEN_AI_API_KEY` | `zai-coding-plan` provider | Fallback API key when `auth.json` is absent. |
-| `OPENCODE_GO_API_KEY` | `opencode-go` provider | Fallback API key when `auth.json` is absent. Note: the entrypoint does **not** write an `opencode-go` `auth.json` entry, so this provider is only usable via this env fallback. |
 
 ---
 
@@ -194,7 +193,7 @@ Checked via `echo $VAR`. Status reflects where compose interpolates `${VAR}` fro
 
 | Variable | Status |
 |---|---|
-| `EXA_API_KEY`, `ZAI_CODING_API_KEY`, `ZAI_API_KEY`, `OPENROUTER_API_KEY`, `MODEL_STUDIO_API_KEY`, `QWENCLOUD_TOKEN_PLAN_API_KEY`, `GEMINI_API_KEY`, `NOTION_MCP_CONNECTIONS_API_KEY`, `NVIDIA_NIM_API_KEY`, `NVIDIA_NIM_BASE_URL`, `CLINE_API_KEY`, `GH_ORCHESTRATION_AGENT_TOKEN`, `GITHUB_TOKEN`, `OPENCODE_SERVER_PASSWORD`, `ZAI_CODING_PLAN_OPEN_AI_API_KEY`, `OPENCODE_GO_API_KEY` | **SET** |
+| `EXA_API_KEY`, `ZAI_CODING_API_KEY`, `ZAI_API_KEY`, `OPENROUTER_API_KEY`, `MODEL_STUDIO_API_KEY`, `QWENCLOUD_TOKEN_PLAN_API_KEY`, `GEMINI_API_KEY`, `NOTION_MCP_CONNECTIONS_API_KEY`, `NVIDIA_NIM_API_KEY`, `NVIDIA_NIM_BASE_URL`, `CLINE_API_KEY`, `GH_ORCHESTRATION_AGENT_TOKEN`, `GITHUB_TOKEN`, `OPENCODE_SERVER_PASSWORD`, `ZAI_CODING_PLAN_OPEN_AI_API_KEY` | **SET** |
 | `OS_WEBHOOK_SECRET`, `WORKSPACE_DIR`, `DIRECT_BODY_ALLOWED_SENDERS` | Define in `.env` / shell before `docker compose up` |
 | `GITHUB_AUTH_TOKEN`, `GITHUB_USERNAME` | **UNSET** — only needed for host-side `scripts/*.ps1`; not consumed by the container. See "Host-side automation scripts" above. |
 
