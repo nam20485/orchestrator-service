@@ -8,6 +8,6 @@
 		"python.languageServer": "None",
 		"markdown.validate.enabled": true,
 		"python.analysis.typeCheckingMode": "off",
-		"python.defaultInterpreterPath": "/home/nam20485/src/github/nam20485/orchestrator-service/.venv/bin/python"
+		"python.defaultInterpreterPath": "${workspaceFolder}/.venv/bin/python"
 	}
 }
