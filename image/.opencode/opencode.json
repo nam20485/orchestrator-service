@@ -177,7 +177,7 @@
         },
       },
     },
-    // QwenCloud Token Plan — OpenAI-compatible endpoint for Alibaba Cloud
+    // QwenCloud Token Plan — Anthropic-compatible endpoint for Alibaba Cloud
     // token-plan subscription models. API key resolved from env:
     // QWENCLOUD_TOKEN_PLAN_API_KEY.
     "qwencloud": {

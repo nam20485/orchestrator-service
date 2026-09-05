@@ -130,6 +130,7 @@ The authoritative, complete list (with defaults and descriptions) lives in [`doc
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `OS_WEBHOOK_SECRET` | *(required)* | Webhook secret for `X-Hub-Signature-256` |
+| `QWENCLOUD_TOKEN_PLAN_API_KEY` | *(required)* | QwenCloud Token Plan key for the default model `qwencloud/qwen3.8-max` |
 | `OPENCODE_SERVER_URL` | `http://localhost:4099` | OpenCode server for `prompt.ps1` |
 | `ORCHESTRATOR_WORKSPACE` | `/workspace` | `--dir` passed to `opencode run` |
 | `OPENCODE_MODEL` | `qwencloud/qwen3.8-max` | Model used for dispatched runs |

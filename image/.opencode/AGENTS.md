@@ -44,7 +44,7 @@ scope: repository
 
   <tech_stack>
     <item>opencode CLI (v1.18.4) — agent runtime: `opencode serve` on :4099; dispatched as `opencode run --model qwencloud/qwen3.8-max --variant high --agent orchestrator`.</item>
-    <item>Z.AI GLM models (`glm-5.3-flash` default) via `ZAI_CODING_API_KEY`; `OPENROUTER_API_KEY`, `MODEL_STUDIO_API_KEY` for alternates.</item>
+    <item>Z.AI GLM models (`glm-5.3-flash` for subagents and small model) via `ZAI_CODING_API_KEY`; orchestrator default `qwencloud/qwen3.8-max` via `QWENCLOUD_TOKEN_PLAN_API_KEY`; `OPENROUTER_API_KEY`, `MODEL_STUDIO_API_KEY` for alternates.</item>
     <item>Python (FastAPI) `webhook_receiver/` — webhook validation (HMAC), label matching, prompt rendering, dispatch.</item>
     <item>docker-compose stack — `orchestratorservice` (opencode serve :4099) + `webhook-receiver` (FastAPI :8080) + `webhook-proxy` (Caddy :80). Self-built GHCR images from this repo's `Dockerfile`/`Dockerfile.webhook` + `image/` (CI: `.github/workflows/docker-publish.yml`).</item>
     <item>PowerShell (`pwsh`) host/client scripts — `scripts/prompt.ps1` is the non-interactive dispatch wrapper.</item>

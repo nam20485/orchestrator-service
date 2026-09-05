@@ -28,8 +28,9 @@
         // the global ~/.config/opencode/opencode.jsonc). The container copy
         // (image/.opencode/opencode.json) keeps /app/.memory/memory.jsonl
         // (persisted by the `opencode-memory` compose volume) — /app does
-        // not exist on the host.
-        "MEMORY_FILE_PATH": "/home/nam20485/.local/share/opencode/memory.jsonl",
+        // not exist on the host. {env:HOME} keeps this portable across
+        // contributors instead of hardcoding one developer's home dir.
+        "MEMORY_FILE_PATH": "{env:HOME}/.local/share/opencode/memory.jsonl",
       },
     },
     "web-reader": {

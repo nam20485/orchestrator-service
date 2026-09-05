@@ -67,6 +67,7 @@ convention). Only required when the corresponding provider/model is actually sel
 
 | Variable | Used by | Purpose |
 |---|---|---|
+| `QWENCLOUD_TOKEN_PLAN_API_KEY` | `qwencloud` provider | QwenCloud Token Plan (Anthropic-compatible endpoint). Required for the default model `qwencloud/qwen3.8-max`. |
 | `ZAI_CODING_API_KEY` | Z.AI MCP servers + `zai-coding-plan` provider | Z.AI GLM models + MCP auth (see above). |
 | `GEMINI_API_KEY` | `google` built-in provider | Google AI Studio models (read directly from env by the built-in provider). |
 | `NVIDIA_NIM_API_KEY` | `nvidia` provider | NVIDIA NIM (OpenAI-compatible) API key. Optional. |
