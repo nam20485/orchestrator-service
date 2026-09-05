@@ -786,17 +786,63 @@ class TestPermissionAskMonitor:
         mon.poll(time.monotonic())
         assert mon.pending_ask is None
 
+    # Realistic server-log creation line (see traces/gap-miner-v2-lima63):
+    # the primary session carries parentID=undefined and the dispatch's own
+    # --dir as directory=.
+    _CREATION_A = (
+        "timestamp=... level=INFO run=abc message=created "
+        "id=ses_PROJECTA slug=neon-lagoon version=1.18.4 "
+        "directory=/workspace/proj-a path=\"\" workspaceID=undefined "
+        "parentID=undefined title=\"New session - ...\"\n"
+    )
+
     def test_captures_session_id_from_creation_line(self, tmp_path: Path) -> None:
         log = tmp_path / "opencode.log"
         log.write_text("baseline\n", encoding="utf-8")
-        mon = _PermissionAskMonitor(str(log))
+        mon = _PermissionAskMonitor(str(log), directory="/workspace/proj-a")
+        with log.open("a", encoding="utf-8") as fh:
+            fh.write(self._CREATION_A)
+        mon.poll(time.monotonic())
+        assert mon.session_id == "ses_PROJECTA"
+
+    def test_foreign_directory_creation_does_not_bind(self, tmp_path: Path) -> None:
+        # Near-simultaneous dispatch start (webhook burst): the OTHER run's
+        # creation line lands in this window FIRST — the client boot interval
+        # (pwsh + CLI) delays this dispatch's own creation. The foreign
+        # directory= must disqualify it; only this dispatch's own directory
+        # binds (the cross-session abort guard).
+        log = tmp_path / "opencode.log"
+        log.write_text("baseline\n", encoding="utf-8")
+        mon = _PermissionAskMonitor(str(log), directory="/workspace/proj-a")
         with log.open("a", encoding="utf-8") as fh:
             fh.write(
-                'timestamp=... level=INFO run=abc message=created '
-                "id=ses_06aab8071ffeV8TotH696WH6Gi title=\"New session - ...\"\n"
+                "timestamp=... level=INFO run=zzz message=created "
+                "id=ses_PROJECTB slug=swift-harbor version=1.18.4 "
+                "directory=/workspace/proj-b path=\"\" workspaceID=undefined "
+                "parentID=undefined title=\"New session - ...\"\n"
             )
         mon.poll(time.monotonic())
-        assert mon.session_id == "ses_06aab8071ffeV8TotH696WH6Gi"
+        assert mon.session_id is None
+        with log.open("a", encoding="utf-8") as fh:
+            fh.write(self._CREATION_A)
+        mon.poll(time.monotonic())
+        assert mon.session_id == "ses_PROJECTA"
+
+    def test_subagent_creation_line_does_not_bind(self, tmp_path: Path) -> None:
+        # Subagent sessions share the dispatch directory but carry the parent
+        # session id in parentID=; only the primary session is abortable.
+        log = tmp_path / "opencode.log"
+        log.write_text("baseline\n", encoding="utf-8")
+        mon = _PermissionAskMonitor(str(log), directory="/workspace/proj-a")
+        with log.open("a", encoding="utf-8") as fh:
+            fh.write(
+                "timestamp=... level=INFO run=abc message=created "
+                "id=ses_SUBAGENTX slug=kind-garden version=1.18.4 "
+                "directory=/workspace/proj-a path=\"\" workspaceID=undefined "
+                "parentID=ses_PROJECTA title=\"subagent task\"\n"
+            )
+        mon.poll(time.monotonic())
+        assert mon.session_id is None
 
     def test_concurrent_session_mentions_do_not_bind(self, tmp_path: Path) -> None:
         # A concurrently-running dispatch's per-message session.id mentions
@@ -805,29 +851,28 @@ class TestPermissionAskMonitor:
         # creation line born inside this window can (cross-session abort guard).
         log = tmp_path / "opencode.log"
         log.write_text("baseline\n", encoding="utf-8")
-        mon = _PermissionAskMonitor(str(log))
+        mon = _PermissionAskMonitor(str(log), directory="/workspace/proj-a")
         with log.open("a", encoding="utf-8") as fh:
             fh.write(
-                "message=process session.id=ses_OTHER mode=primary\n"
-                "message=stream providerID=zai-coding-plan session.id=ses_OTHER\n"
+                "message=process session.id=ses_OTHERX mode=primary\n"
+                "message=stream providerID=zai-coding-plan session.id=ses_OTHERX\n"
             )
         mon.poll(time.monotonic())
         assert mon.session_id is None
 
-    def test_first_creation_line_wins_over_interleaved_noise(self, tmp_path: Path) -> None:
-        # Concurrent-dispatch noise can precede this dispatch's session
-        # creation in the window; the creation line still binds correctly.
+    def test_no_directory_filter_binds_first_creation(self, tmp_path: Path) -> None:
+        # Degraded mode (no dispatch directory configured): keep the previous
+        # first-creation-wins behavior rather than binding nothing.
         log = tmp_path / "opencode.log"
         log.write_text("baseline\n", encoding="utf-8")
         mon = _PermissionAskMonitor(str(log))
         with log.open("a", encoding="utf-8") as fh:
             fh.write(
-                "message=process session.id=ses_OTHER mode=primary\n"
+                "message=process session.id=ses_OTHERX mode=primary\n"
                 "message=created id=ses_FIRST title=\"New session\"\n"
             )
         mon.poll(time.monotonic())
         with log.open("a", encoding="utf-8") as fh:
-            # A later creation (e.g. a subagent session) must not replace it.
             fh.write("message=created id=ses_SECOND title=\"New session\"\n")
         mon.poll(time.monotonic())
         assert mon.session_id == "ses_FIRST"

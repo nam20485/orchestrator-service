@@ -184,27 +184,41 @@ class _PermissionAskMonitor:
     kill of THIS dispatch (the watchdog can only signal its own child process
     group), never a kill of another dispatch's client. The one cross-session
     action the watchdog takes — the server-session abort — targets a session
-    CREATION observed inside this dispatch's log window (see
-    ``_SESSION_CREATED_RE``), so a concurrent run whose session predates this
-    window cannot be captured or aborted.
+    CREATION observed inside this dispatch's log window that also carries this
+    dispatch's ``directory=`` (``--dir``) and ``parentID=undefined`` (see
+    ``_SESSION_CREATED_RE``), so neither a concurrent run's per-message
+    mentions nor a near-simultaneous run's creation line (which names a
+    different directory) can be captured or aborted.
     """
 
     # opencode slog text format, e.g.:
     #   ... message=asking id=per_.. permission=external_directory patterns=[..]
     _ASK_RE = re.compile(r"message=asking\b.*?permission=([A-Za-z_]+)")
     _REPLIED_RE = re.compile(r"message=replied|permission\.replied")
-    # Session-creation line, e.g. ``message=created id=ses_.. title="New
-    # session - ..."``. The dispatch's opencode session id is bound ONLY to a
-    # creation line born inside this dispatch's log window: a concurrently
-    # running dispatch's per-message ``session.id=`` mentions flood the shared
-    # log continuously and must never be bound (they belong to a session that
-    # predates this window, and binding one would let the watchdog's
-    # server-session abort kill ANOTHER project's run). First creation line
-    # wins; later ones (e.g. subagent sessions) do not replace it.
+    # Session-creation line, e.g. ``message=created id=ses_.. slug=..
+    # directory=/workspace/<slug> .. parentID=undefined title="New session"``.
+    # The dispatch's opencode session id is bound ONLY to a creation line born
+    # inside this dispatch's log window AND, when the dispatch's ``--dir`` is
+    # known, carrying that exact ``directory=`` plus ``parentID=undefined``
+    # (the primary session — subagent creations carry the parent's id). A
+    # concurrently running dispatch's per-message ``session.id=`` mentions
+    # flood the shared log continuously and must never be bound; a
+    # near-simultaneous dispatch's creation line (webhook burst, client boot
+    # interval) lands in this window but names a DIFFERENT directory, which
+    # disqualifies it. Binding a foreign session would let the watchdog's
+    # server-session abort kill ANOTHER project's run. First qualifying
+    # creation wins; later ones (e.g. subagent sessions) do not replace it.
+    # Without a configured directory the monitor degrades to first-creation-
+    # wins (tests/legacy callers).
     _SESSION_CREATED_RE = re.compile(r"created id=(ses_[A-Za-z0-9]+)")
+    _CREATED_DIRECTORY_RE = re.compile(r"\bdirectory=(\S+)")
+    _CREATED_PARENT_RE = re.compile(r"\bparentID=(\S+)")
 
-    def __init__(self, path: str) -> None:
+    def __init__(self, path: str, directory: str | None = None) -> None:
         self._path: Path | None = Path(path) if path else None
+        # The dispatch's own ``--dir`` (settings.workspace), used to qualify
+        # creation lines; None disables the directory check.
+        self._directory = directory or None
         self._pos = self._size_or_zero()
         self._last_ask_time: float | None = None
         self._last_ask_detail: str = ""
@@ -215,6 +229,27 @@ class _PermissionAskMonitor:
             return self._path.stat().st_size if self._path is not None else 0
         except OSError:
             return 0
+
+    def _creation_qualifies(self, text: str, m: re.Match[str]) -> bool:
+        """Whether the creation line at *m* belongs to this dispatch.
+
+        With a configured directory the creation line must carry exactly that
+        ``directory=`` value and ``parentID=undefined`` (the primary session).
+        Without one, any creation line qualifies (first wins).
+        """
+        if self._directory is None:
+            return True
+        start = text.rfind("\n", 0, m.start()) + 1
+        end = text.find("\n", m.end())
+        line = text[start:] if end == -1 else text[start:end]
+        dm = self._CREATED_DIRECTORY_RE.search(line)
+        pm = self._CREATED_PARENT_RE.search(line)
+        return (
+            dm is not None
+            and dm.group(1) == self._directory
+            and pm is not None
+            and pm.group(1) == "undefined"
+        )
 
     def poll(self, now: float) -> None:
         """Consume new server-log bytes; track the latest unanswered ``ask``."""
@@ -238,13 +273,15 @@ class _PermissionAskMonitor:
         self._pos = size
         text = chunk.decode("utf-8", errors="replace")
         # Capture this dispatch's session id from a creation line born in this
-        # window (first wins) so the watchdog can abort the server-side
-        # session on termination — without ever binding a concurrent
-        # dispatch's session from its per-message mentions.
+        # window that qualifies as this dispatch's OWN (directory= match,
+        # primary session) so the watchdog can abort the server-side session
+        # on termination — never a concurrent dispatch's session (foreign
+        # directory, per-message mentions, or subagent creations).
         if self._session_id is None:
-            sm = self._SESSION_CREATED_RE.search(text)
-            if sm:
-                self._session_id = sm.group(1)
+            for m in self._SESSION_CREATED_RE.finditer(text):
+                if self._creation_qualifies(text, m):
+                    self._session_id = m.group(1)
+                    break
         # Position-based ask/reply resolution. Both signals can appear in the
         # same chunk (30s polls batch many events), so we cannot clear-then-set
         # unconditionally — that would re-mark an already-answered ask as
@@ -377,6 +414,12 @@ class WatchdogConfig:
     server_url: str = ""
     server_username: str = "opencode"
     server_password: str = ""
+    # The dispatch's own ``--dir`` (settings.workspace, e.g.
+    # ``/workspace/<slug>``). Anchors session-creation binding so a concurrent
+    # or near-simultaneous dispatch's session can never be captured for the
+    # server-side abort (see _PermissionAskMonitor). Empty disables the
+    # directory check (degrades to first-creation-wins).
+    session_directory: str = ""
 
     @classmethod
     def from_settings(cls, settings: object) -> WatchdogConfig:
@@ -404,6 +447,7 @@ class WatchdogConfig:
             server_url=getattr(settings, "opencode_server_url", ""),
             server_username=os.environ.get("OPENCODE_SERVER_USERNAME", "opencode"),
             server_password=os.environ.get("OPENCODE_SERVER_PASSWORD", ""),
+            session_directory=getattr(settings, "workspace", ""),
         )
 
 
@@ -472,7 +516,9 @@ class IdleWatchdog:
         )
         # Permission-ask deadlock scanner (headless fail-fast). Shares the same
         # server-log path as the growth monitor but tracks its own read offset.
-        self._ask_monitor = _PermissionAskMonitor(config.server_log_path)
+        self._ask_monitor = _PermissionAskMonitor(
+            config.server_log_path, directory=config.session_directory or None
+        )
 
     def run(self) -> WatchdogResult:
         """Main watchdog loop. Blocks until the process exits or is killed.
