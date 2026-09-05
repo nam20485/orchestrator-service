@@ -786,30 +786,49 @@ class TestPermissionAskMonitor:
         mon.poll(time.monotonic())
         assert mon.pending_ask is None
 
-    def test_captures_session_id(self, tmp_path: Path) -> None:
+    def test_captures_session_id_from_creation_line(self, tmp_path: Path) -> None:
         log = tmp_path / "opencode.log"
         log.write_text("baseline\n", encoding="utf-8")
         mon = _PermissionAskMonitor(str(log))
         with log.open("a", encoding="utf-8") as fh:
             fh.write(
-                "timestamp=... level=INFO run=abc message=process "
-                "session.id=ses_06aab8071ffeV8TotH696WH6Gi mode=primary\n"
+                'timestamp=... level=INFO run=abc message=created '
+                "id=ses_06aab8071ffeV8TotH696WH6Gi title=\"New session - ...\"\n"
             )
         mon.poll(time.monotonic())
         assert mon.session_id == "ses_06aab8071ffeV8TotH696WH6Gi"
 
-    def test_first_session_id_wins(self, tmp_path: Path) -> None:
-        # The first session.id seen is locked (this dispatch's own session,
-        # created at run start); a later one from concurrent-dispatch noise
-        # sharing the log file does not replace it.
+    def test_concurrent_session_mentions_do_not_bind(self, tmp_path: Path) -> None:
+        # A concurrently-running dispatch's per-message session.id mentions
+        # flood the shared server log, but its session was CREATED before this
+        # watchdog's log window opened. Mentions alone must not bind — only a
+        # creation line born inside this window can (cross-session abort guard).
         log = tmp_path / "opencode.log"
         log.write_text("baseline\n", encoding="utf-8")
         mon = _PermissionAskMonitor(str(log))
         with log.open("a", encoding="utf-8") as fh:
-            fh.write("... session.id=ses_FIRST ...\n")
+            fh.write(
+                "message=process session.id=ses_OTHER mode=primary\n"
+                "message=stream providerID=zai-coding-plan session.id=ses_OTHER\n"
+            )
+        mon.poll(time.monotonic())
+        assert mon.session_id is None
+
+    def test_first_creation_line_wins_over_interleaved_noise(self, tmp_path: Path) -> None:
+        # Concurrent-dispatch noise can precede this dispatch's session
+        # creation in the window; the creation line still binds correctly.
+        log = tmp_path / "opencode.log"
+        log.write_text("baseline\n", encoding="utf-8")
+        mon = _PermissionAskMonitor(str(log))
+        with log.open("a", encoding="utf-8") as fh:
+            fh.write(
+                "message=process session.id=ses_OTHER mode=primary\n"
+                "message=created id=ses_FIRST title=\"New session\"\n"
+            )
         mon.poll(time.monotonic())
         with log.open("a", encoding="utf-8") as fh:
-            fh.write("... session.id=ses_SECOND ...\n")
+            # A later creation (e.g. a subagent session) must not replace it.
+            fh.write("message=created id=ses_SECOND title=\"New session\"\n")
         mon.poll(time.monotonic())
         assert mon.session_id == "ses_FIRST"
 

@@ -176,17 +176,32 @@ class _PermissionAskMonitor:
     Defensive: a subsequent ``message=replied`` clears the pending ask, in case
     opencode resolves it via a saved "always" approval — though this cannot
     happen for subagents in skip-permissions mode.
+
+    Shared-log limitation: the server log interleaves every attach to the one
+    ``opencode serve`` instance and ``message=asking`` lines carry no session
+    attribution, so a concurrently-running dispatch's ask/reply lines can be
+    observed here. That residual risk is availability-only — at worst an early
+    kill of THIS dispatch (the watchdog can only signal its own child process
+    group), never a kill of another dispatch's client. The one cross-session
+    action the watchdog takes — the server-session abort — targets a session
+    CREATION observed inside this dispatch's log window (see
+    ``_SESSION_CREATED_RE``), so a concurrent run whose session predates this
+    window cannot be captured or aborted.
     """
 
     # opencode slog text format, e.g.:
     #   ... message=asking id=per_.. permission=external_directory patterns=[..]
     _ASK_RE = re.compile(r"message=asking\b.*?permission=([A-Za-z_]+)")
     _REPLIED_RE = re.compile(r"message=replied|permission\.replied")
-    # The dispatch's opencode session id, e.g. ``session.id=ses_abc123``. The
-    # FIRST one seen in this dispatch's log window is locked in — the session
-    # is created at run start, so the earliest match is this dispatch's own
-    # (resilient to concurrent-dispatch noise sharing the one log file).
-    _SESSION_RE = re.compile(r"session\.id=(ses_[A-Za-z0-9]+)")
+    # Session-creation line, e.g. ``message=created id=ses_.. title="New
+    # session - ..."``. The dispatch's opencode session id is bound ONLY to a
+    # creation line born inside this dispatch's log window: a concurrently
+    # running dispatch's per-message ``session.id=`` mentions flood the shared
+    # log continuously and must never be bound (they belong to a session that
+    # predates this window, and binding one would let the watchdog's
+    # server-session abort kill ANOTHER project's run). First creation line
+    # wins; later ones (e.g. subagent sessions) do not replace it.
+    _SESSION_CREATED_RE = re.compile(r"created id=(ses_[A-Za-z0-9]+)")
 
     def __init__(self, path: str) -> None:
         self._path: Path | None = Path(path) if path else None
@@ -222,10 +237,12 @@ class _PermissionAskMonitor:
             return  # unreadable this cycle; retry next poll
         self._pos = size
         text = chunk.decode("utf-8", errors="replace")
-        # Capture this dispatch's session id (first-seen wins) so the watchdog
-        # can abort the server-side session on termination.
+        # Capture this dispatch's session id from a creation line born in this
+        # window (first wins) so the watchdog can abort the server-side
+        # session on termination — without ever binding a concurrent
+        # dispatch's session from its per-message mentions.
         if self._session_id is None:
-            sm = self._SESSION_RE.search(text)
+            sm = self._SESSION_CREATED_RE.search(text)
             if sm:
                 self._session_id = sm.group(1)
         # Position-based ask/reply resolution. Both signals can appear in the
