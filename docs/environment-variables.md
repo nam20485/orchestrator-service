@@ -69,9 +69,6 @@ convention). Only required when the corresponding provider/model is actually sel
 |---|---|---|
 | `QWENCLOUD_TOKEN_PLAN_API_KEY` | `qwencloud` provider | QwenCloud Token Plan (Anthropic-compatible endpoint). Required for the default model `qwencloud/qwen3.8-max`. |
 | `ZAI_CODING_API_KEY` | Z.AI MCP servers + `zai-coding-plan` provider | Z.AI GLM models + MCP auth (see above). |
-| `GEMINI_API_KEY` | `google` built-in provider | Google AI Studio models (read directly from env by the built-in provider). |
-| `NVIDIA_NIM_API_KEY` | `nvidia` provider | NVIDIA NIM (OpenAI-compatible) API key. Optional. |
-| `NVIDIA_NIM_BASE_URL` | `nvidia` provider | NIM endpoint base URL (defaults to `https://integrate.api.nvidia.com/v1`). Optional. |
 | `CLINE_API_KEY` | `cline-pass` provider | ClinePass subscription API key. Optional. |
 
 ---
@@ -193,7 +190,7 @@ Checked via `echo $VAR`. Status reflects where compose interpolates `${VAR}` fro
 
 | Variable | Status |
 |---|---|
-| `EXA_API_KEY`, `ZAI_CODING_API_KEY`, `ZAI_API_KEY`, `OPENROUTER_API_KEY`, `MODEL_STUDIO_API_KEY`, `QWENCLOUD_TOKEN_PLAN_API_KEY`, `GEMINI_API_KEY`, `NOTION_MCP_CONNECTIONS_API_KEY`, `NVIDIA_NIM_API_KEY`, `NVIDIA_NIM_BASE_URL`, `CLINE_API_KEY`, `GH_ORCHESTRATION_AGENT_TOKEN`, `GITHUB_TOKEN`, `OPENCODE_SERVER_PASSWORD`, `ZAI_CODING_PLAN_OPEN_AI_API_KEY` | **SET** |
+| `EXA_API_KEY`, `ZAI_CODING_API_KEY`, `ZAI_API_KEY`, `OPENROUTER_API_KEY`, `MODEL_STUDIO_API_KEY`, `QWENCLOUD_TOKEN_PLAN_API_KEY`, `NOTION_MCP_CONNECTIONS_API_KEY`, `CLINE_API_KEY`, `GH_ORCHESTRATION_AGENT_TOKEN`, `GITHUB_TOKEN`, `OPENCODE_SERVER_PASSWORD`, `ZAI_CODING_PLAN_OPEN_AI_API_KEY` | **SET** |
 | `OS_WEBHOOK_SECRET`, `WORKSPACE_DIR`, `DIRECT_BODY_ALLOWED_SENDERS` | Define in `.env` / shell before `docker compose up` |
 | `GITHUB_AUTH_TOKEN`, `GITHUB_USERNAME` | **UNSET** — only needed for host-side `scripts/*.ps1`; not consumed by the container. See "Host-side automation scripts" above. |
 

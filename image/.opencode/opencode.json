@@ -11,7 +11,7 @@
     // Subagent model+variant overrides. The orchestrator uses the session
     // default model (line-8: qwencloud/qwen3.8-max) and
     // receives variant from the dispatch CLI (--variant high). Subagents are
-    // pinned to zai-coding-plan/glm-5.3-flash at "high" variant.
+    // pinned to zai-coding-plan/glm-5.3-flash at "xhigh" variant.
     "developer": {
       "model": "zai-coding-plan/glm-5.3-flash",
       "variant": "xhigh"
