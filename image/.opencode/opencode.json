@@ -175,8 +175,7 @@
           "options": {
             "thinking": {
               "type": "enabled", // always enabled by default/cannot be disabled
-              "budgetTokens": 99072,
-              "reasoning_effort": "xhigh" // xhigh, medium, low (defaults to xhigh)
+              "budgetTokens": 99072
             },
             "temperature": 0.6, // >= 0.6
             "reasoning": true,
