@@ -44,7 +44,7 @@ The layering and environment differences are documented in `docs/deployment-comp
 curl -s http://localhost/health
 ```
 
-The health route is implemented in `webhook_receiver/app.py`. If you have set `DASHBOARD_TOKEN`, open `/dashboard?token=…`; dashboard routes are intentionally unavailable when that token is unset.
+The health route is implemented in `webhook_receiver/app.py`; it and `/webhooks/github` are the only paths the Caddy site proxies. If you have set `DASHBOARD_TOKEN`, open the dashboard at `http://127.0.0.1:8081/dashboard?token=…` — the receiver's loopback-only publish — because dashboard paths are `404`'d through the public `:80` site. Dashboard routes are intentionally unavailable when that token is unset; `docs/dashboard.md` covers tailnet access.
 
 ## Run the receiver without Compose
 

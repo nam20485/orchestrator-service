@@ -1,8 +1,8 @@
 # API surface
 
-`webhook-receiver` (FastAPI, internal port `8080`, fronted by Caddy on host `:80`/`:443`) exposes every HTTP route this runtime has. There is no separate API gateway or admin service — `webhook_receiver/app.py` builds one `FastAPI` app and mounts every router onto it.
+`webhook-receiver` (FastAPI, internal port `8080`) exposes every HTTP route this runtime has. There is no separate API gateway or admin service — `webhook_receiver/app.py` builds one `FastAPI` app and mounts every router onto it. Two network paths reach that one app: Caddy on host `:80`/`:443`, which proxies **only** `/webhooks/github` and `/health` and `404`s everything else, and the receiver's loopback-only publish at `127.0.0.1:8081` (optionally tailnet-served on `:8443`), which carries the full app including the dashboard, its API, and the simulator.
 
-The surface splits into route groups with **different, non-overlapping auth gates**. Getting the gate wrong for a given path is a real risk because Caddy proxies the *entire* receiver, not just `/webhooks/github` — this page is the map; [Security](../security.md) explains why each gate exists and what happens when its secret is unset.
+The surface splits into route groups with **different, non-overlapping auth gates**. Getting the gate wrong for a given path is still a real risk: every router is mounted on the same listener, so the proxy's path allowlist keeps the dashboard and simulator off the public edge, while each route's own gate remains the layer that protects it on the loopback/tailnet path — this page is the map; [Security](../security.md) explains why each gate exists and what happens when its secret is unset.
 
 ## Trust boundary at a glance
 
@@ -11,6 +11,7 @@ graph TB
     GH[GitHub App webhook]
     Browser[Operator browser / API client]
     Edge[Caddy webhook-proxy :80 / :443]
+    Loop["Host loopback 127.0.0.1:8081<br/>tailnet via tailscale serve :8443"]
     R[webhook-receiver FastAPI :8080]
     Health["GET /health<br/>no auth"]
     Hook["POST /webhooks/github<br/>HMAC gate github.py"]
@@ -19,8 +20,9 @@ graph TB
     Agent["opencode run subprocess<br/>scripts/prompt.ps1"]
 
     GH -->|POST, HMAC-signed body| Edge
-    Browser -->|Bearer, token=, or cookie| Edge
+    Browser -->|Bearer, token=, or cookie| Loop
     Edge --> R
+    Loop --> R
     R --> Health
     R --> Hook
     R --> Dash

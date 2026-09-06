@@ -57,8 +57,8 @@ Caddy binds `:80`/`:443` as non-root via `CAP_NET_BIND_SERVICE`, which is added 
 | Service | Image | Port | Role |
 |---------|-------|------|------|
 | `orchestratorservice` | `…/orchestrator-service` | `4099` | OpenCode server (`opencode serve`) hosting agent sessions |
-| `webhook-receiver` | `…/orchestrator-service/webhook` | `8080` *(internal)* | FastAPI app: validates GitHub webhooks, runs the `BeadsLoop`, serves the dashboard + `/health` |
-| `webhook-proxy` | `…/orchestrator-service/caddy` | `80` / `443` | Caddy reverse proxy (TLS edge) |
+| `webhook-receiver` | `…/orchestrator-service/webhook` | `8080` *(internal)*; host `127.0.0.1:8081` | FastAPI app: validates GitHub webhooks, runs the `BeadsLoop`, serves the dashboard + `/health` |
+| `webhook-proxy` | `…/orchestrator-service/caddy` | `80` / `443` | Caddy reverse proxy (TLS edge). **Public surface: proxies only `/webhooks/github` and `/health`**; every other path is `404`. |
 
 `orchestratorservice` and `webhook-receiver` **share** the same host directory via a bind mount at `/workspace` (`WORKSPACE_DIR`) — that's where agent sessions run and `.beads/` DAG state lives.
 
@@ -130,11 +130,12 @@ Verify:
 ```bash
 curl -s http://localhost/health                                  # -> {"status":"ok"}
 curl -s -H "Authorization: Bearer $DASHBOARD_TOKEN" \
-     http://localhost/api/dashboard/overview | jq                 # -> counts
-# UI (sets a cookie) — use the opener for your platform:
-#   macOS:  open "http://localhost/dashboard?token=$DASHBOARD_TOKEN"
-#   Linux:  xdg-open "http://localhost/dashboard?token=$DASHBOARD_TOKEN"
-xdg-open "http://localhost/dashboard?token=$DASHBOARD_TOKEN"
+     http://127.0.0.1:8081/api/dashboard/overview | jq              # -> counts
+# UI (sets a cookie) — the receiver is published loopback-only, so use :8081,
+# not the Caddy :80 site (which 404s every non-webhook path).
+#   macOS:  open "http://127.0.0.1:8081/dashboard?token=$DASHBOARD_TOKEN"
+#   Linux:  xdg-open "http://127.0.0.1:8081/dashboard?token=$DASHBOARD_TOKEN"
+xdg-open "http://127.0.0.1:8081/dashboard?token=$DASHBOARD_TOKEN"
 ```
 
 ### Publishing webhooks to local
@@ -145,6 +146,16 @@ The receiver is behind Caddy on host `:80`. For local GitHub webhook development
 - **ngrok**: `ngrok http 80`.
 
 Point the GitHub App webhook at `https://<tunnel-host>/webhooks/github`.
+
+The tunnel (and therefore the whole internet) reaches **only** `/webhooks/github`
+and `/health`: `deploy/caddy/Caddyfile` path-restricts its site and `404`s
+everything else, so a public tunnel never exposes the dashboard, the dashboard
+API, or the simulator. To read the dashboard from another machine on your
+tailnet, use Tailscale Serve against the loopback-published receiver port —
+`tailscale serve --bg --https=8443 localhost:8081` →
+`https://<machine>.<tailnet>.ts.net:8443/dashboard`. Do not run
+`tailscale serve --bg 8081`: it would re-aim the funnel's 443 handler at the
+dashboard. Full details: [docs/dashboard.md](dashboard.md#tailnet-access).
 
 ### Quick iteration on the dashboard UI
 
@@ -228,7 +239,8 @@ COMPOSE_FILE=compose.yaml:compose.https.yaml docker compose up -d
 Operational notes:
 - `restart: always`/`unless-stopped` keeps containers up across reboots.
 - `/workspace` and `opencode-memory` are persistent volumes/bind mounts — **back them up**. They hold agent working trees and `.beads/` DAG state.
-- Health check: `curl -s http://localhost:80/health` (through Caddy) or `:8080/health` direct.
+- Health check: `curl -s http://localhost:80/health` (through Caddy) or `curl -s http://127.0.0.1:8081/health` (loopback publish). `:8080` is compose-internal only.
+- The Caddyfile is **baked into the caddy image** (`deploy/caddy/Dockerfile`), so changing the public path restriction needs `docker compose -f compose.yaml -f compose.build.yaml build webhook-proxy` before `up -d`.
 - Updates: push/merge to `main` → workflow republishes `:main-latest` → `docker compose pull && docker compose up -d`. There is **no** rolling deploy; `up -d` recreates containers (brief downtime on that container).
 
 ---

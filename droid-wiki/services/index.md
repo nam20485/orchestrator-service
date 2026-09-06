@@ -9,21 +9,22 @@ Active contributors: Nathan Miller
 | Service | Compose name | Port | Role | Page |
 | --- | --- | --- | --- | --- |
 | OpenCode server | `orchestratorservice` | `4099` | Runs `opencode serve`; hosts the orchestrator agent and its specialist subagents. | [OpenCode server](opencode-server.md) |
-| Webhook receiver | `webhook-receiver` | `8080` (internal, not published) | FastAPI app: verifies GitHub deliveries, filters triggers, dispatches OpenCode runs, runs the Beads loop, serves the dashboard. | [Webhook receiver](webhook-receiver.md) |
-| Webhook proxy | `webhook-proxy` | `80` / `443` | Caddy reverse proxy; the only container with a published host port in the base `compose.yaml`. | [Webhook proxy](webhook-proxy.md) |
+| Webhook receiver | `webhook-receiver` | `8080` internal; published on the host as `127.0.0.1:8081` (loopback only) | FastAPI app: verifies GitHub deliveries, filters triggers, dispatches OpenCode runs, runs the Beads loop, serves the dashboard. | [Webhook receiver](webhook-receiver.md) |
+| Webhook proxy | `webhook-proxy` | `80` / `443` | Caddy reverse proxy; the public edge, proxying only `/webhooks/github` and `/health`. | [Webhook proxy](webhook-proxy.md) |
 
 ## How they connect
 
 ```mermaid
 graph LR
     GitHub[GitHub webhook delivery] -->|HTTPS :80/:443| Proxy[webhook-proxy - Caddy]
-    Proxy -->|reverse_proxy :8080| Receiver[webhook-receiver - FastAPI]
+    Operator[Host browser / tailnet peer] -->|"127.0.0.1:8081"| Receiver[webhook-receiver - FastAPI]
+    Proxy -->|"reverse_proxy :8080 — /webhooks/github, /health only"| Receiver
     Receiver -->|opencode run --attach http://orchestratorservice:4099| Server[orchestratorservice - opencode serve]
     Receiver <-.->|bind mount /workspace| Server
     Receiver <-.->|opencode-logs volume, read-only| Server
 ```
 
-`webhook-proxy` and `webhook-receiver` are joined only through the Caddy `reverse_proxy` directive in `deploy/caddy/Caddyfile`. `webhook-receiver` and `orchestratorservice` are joined two ways: the receiver invokes `scripts/prompt.ps1`, which runs `opencode run --attach http://orchestratorservice:4099 ...` as a subprocess, and both containers share the `${WORKSPACE_DIR}:/workspace` bind mount plus the `opencode-logs` named volume (the receiver's watchdog reads the server's log file to detect activity during a dispatch).
+`webhook-proxy` and `webhook-receiver` are joined only through the `reverse_proxy webhook-receiver:8080` directives in `deploy/caddy/Caddyfile`, which now sit inside `handle` blocks for `/webhooks/github` and `/health`; everything else is `404`'d at the proxy. The dashboard, its API, and the simulator therefore reach clients through the receiver's own loopback-only publish (`127.0.0.1:8081`), optionally tailnet-served, bypassing `webhook-proxy`. `webhook-receiver` and `orchestratorservice` are joined two ways: the receiver invokes `scripts/prompt.ps1`, which runs `opencode run --attach http://orchestratorservice:4099 ...` as a subprocess, and both containers share the `${WORKSPACE_DIR}:/workspace` bind mount plus the `opencode-logs` named volume (the receiver's watchdog reads the server's log file to detect activity during a dispatch).
 
 ## Shared state
 

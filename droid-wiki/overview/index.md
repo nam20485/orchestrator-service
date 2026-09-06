@@ -11,7 +11,7 @@ The runtime is a Docker Compose stack with an OpenCode server, a FastAPI webhook
 | OpenCode server | Hosts configured agent sessions on port 4099. | `Dockerfile`, `image/.opencode/opencode.json` |
 | Webhook receiver | Verifies deliveries, filters triggers, renders prompts, launches runs, and hosts the dashboard. | `webhook_receiver/app.py`, `webhook_receiver/runner.py` |
 | Beads loop | Selects ready DAG nodes, creates worktrees, invokes agents, and checks task closure. | `webhook_receiver/beads_loop.py` |
-| Caddy proxy | Exposes the receiver on the host HTTP/TLS edge. | `compose.yaml`, `deploy/caddy/Caddyfile` |
+| Caddy proxy | Exposes only the webhook endpoint and the health probe on the host HTTP/TLS edge. | `compose.yaml`, `deploy/caddy/Caddyfile` |
 
 ## Typical flow
 

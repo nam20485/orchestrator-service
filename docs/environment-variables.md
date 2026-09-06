@@ -84,7 +84,7 @@ Injected into the container(s) by the compose `environment:` blocks (with defaul
 | `DIRECT_BODY_ALLOWED_SENDERS` | `webhook-receiver` | Fail-closed allowlist (GitHub logins) gating `gh-issue-tracking:direct-body` dispatch. |
 | `OPENCODE_SERVER_URL` | `webhook-receiver` | Hardcoded `http://orchestratorservice:4099`. |
 | `OPENCODE_SERVER_LOG_PATH` | `webhook-receiver` | Server log path for the idle watchdog. Default `/var/log/opencode-server/opencode.log` (compose default; `config.py` code default is `/home/app/.local/share/opencode/log/opencode.log`, but compose mounts the shared server log over `/var/log/opencode-server`). |
-| `DASHBOARD_TOKEN` | `webhook-receiver` | Shared secret gating the dashboard **and** simulator. When unset, the dashboard is disabled (404) and the simulator returns 401 when enabled. |
+| `DASHBOARD_TOKEN` | `webhook-receiver` | Shared secret gating the dashboard **and** simulator. When unset, the dashboard is disabled (404) and the simulator returns 401 when enabled. Independent of, and in addition to, the network restriction in `deploy/caddy/Caddyfile` — see [dashboard Network access](dashboard.md#network-access). |
 | `IMAGE_REF` | compose interpolation | Image tag suffix. Default `main`. |
 | `WEBHOOK_LOG_DIR`, `WEBHOOK_SITE_ADDRESS` | compose interpolation | Runner-log bind mount and Caddy site address. See `compose.yaml` defaults. |
 
@@ -112,7 +112,7 @@ Every variable below is read by `webhook_receiver/config.py` (`Settings.from_env
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `WEBHOOK_HOST` / `WEBHOOK_PORT` | `0.0.0.0` / `8080` | HTTP bind for the FastAPI receiver. |
+| `WEBHOOK_HOST` / `WEBHOOK_PORT` | `0.0.0.0` / `8080` | HTTP bind **inside** the receiver container. The compose publish to the host is loopback-only (`127.0.0.1:8081` → `8080`); Caddy's public `:80` site proxies only `/webhooks/github` and `/health`. |
 | `WEBHOOK_LOG_LEVEL` | `info` | Logging level. |
 | `WEBHOOK_ENABLE_SIMULATOR` | *(unset → off)* | Serve the dev UI at `/simulator` when set to a truthy value. Also requires `DASHBOARD_TOKEN`. |
 

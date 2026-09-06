@@ -11,7 +11,7 @@ Three containers, defined in `compose.yaml`:
 
 - `orchestratorservice` — an OpenCode server (`opencode serve` on `:4099`) hosting agent sessions, built from `Dockerfile`.
 - `webhook-receiver` — a FastAPI app (`webhook_receiver/app.py`) that validates GitHub App webhooks, dispatches orchestrator runs via `scripts/prompt.ps1`, and runs the `BeadsLoop` background thread (`webhook_receiver/beads_loop.py`).
-- `webhook-proxy` — Caddy, terminating HTTP on host `:80` (and `:443` with the `compose.https.yaml` overlay).
+- `webhook-proxy` — Caddy, terminating HTTP on host `:80` (and `:443` with the `compose.https.yaml` overlay) and proxying only `/webhooks/github` and `/health`; the dashboard is reached on the receiver's loopback-only `127.0.0.1:8081` publish instead.
 
 The pipeline the service executes end-to-end (`README.md`):
 

@@ -1,8 +1,10 @@
 # Plan: Dashboard local/tailnet-only access (funnel exposes webhook only)
 
-**Status:** PLANNED — not implemented
+**Status:** IMPLEMENTED — 2026-09-05
 **Date:** 2026-09-05
 **Trigger:** Security review of the Tailscale Funnel ingress for orchestrator-service.
+**Deviation from this plan:** step 3's command was wrong as written and was
+corrected before implementation — see "Tailnet access" below.
 
 ## Goal
 
@@ -11,19 +13,27 @@ endpoint `POST /webhooks/github` (plus `/health`). All dashboard pages and
 dashboard APIs must be reachable **only** from localhost or hosts on the
 Tailscale network (tailnet) — never through the funnel.
 
-## Key constraint: funnel traffic appears as localhost
+## Key constraint: the client address cannot separate local from public
 
-`tailscale funnel 80` terminates TLS inside tailscaled and proxies to
-`127.0.0.1:80` on the host. Consequence: **every funnel request arrives at
-Caddy with source address 127.0.0.1**, indistinguishable from a local client
-by IP. Therefore:
+Measured on this host (tailscale 1.102.3):
 
-- IP-based allowlisting in Caddy or in the FastAPI app **cannot** separate
-  "funnel" from "local".
-- The separation must be by **port and path**, not by source IP:
-  - host `:80` (Caddy, the funnel target) → webhook paths only, 404 for the rest.
-  - host `127.0.0.1:8081` (receiver published loopback-only) → full app
-    including dashboard, for localhost and tailnet access.
+- `tailscale funnel 80` terminates TLS inside `tailscaled` and **dials
+  `127.0.0.1:80` itself**, so the socket peer at Caddy is loopback
+  (measured: `ss -tan '( sport = :80 )'` → `ESTAB 127.0.0.1:80 127.0.0.1:41738`).
+- A tailnet peer arriving through `tailscale serve` is presented to the local
+  listener as `127.0.0.1` too, and a locally-run tunnel (`ngrok http 80`, an
+  option this repo documents) also connects from `127.0.0.1`.
+- `X-Forwarded-For` is unreliable as a substitute: Tailscale's behaviour is
+  undocumented and version-dependent (reports show Funnel's XFF holding a `100.x`
+  or loopback value, not the public IP), and Caddy trusts XFF from loopback while
+  host `:80` is published on all interfaces — so a LAN host can forge it.
+
+Consequence: neither the peer address nor a forwarded header can express
+"localhost + tailnet, not public". So the separation is by **port and path**:
+
+- host `:80` (Caddy, the funnel target) → webhook paths only, 404 for the rest.
+- host `127.0.0.1:8081` (receiver published loopback-only) → full app
+  including dashboard, for localhost and tailnet access.
 
 ## Current state (before changes)
 
@@ -94,15 +104,41 @@ webhook-receiver:
 On the Docker host:
 
 ```sh
-tailscale serve --bg 8081
+tailscale serve --bg --https=8443 localhost:8081
 ```
 
-- `serve` is **tailnet-only** (it is never exposed publicly unless
-  `tailscale funnel` is separately enabled for the same port — do not enable it
-  for 8081).
-- Provides automatic HTTPS at `https://<machine>.<tailnet>.ts.net`, so the
-  dashboard cookie's `secure` flag (auth.py sets it for https) works.
+Gives `https://<machine>.<tailnet>.ts.net:8443` for tailnet peers only.
+
+> **Do not run `tailscale serve --bg 8081`** (the command this plan originally
+> specified). Serve's positional argument is the *target*, and without an
+> explicit `--https=<port>` it mounts on the default served port **443** — the
+> same handler the funnel already uses. `tailscale serve status` on this host
+> showed exactly one handler, `https://<host>.ts.net (Funnel on) / proxy
+> http://127.0.0.1:80`; pointing `serve --bg 8081` at it would have silently
+> re-aimed the funnel target at the dashboard, exposing the dashboard publicly
+> *and* breaking GitHub delivery. Serving the dashboard on a distinct port
+> (`--https=8443`) keeps the two handlers separate, and funnel is not enabled
+> for 8443, so 8443 stays tailnet-only.
+
+- `serve` is **tailnet-only**; a port becomes public only if `tailscale funnel`
+  is separately enabled for it. Never enable funnel for 8443.
+- Serve terminates TLS and proxies plain HTTP to `127.0.0.1:8081`, so
+  `127.0.0.1:8081` itself never leaves the host.
+- Measured nit (2026-09-05): over the Serve TLS path the app still emits
+  `Set-Cookie: dashboard_token=…; HttpOnly; Path=/; SameSite=strict` **without**
+  `Secure`. `tailscaled` does send `X-Forwarded-Proto: https` (it sets it whenever
+  the inbound connection had TLS), but uvicorn only applies forwarding headers
+  from `forwarded_allow_ips` (default `127.0.0.1`) and the hop into the container
+  is NAT'd through `docker-proxy`, so the peer the app sees is the bridge gateway,
+  not loopback — the header is ignored and `request.url.scheme` stays `http`.
+  Transport is encrypted regardless (TLS to tailscaled + WireGuard to the peer),
+  so only the cookie attribute is affected. Closing it means setting
+  `FORWARDED_ALLOW_IPS` to the compose gateway address — narrow it deliberately,
+  since trusting headers from the whole bridge subnet would let anything on that
+  network assert the scheme.
 - The funnel stays on port 80 only: `tailscale funnel --bg 80` (webhook).
+- Undo: `tailscale serve --https=8443 off`. Do **not** use `tailscale serve
+  clear` without a port — it wipes the whole Serve config including the funnel.
 
 ### 4. `DASHBOARD_TOKEN` remains set (defense in depth)
 
@@ -125,7 +161,10 @@ tailscale serve --bg 8081
 | `deploy/caddy/Caddyfile`    | Path-restrict public site; 404 fallback                      |
 | `compose.yaml`              | `webhook-receiver.ports: ["127.0.0.1:8081:8080"]`            |
 | `compose.development.yaml`  | Same loopback publish                                        |
-| Host (no repo change)       | `tailscale serve --bg 8081`; funnel stays on 80              |
+| Host (no repo change)       | `tailscale serve --bg --https=8443 localhost:8081`; funnel stays on 80 |
+| `test/test-caddyfile-routes.sh` | **new** functional test: real Caddyfile vs a stub upstream that answers 200 to everything |
+| `test/test-compose-config.sh` | asserts every receiver publish has `host_ip == 127.0.0.1`, both compose files |
+| `scripts/validate.ps1`      | registers the route test in `-Test` (CI's test job runs `-Test`, so it mirrors) |
 
 `compose.https.yaml` inherits the Caddyfile restriction automatically; no edit
 needed.
@@ -150,14 +189,44 @@ needed.
 7. From another machine on the LAN (not tailnet): `:8081` refused, `:80`
    dashboard paths 404.
 
+### Verification results (measured 2026-09-05, this host)
+
+| Probe | Expected | Measured |
+| ----- | -------- | -------- |
+| `http://localhost/health` | 200 | 200 ✅ |
+| `http://localhost/dashboard` | 404 | 404 ✅ |
+| `http://localhost/api/dashboard/overview` | 404 | 404 ✅ |
+| `https://<funnel-host>/dashboard` | 404 | 404 ✅ |
+| `http://127.0.0.1:8081/health` | 200 | 200 ✅ |
+| `http://127.0.0.1:8081/dashboard` (no token) | 401 | 401 ✅ |
+| `http://127.0.0.1:8081/dashboard?token=…` | 200 | 200 ✅ |
+| `https://<host>.ts.net:8443/dashboard?token=…` (Serve) | 200 | 200 ✅ |
+| `ss -ltn` for `:8443` | tailscale addrs only | `100.103.219.1` + `fd7a:…` only ✅ |
+| `http://192.168.1.29:8081`, `:8443` (LAN) | refused | refused ✅ |
+| `tailscale serve status` after adding 8443 | funnel 443 entry intact | intact, 8443 `(tailnet only)` ✅ |
+
+Still requires a second device / GitHub to confirm: step 3 (a real GitHub
+delivery → 202) and step 5 from an actual tailnet peer. The `:8443` result above
+was obtained from this host via `--resolve <ts.net-host>:8443:100.103.219.1`,
+which exercises tailscaled's TLS terminator and the real upstream, but is not a
+substitute for a peer connection.
+
 ## Alternatives considered and rejected
 
-- **IP allowlist at Caddy/app**: impossible — funnel traffic is sourced from
-  127.0.0.1 by tailscaled (see key constraint).
+- **IP allowlist at Caddy/app**: the peer address cannot separate local from
+  tailnet from public (see Key constraint); an `X-Forwarded-For` allowlist could,
+  but makes a client-influenced header the security boundary.
 - **Leave `DASHBOARD_TOKEN` unset on the funnel deployment**: disables the
   dashboard everywhere; does not meet "reachable from localhost/tailnet".
 - **Publish receiver `:8080` on all interfaces**: re-exposes the dashboard to
   LAN/public — the opposite of the goal.
+- **Publish the receiver on the Tailscale IP** (`- "100.103.219.1:8081:8080"`):
+  verified to work and to stay tailnet-only (binds just that address, LAN
+  refused, a real peer got `200`). Rejected anyway: the address is node-specific
+  so it cannot be a compose literal, and interpolating it fails **open** (an
+  unset variable yields `":8081:8080"` = all interfaces). Serve reaches the same
+  goal with a stable hostname, TLS, and no IP coupling. Detail:
+  `docs/dashboard.md#can-i-bind-to-the-tailscale-ip-instead`.
 - **Second Caddy site block on an internal port instead of publishing the
   receiver**: works, but adds a config surface to achieve what a loopback
   port publish already does; rejected for simplicity.

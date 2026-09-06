@@ -7,21 +7,21 @@ The receiver is the control plane. It decides whether a GitHub delivery is eligi
 ```mermaid
 graph LR
     GitHub[GitHub App webhook] -->|POST issues.labeled| Caddy
-    Caddy[Caddy :80 or :443] --> Receiver[FastAPI webhook receiver :8080]
+    Caddy[Caddy :80 or :443] -->|"only /webhooks/github + /health"| Receiver[FastAPI webhook receiver :8080]
     Receiver -->|verify + filter| Prompt[Prompt renderer]
     Prompt -->|background dispatch| Launcher[scripts/prompt.ps1]
     Launcher -->|opencode run --attach| OpenCode[OpenCode server :4099]
     Receiver <-->|shared /workspace| Workspace[Project clone, Beads DB, worktrees]
     Beads[BeadsLoop] -->|br / bvr| Workspace
     Beads -->|per-bead agent| Launcher
-    Receiver -->|SSE, JSON, HTML| Dashboard[Dashboard and simulator]
+    Receiver -->|"SSE, JSON, HTML via 127.0.0.1:8081"| Dashboard[Dashboard and simulator]
 ```
 
 ## Runtime layers
 
 | Layer | Implementation | State and boundary |
 | --- | --- | --- |
-| Edge | `deploy/caddy/Caddyfile` and the `webhook-proxy` service in `compose.yaml` | Caddy forwards the public host to the internal receiver. |
+| Edge | `deploy/caddy/Caddyfile` and the `webhook-proxy` service in `compose.yaml` | Caddy forwards only `/webhooks/github` and `/health` from the public host to the internal receiver and answers `404` for every other path; the dashboard and simulator are reached on the receiver's loopback-only host publish `127.0.0.1:8081` instead. |
 | Ingress | `webhook_receiver/app.py` | HMAC validation, payload sizing, trigger decisions, background dispatch scheduling. |
 | Execution | `webhook_receiver/runner.py`, `scripts/prompt.ps1` | Prompt files, subprocess streams, manifests, watchdog decisions, and agent sessions. |
 | Project work | `webhook_receiver/workspace.py`, `webhook_receiver/beads_loop.py` | Per-project clones under `/workspace/<slug>`, `.beads/`, and `.worktrees/<bead-id>`. |

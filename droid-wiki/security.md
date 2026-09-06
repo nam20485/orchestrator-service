@@ -11,8 +11,12 @@ graph TB
         Browser[Operator browser / API client]
     end
 
-    subgraph Edge["webhook-proxy (Caddy, :80/:443)"]
+    subgraph Edge["webhook-proxy (Caddy, :80/:443) — public surface"]
         Caddy
+    end
+
+    subgraph Private["Host loopback / tailnet only — never funneled"]
+        Pub["127.0.0.1:8081 publish<br/>tailscale serve :8443"]
     end
 
     subgraph Receiver["webhook-receiver (FastAPI, :8080 internal)"]
@@ -27,8 +31,8 @@ graph TB
     end
 
     GH -->|signed payload| Caddy --> Hook
-    Browser -->|token| Caddy --> Dash
-    Browser -->|token| Caddy --> Sim
+    Browser -->|token| Pub --> Dash
+    Browser -->|token| Pub --> Sim
     Browser --> Caddy --> Health
 
     Hook -.->|background subprocess, GH_ORCHESTRATION_AGENT_TOKEN| OC
@@ -39,7 +43,7 @@ graph TB
 Two facts anchor everything below:
 
 1. **The webhook and dashboard/simulator groups have independent secrets and independent failure modes.** A valid HMAC signature does not grant dashboard access, and a valid `DASHBOARD_TOKEN` cannot forge a webhook signature. See [API surface](api/index.md) for the full route-group breakdown.
-2. **Caddy proxies the entire receiver**, not just `/webhooks/github`. Every other route (dashboard, simulator, health) is reachable from the same public listener, so each of them needs its own gate rather than relying on network topology.
+2. **The public listener is path-restricted, and the token still gates everything else.** `deploy/caddy/Caddyfile` proxies only `/webhooks/github` and `/health`; every other path — dashboard pages, `/api/dashboard/*`, `/simulator`, docs — is answered `404` by Caddy itself, so the dashboard is not reachable through the funnel/`:80` edge at all. It reaches clients via the receiver's loopback-only publish (`127.0.0.1:8081`) and, over the tailnet, `tailscale serve --bg --https=8443 localhost:8081`. `DASHBOARD_TOKEN` remains required on **every** one of those paths: the network restriction is a second, independent layer, not a replacement for per-route gating — the public health route still has no gate, and each route keeps its own. The split is by path and port rather than client address because every ingress route to the public listener is sourced from loopback — `tailscaled` dials `127.0.0.1:80` for Funnel, tailnet peers arriving through `tailscale serve` reach the local listener as `127.0.0.1`, and a locally-run tunnel (`ngrok http 80`) does the same. `X-Forwarded-For` is not a dependable substitute (Tailscale's behaviour is version-dependent, and Caddy trusts XFF from loopback while host `:80` is published on all interfaces, so a LAN host can forge it). See `docs/dashboard.md#why-not-allowlist-by-client-address`.
 
 ## Inputs
 
@@ -88,7 +92,7 @@ Per `docs/deployment-compose.md` and `compose.yaml`:
 - **Fail-closed required variables**, enforced at two different layers:
   - `compose.yaml` uses `${VAR:?required}` for `OPENCODE_SERVER_PASSWORD` and `WORKSPACE_DIR` — Compose itself refuses to start the stack if either is unset.
   - `webhook_receiver/config.py`'s `Settings.from_env()` raises `ValueError` if `OS_WEBHOOK_SECRET` is empty — the FastAPI process refuses to construct its settings (and therefore never binds a port) without a webhook secret.
-- **`DASHBOARD_TOKEN` is fail-closed by omission, not by error.** If unset, the dashboard and simulator gates simply return `404`/`401` for every request rather than the process refusing to start — the surface is silently absent rather than loudly rejected. This is a deliberate default-safe posture for an optional feature, but it means an operator who *forgets* to set it gets no startup warning, only a working stack with an invisible dashboard.
+- **`DASHBOARD_TOKEN` is fail-closed by omission, not by error.** If unset, the dashboard and simulator gates simply return `404`/`401` for every request rather than the process refusing to start — the surface is silently absent rather than loudly rejected. This is a deliberate default-safe posture for an optional feature, but it means an operator who *forgets* to set it gets no startup warning, only a working stack with an invisible dashboard. The Caddy path restriction is independent of this and does not soften it: dashboard paths `404` at the proxy whether or not the token is set, so the token is what protects the loopback/tailnet path — forgetting it hides the dashboard everywhere rather than exposing it.
 - **`OPENCODE_SERVER_PASSWORD` is reused as an internal service-to-service credential**, not just a client-facing one: the watchdog's session-abort call authenticates to the opencode server with HTTP Basic auth built from this same password (see [Agent capability boundary](#agent-capability-boundary)).
 - **Pre-commit secret scanning** (`scripts/validate.ps1 -Scan`, the `scan-uncommitted-secrets` skill) rejects common credential shapes (`ghp_`, `sk-`, `AKIA`, …) in changed files before commit; webhook test fixtures are required to use `FAKE-KEY-FOR-TESTING-…` placeholders only.
 
@@ -96,12 +100,12 @@ Per `docs/deployment-compose.md` and `compose.yaml`:
 
 These are limitations the codebase and operational docs acknowledge or that follow directly from the design above — not newly discovered issues, and not exhaustive:
 
-- **Dashboard token in the URL.** `?token=<DASHBOARD_TOKEN>` is the documented way to open the dashboard UI in a browser; the token then persists as an `HttpOnly`/`SameSite=Strict` cookie. Query strings can end up in proxy/browser history, so the operational docs recommend the HTTPS overlay (`compose.https.yaml`) specifically so the token/cookie never traverses the network in cleartext.
+- **Dashboard token in the URL.** `?token=<DASHBOARD_TOKEN>` is the documented way to open the dashboard UI in a browser; the token then persists as an `HttpOnly`/`SameSite=Strict` cookie. Query strings can end up in proxy/browser history, so the operational docs recommend the HTTPS tailnet Serve URL (`tailscale serve --bg --https=8443 localhost:8081` → `https://<machine>.<tailnet>.ts.net:8443/dashboard`) for anything beyond the host itself, specifically so the token/cookie never traverses the network in cleartext. The host path (`http://127.0.0.1:8081/dashboard`) is cleartext HTTP, but the loopback bind keeps it on the host and off the LAN.
 - **Single shared `/workspace`, single node.** Per the deployment guide's stated limits: no horizontal scaling, no rolling/zero-downtime deploys, and the in-process `EventStore` is not durable — a container restart loses the live event timeline (though persisted run manifests/logs and `.beads/` state on disk survive).
 - **Concurrent-dispatch server-log masking** (see [Logs](#logs)) — a documented, bounded watchdog blind spot rather than an unbounded one.
 - **Regex-based comment redaction is best-effort**, as stated in its own docstring — it catches known credential shapes, not all possible secret formats.
 - **Direct-body dispatch's blast radius is the allowlist's integrity.** The control is only as strong as who can modify `DIRECT_BODY_ALLOWED_SENDERS` (a deploy-time env var, not something the webhook path itself can influence) and who is permitted to be a GitHub sender with label-apply rights in the first place — neither of those is enforced by this codebase.
-- **Enabling the simulator adds a privileged forwarding surface.** It is gated behind `DASHBOARD_TOKEN` (fail-closed to `401` when absent) and never exposes `OS_WEBHOOK_SECRET` to the client, but once enabled and reachable through a tunnel, it is one authenticated request away from injecting a fully-signed, arbitrary webhook payload into the same admission pipeline real GitHub deliveries use.
+- **Enabling the simulator adds a privileged forwarding surface.** It is gated behind `DASHBOARD_TOKEN` (fail-closed to `401` when absent) and never exposes `OS_WEBHOOK_SECRET` to the client. Caddy no longer forwards `/simulator` through the public listener (it `404`s there like every non-webhook path), but once enabled and reachable on the host loopback or tailnet path, it is one authenticated request away from injecting a fully-signed, arbitrary webhook payload into the same admission pipeline real GitHub deliveries use.
 
 ## Key source
 
@@ -117,7 +121,9 @@ These are limitations the codebase and operational docs acknowledge or that foll
 | `webhook_receiver/runner.py` | Comment secret redaction, orchestration-token scope for `gh` calls |
 | `webhook_receiver/watchdog.py` | Permission-deadlock detection, server-side session abort, server-log-sharing limitation |
 | `webhook_receiver/config.py` | Fail-closed (`OS_WEBHOOK_SECRET`) vs. fail-closed-by-omission (`DASHBOARD_TOKEN`) defaults |
-| `compose.yaml` | Container capabilities, non-root drop, volume/env wiring |
+| `deploy/caddy/Caddyfile` | Public path allowlist (`/webhooks/github`, `/health`); `404` catch-all for every other path |
+| `test/test-caddyfile-routes.sh` | Functional regression check that no dashboard/API/simulator path is reachable through the public site |
+| `compose.yaml` | Container capabilities, non-root drop, volume/env wiring, receiver's loopback-only `127.0.0.1:8081` publish |
 | `docs/deployment-compose.md` | Non-root execution model, capability rationale, deployment limits |
 | `docs/environment-variables.md` | Every env var's required/optional status and consumer |
 | `docs/dashboard.md` | Dashboard auth contract as documented for operators |

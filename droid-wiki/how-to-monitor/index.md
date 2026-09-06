@@ -17,7 +17,7 @@
 
 ## The dashboard
 
-The dashboard is served by `webhook-receiver` itself (internal `:8080`, fronted by Caddy on host `:80`/`:443`) — there is no separate observability service.
+The dashboard is served by `webhook-receiver` itself (internal `:8080`), reached from the host through the receiver's loopback-only publish at `127.0.0.1:8081` — Caddy's public `:80`/`:443` site proxies only `/webhooks/github` and `/health` and answers `404` for every dashboard path. There is no separate observability service.
 
 ```mermaid
 graph TD
@@ -31,11 +31,11 @@ graph TD
 
 | Location | URL |
 | --- | --- |
-| Compose (default `:80`) | `http://localhost/dashboard` |
-| Compose + HTTPS overlay | `https://<WEBHOOK_SITE_ADDRESS>/dashboard` |
+| Compose (host) | `http://127.0.0.1:8081/dashboard` |
+| Compose (another tailnet machine) | `https://<machine>.<tailnet>.ts.net:8443/dashboard` — see `docs/dashboard.md` |
 | Local dev (`uv run orchestrator-webhook`) | `http://localhost:8080/dashboard` |
 
-**Authentication.** The dashboard is disabled by default: if `DASHBOARD_TOKEN` is unset, every dashboard route returns `404` (nothing enumerable through the Caddy proxy). When set, requests authenticate via `Authorization: Bearer <token>`, `?token=<token>`, or a `dashboard_token` cookie set by the HTML page. Use HTTPS in production — the token/cookie should never traverse the network in cleartext.
+**Authentication.** The dashboard is disabled by default: if `DASHBOARD_TOKEN` is unset, every dashboard route returns `404` (the surface is not enumerable even on the loopback path). When set, requests authenticate via `Authorization: Bearer <token>`, `?token=<token>`, or a `dashboard_token` cookie set by the HTML page. The token gate is independent of the network path: dashboard routes already `404` through the public Caddy listener whether or not the token is set, and the token is what protects `127.0.0.1:8081` and the tailnet URL. Use the HTTPS tailnet URL for anything beyond the host itself — the token/cookie should never traverse the network in cleartext.
 
 ### What you see
 
