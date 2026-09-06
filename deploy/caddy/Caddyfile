@@ -6,7 +6,42 @@
 #
 # For Let's Encrypt, set a real hostname in WEBHOOK_SITE_ADDRESS and optionally
 # add a global { email you@example.com } block below (see Caddy docs).
+#
+# THIS SITE IS THE PUBLIC SURFACE. It is what Tailscale Funnel (or any reverse
+# proxy / ingress) points at, so it must expose the GitHub webhook and the
+# health probe and nothing else. The receiver serves the token-gated dashboard,
+# the dashboard API, and the simulator from the same upstream.
+#
+# The separation is by PATH, not by client address, because the client address
+# cannot express "local or tailnet but not public" here:
+#   * a locally-run tunnel (ngrok, `ngrok http 80`) connects to :80 from
+#     127.0.0.1 — identical to a genuine local client;
+#   * a tailnet peer arriving through `tailscale serve` is presented to the
+#     local listener as 127.0.0.1 as well (tailscaled dials the target itself);
+#   * Funnel is the same: the socket peer at Caddy is 127.0.0.1. `X-Forwarded-For`
+#     may carry the real client IP on some versions, but Caddy trusts XFF from
+#     loopback, so a header-keyed rule is forgeable by any host that can reach
+#     :80 directly (it is published on all interfaces today).
+# Everything that is not listed below answers 404, matching the receiver's own
+# "route does not exist" shape so the public surface enumerates nothing.
+#
+# The dashboard is reached on the loopback-published receiver port instead
+# (compose `127.0.0.1:8081:8080`), optionally tailnet-served with
+# `tailscale serve --bg --https=8443 localhost:8081`. See docs/dashboard.md.
 
 {$WEBHOOK_SITE_ADDRESS} {
-	reverse_proxy webhook-receiver:8080
+	handle /webhooks/github {
+		reverse_proxy webhook-receiver:8080
+	}
+
+	handle /health {
+		reverse_proxy webhook-receiver:8080
+	}
+
+	# Catch-all: dashboard, /api/*, /simulator, run logs, webhook history.
+	# `handle` blocks are mutually exclusive, so this only runs when neither
+	# path above matched.
+	handle {
+		respond "Not Found" 404
+	}
 }

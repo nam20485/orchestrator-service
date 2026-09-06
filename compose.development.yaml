@@ -34,6 +34,14 @@ services:
     platform: linux/amd64
     expose:
       - "8080"
+    # Loopback-only publish of the whole app (dashboard, /api/dashboard/*,
+    # simulator). webhook-proxy's public :80 site proxies only
+    # /webhooks/github and /health, so this is the intended way to reach the
+    # dashboard: from the host at 127.0.0.1:8081 and, over the tailnet, via
+    # `tailscale serve --bg --https=8443 localhost:8081`. Binding 127.0.0.1
+    # keeps it off the LAN and off the funnel — 8081 is never a funnel target.
+    ports:
+      - "127.0.0.1:8081:8080"
     volumes:
       - ${WORKSPACE_DIR:?WORKSPACE_DIR is required}:/workspace
       # Persist runner/beads logs so a torn-down/failed run stays diagnosable.

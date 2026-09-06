@@ -44,3 +44,30 @@ if [[ -z "$found_log_mount" ]]; then
   exit 1
 fi
 echo "webhook-receiver log-dir mount: ok"
+
+# Verify the receiver's dashboard/API port is published loopback-only. Caddy's
+# public site restricts itself to the webhook + health paths, and the funnel
+# targets that site; the direct receiver publish is the private path to the
+# dashboard, so binding it to anything but 127.0.0.1 would re-expose the
+# dashboard on the LAN.
+receiver_ports=$(docker compose -f compose.yaml config --format json \
+  | jq -c '.services["webhook-receiver"].ports // []')
+if [[ "$(jq -r 'length' <<<"$receiver_ports")" == "0" ]]; then
+  echo "FAIL: webhook-receiver must publish a loopback port for dashboard access"
+  exit 1
+fi
+if [[ "$(jq -r '[.[] | select(.host_ip != "127.0.0.1")] | length' <<<"$receiver_ports")" != "0" ]]; then
+  echo "FAIL: webhook-receiver ports must all bind host_ip 127.0.0.1 (got $(jq -c '[.[].host_ip]' <<<"$receiver_ports"))"
+  exit 1
+fi
+echo "webhook-receiver loopback-only publish: ok"
+
+# The same must hold for the development overlay, which otherwise duplicates the
+# service block rather than inheriting it.
+dev_ports=$(docker compose -f compose.development.yaml config --format json \
+  | jq -c '.services["webhook-receiver"].ports // []')
+if [[ "$(jq -r '[.[] | select(.host_ip != "127.0.0.1")] | length' <<<"$dev_ports")" != "0" || "$(jq -r 'length' <<<"$dev_ports")" == "0" ]]; then
+  echo "FAIL: compose.development.yaml webhook-receiver must publish loopback-only too"
+  exit 1
+fi
+echo "compose.development.yaml loopback-only publish: ok"
