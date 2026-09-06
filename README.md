@@ -151,8 +151,10 @@ Per-dispatch run logs: `/tmp/orchestrator-webhook/prompt-*.md` (the prompt) and 
 When `WEBHOOK_ENABLE_SIMULATOR=1`, open:
 
 ```text
-http://localhost/simulator
+http://127.0.0.1:8081/simulator
 ```
+
+(The loopback-published receiver port — `http://localhost/simulator` returns `404`, because Caddy's public site proxies only the webhook and health paths.)
 
 - **Safe (ping)** tab — signed `ping` delivery; returns **200**, no orchestration.
 - **Work events** tab — `issues`, `pull_request`, etc.; returns **202** and starts a real OpenCode run.
@@ -161,20 +163,23 @@ For local simulator UI, set both `WEBHOOK_ENABLE_SIMULATOR=1` **and** `DASHBOARD
 
 ### Orchestration dashboard
 
-A real-time web UI for the Beads pipeline: bead DAG status, active agents, and a live event timeline (SSE). Served by `webhook-receiver` behind Caddy.
+A real-time web UI for the Beads pipeline: bead DAG status, active agents, and a live event timeline (SSE). Served by `webhook-receiver`, published **loopback-only** on the host.
 
 ```text
-http://localhost/dashboard
+http://127.0.0.1:8081/dashboard
 ```
 
 UI status badges, sortable bead table with inline logs, event timeline, and a JSON API under `/api/dashboard/*`. Full reference: [docs/dashboard.md](docs/dashboard.md).
 
-> **Token-gated.** The dashboard is **disabled by default** (every route returns `404`) until `DASHBOARD_TOKEN` is set. Once set, requests must present that token via an `Authorization: Bearer` header, a `?token=` query parameter, or a `dashboard_token` cookie (constant-time compared); a missing/wrong token returns `401`. Set `DASHBOARD_TOKEN` before enabling it (`webhook_receiver/auth.py`).
+> **Not reachable through the public proxy.** Caddy's host `:80` site (the Tailscale Funnel target) proxies only `POST /webhooks/github` and `GET /health`; `/dashboard` and `/api/dashboard/*` answer `404` there. Reach the dashboard on `127.0.0.1:8081`, or over the tailnet with `tailscale serve --bg --https=8443 localhost:8081` ([details](docs/dashboard.md#tailnet-access)).
+>
+> **Token-gated.** Independently of the network path, the dashboard is **disabled by default** (every route returns `404`) until `DASHBOARD_TOKEN` is set. Once set, requests must present that token via an `Authorization: Bearer` header, a `?token=` query parameter, or a `dashboard_token` cookie (constant-time compared); a missing/wrong token returns `401`. Set `DASHBOARD_TOKEN` before enabling it (`webhook_receiver/auth.py`).
 
 ### Health
 
 ```bash
-curl -s http://localhost:8080/health
+curl -s http://localhost/health          # through Caddy (publicly proxied path)
+curl -s http://127.0.0.1:8081/health     # direct, loopback-published receiver
 ```
 
 ## Validation

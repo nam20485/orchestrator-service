@@ -6,11 +6,12 @@ run actually do, and why might it have been killed.
 ## Health
 
 ```bash
-curl -s http://localhost:8080/health          # webhook-receiver, direct
+curl -s http://127.0.0.1:8081/health           # webhook-receiver, host loopback publish (Compose)
+curl -s http://localhost:8080/health           # webhook-receiver, direct (local `uv run`)
 curl -s http://localhost/health                # through the Caddy proxy on :80
 ```
 
-Both should return `{"status":"ok"}`
+All three should return `{"status":"ok"}`
 (`README.md`,
 `docs/deployment-compose.md`).
 
@@ -77,9 +78,13 @@ Real-time UI for the Beads pipeline, served by `webhook-receiver`
 
 | Environment | URL |
 |-------------|-----|
-| Compose (`:80`) | `http://localhost/dashboard` |
-| Compose + HTTPS overlay | `https://<WEBHOOK_SITE_ADDRESS>/dashboard` |
+| Compose (host) | `http://127.0.0.1:8081/dashboard` |
+| Compose (another tailnet machine) | `https://<machine>.<tailnet>.ts.net:8443/dashboard` |
 | Local `uv run orchestrator-webhook` | `http://localhost:8080/dashboard` |
+
+`http://localhost/dashboard` — the Caddy site on host `:80` — returns `404` for
+every dashboard path by design; that is the public webhook-only listener, not a
+broken dashboard.
 
 The dashboard is **disabled by default** — every route returns `404` until
 `DASHBOARD_TOKEN` is set. Once set, authenticate via an
@@ -88,8 +93,8 @@ The dashboard is **disabled by default** — every route returns `404` until
 
 ```bash
 export DASHBOARD_TOKEN="…"
-xdg-open "http://localhost/dashboard?token=$DASHBOARD_TOKEN"
-curl -s -H "Authorization: Bearer $DASHBOARD_TOKEN" http://localhost/api/dashboard/overview | jq
+xdg-open "http://127.0.0.1:8081/dashboard?token=$DASHBOARD_TOKEN"
+curl -s -H "Authorization: Bearer $DASHBOARD_TOKEN" http://127.0.0.1:8081/api/dashboard/overview | jq
 ```
 
 Key views: summary cards (Total/Ready/Blocked/Active/Closed/Halted), the

@@ -58,10 +58,18 @@ under `test/`.
 
 Invoked individually by `validate.ps1` (both `-Lint` and `-Test`, with some
 overlap): `test-compose-config.sh`, `test-caddyfile.sh`,
-`test-opencode-json.sh`, `test-beads-versions-consistency.sh`,
+`test-caddyfile-routes.sh`, `test-opencode-json.sh`,
+`test-beads-versions-consistency.sh`,
 `test-webhook-scripts.sh`, `test-memory-protocol.sh`,
 `test-docker-entrypoint.sh`, `test-scan-secrets.sh`, `test-docker-user.sh`,
 `test-docker-healthchecks.sh`, `test-openapi-schema.sh`.
+
+`test-caddyfile-routes.sh` is the exception in this layer: it is not a grep
+assertion. It runs the real `deploy/caddy/Caddyfile` in a container against a
+stub upstream that answers `200` to every path, and fails if any dashboard,
+dashboard-API, or simulator path is reachable through the public site — the
+regression guard for the proxy's path allowlist
+(`plan_docs/dashboard-local-only-access-plan.md`).
 
 **Read this layer's limits carefully.** Per
 `docs/testing-approach.md`, most of these are

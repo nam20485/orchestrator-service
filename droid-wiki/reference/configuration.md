@@ -66,6 +66,8 @@ Every field below has a code default and is optional to override. `Settings.from
 | `log_level` | `WEBHOOK_LOG_LEVEL` | `info` |
 | `enable_simulator` | `WEBHOOK_ENABLE_SIMULATOR` | off (truthy values: `1`/`true`/`yes`) |
 
+`host`/`port` are the **in-container** bind; they say nothing about host or network reachability. On the host, Compose publishes the app loopback-only at `127.0.0.1:8081`, and the Caddy site on `:80`/`:443` proxies only `/webhooks/github` and `/health` — so dashboard, dashboard-API, and simulator paths `404` through the public edge however these two settings are configured (`docs/dashboard.md`).
+
 ### Dashboard
 
 | Field | Env var | Code default |

@@ -14,7 +14,7 @@
 | `Dockerfile.webhook` | `webhook-receiver` image (FastAPI app, `br`/`bvr`, `gh`, `pwsh`). |
 | `Dockerfile.beads` | Canonical Beads (`br`/`bvr`) builder; published separately so Rust compiles once and both other images `COPY --from` it. |
 | `deploy/caddy/Dockerfile` | `webhook-proxy` image (Caddy + non-root `caddy` user + `setcap`). |
-| `deploy/caddy/Caddyfile` | Reverse-proxy config: `{$WEBHOOK_SITE_ADDRESS}` → `webhook-receiver:8080`. |
+| `deploy/caddy/Caddyfile` | Reverse-proxy config: the `{$WEBHOOK_SITE_ADDRESS}` site proxies only `/webhooks/github` and `/health` to `webhook-receiver:8080` via `handle` blocks, with a `404` catch-all for every other path. Copied into the image by `deploy/caddy/Dockerfile`, so edits need an image rebuild. |
 | `deploy/caddy/caddy-entrypoint.sh` | Root entrypoint: chowns `/data`/`/config` on first mount, drops to `caddy` via `su-exec`. |
 | `scripts/docker-entrypoint.sh` | `orchestratorservice` entrypoint: writes `auth.json` from env vars, self-heals a corrupt `memory.jsonl`, drops to `app` via `gosu`. |
 | `scripts/webhook-entrypoint.sh` | `webhook-receiver` entrypoint: chowns the runner-log bind mount, drops to `app` via `gosu`. |
@@ -26,7 +26,8 @@
 ```mermaid
 graph LR
     Host[Host / operator] -->|":80 or :443"| Proxy[webhook-proxy\nCaddy]
-    Proxy -->|"reverse_proxy :8080"| Receiver[webhook-receiver\nFastAPI]
+    Proxy -->|"reverse_proxy :8080 — webhook + health only"| Receiver[webhook-receiver\nFastAPI]
+    Host -->|"127.0.0.1:8081 loopback publish"| Receiver
     Receiver -->|"opencode run --attach :4099"| Server[orchestratorservice\nOpenCode server]
     Receiver -. "shared bind mount" .-> Workspace[("/workspace")]
     Server -. "shared bind mount" .-> Workspace
@@ -36,8 +37,8 @@ graph LR
 | Service | Image | Port | Role |
 | --- | --- | --- | --- |
 | `orchestratorservice` | `ghcr.io/.../orchestrator-service` | `4099` | OpenCode server (`opencode serve`) hosting agent sessions. |
-| `webhook-receiver` | `ghcr.io/.../orchestrator-service/webhook` | `8080` (internal) | Validates GitHub webhooks, runs the `BeadsLoop`, serves `/health` and the dashboard. |
-| `webhook-proxy` | `ghcr.io/.../orchestrator-service/caddy` | `80` / `443` | Caddy reverse proxy (TLS edge). |
+| `webhook-receiver` | `ghcr.io/.../orchestrator-service/webhook` | `8080` (internal); published host `127.0.0.1:8081` | Validates GitHub webhooks, runs the `BeadsLoop`, serves `/health` and the dashboard. |
+| `webhook-proxy` | `ghcr.io/.../orchestrator-service/caddy` | `80` / `443` | Caddy reverse proxy (TLS edge); proxies only `/webhooks/github` and `/health`. |
 
 `orchestratorservice` and `webhook-receiver` share a host directory via a bind mount at `/workspace` (`WORKSPACE_DIR`) — that is where agent sessions run and `.beads/` DAG state lives. Two required env vars gate every mode: `WORKSPACE_DIR` and `OPENCODE_SERVER_PASSWORD`.
 
@@ -49,12 +50,12 @@ There are four compose files. Two are standalone; two are overlays layered on to
 | --- | --- | --- |
 | Dev (pull images) | `docker compose -f compose.development.yaml up -d` | Standalone; self-contained, does **not** layer on `compose.yaml`. |
 | Dev (build from source) | `docker compose -f compose.development.yaml -f compose.build.yaml up -d --build` | Use when editing Dockerfiles or image-baked app code. |
-| Prod (HTTP only) | `docker compose -f compose.yaml up -d` | Publishes host `:80`. |
+| Prod (HTTP only) | `docker compose -f compose.yaml up -d` | Publishes host `:80` (Caddy: webhook + health only) and `127.0.0.1:8081` (receiver: loopback-only, serves the dashboard). |
 | Prod (HTTPS) | `COMPOSE_FILE=compose.yaml:compose.https.yaml docker compose up -d` | Adds host `:443`, Caddy automatic Let's Encrypt. |
 
 Compose merges files left-to-right; later files override/extend earlier ones. Because `compose.development.yaml` fully re-declares every service and its `environment:` block rather than layering on `compose.yaml`, a new environment variable must be added to **both** files or dev will silently miss it.
 
-Local webhook testing tunnels public HTTPS to host **:80** (Caddy), not the receiver's internal **:8080** — via Tailscale Funnel (`tailscale funnel 80`, stable `*.ts.net` URL) or ngrok. Funnel and `compose.https.yaml` both bind host `:443`, so use `compose.yaml` alone with Funnel active.
+Local webhook testing tunnels public HTTPS to host **:80** (Caddy), not the receiver's internal **:8080** — via Tailscale Funnel (`tailscale funnel 80`, stable `*.ts.net` URL) or ngrok. Funnel and `compose.https.yaml` both bind host `:443`, so use `compose.yaml` alone with Funnel active. Because that Caddy site proxies only `/webhooks/github` and `/health`, the tunnel does not reach the dashboard, its API, or the simulator — they `404` at the edge; use `http://127.0.0.1:8081/dashboard` on the host, or `tailscale serve --bg --https=8443 localhost:8081` for tailnet peers (`docs/dashboard.md`). Never the positional form `tailscale serve --bg 8081`: it mounts on the default served port `443`, the same handler the funnel points at `127.0.0.1:80`, and would re-aim the public funnel at the dashboard while breaking webhook delivery.
 
 ## How images are published
 

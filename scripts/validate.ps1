@@ -127,6 +127,7 @@ try {
         if (Get-Command docker -ErrorAction SilentlyContinue) {
             Invoke-BashStep -Name 'compose config (test)' -ScriptPath './test/test-compose-config.sh'
             Invoke-BashStep -Name 'caddyfile (test)' -ScriptPath './test/test-caddyfile.sh'
+            Invoke-BashStep -Name 'caddyfile routes (test)' -ScriptPath './test/test-caddyfile-routes.sh'
             Invoke-BashStep -Name 'docker-user (test)' -ScriptPath './test/test-docker-user.sh'
         }
         else {

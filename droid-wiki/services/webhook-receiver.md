@@ -64,13 +64,15 @@ Separately, `BeadsLoop` runs in a daemon thread started by `__main__.py`; it doe
 | `/dashboard`, `/dashboard/bead/{id}`, `/dashboard/runs`, `/dashboard/runs/{stem}`, `/dashboard/events`, `/dashboard/webhooks` | `webhook_receiver/dashboard.py` (`create_dashboard_page_router`) | HTML page shell, gated by `DASHBOARD_TOKEN`. |
 | `/dashboard/pages`, `/dashboard/pages/{file_path}` | `webhook_receiver/dashboard.py` (`create_dashboard_pages_router`) | Serves the `bvr`-generated static pages bundle. |
 
+Only `GET /health` and `POST /webhooks/github` are proxied by the public Caddy site. Every other route in this table answers `404` there regardless of `DASHBOARD_TOKEN`, and is served instead on the receiver's loopback-only host publish `127.0.0.1:8081` (optionally tailnet-served) — see `docs/dashboard.md`.
+
 ## Integration points
 
 - **OpenCode server**: every dispatch — webhook-triggered or Beads-triggered — ultimately runs `opencode run --attach http://orchestratorservice:4099 ...` via `scripts/prompt.ps1`. `compose.yaml` sets `OPENCODE_SERVER_URL=http://orchestratorservice:4099` and makes this container depend on `orchestratorservice`'s healthcheck.
 - **Shared `/workspace`**: the receiver clones/syncs downstream repositories here and reads/writes `.beads/` state; the OpenCode server's agent sessions operate in the same tree via `--dir`.
 - **`opencode-logs` volume**: mounted read-only at `/var/log/opencode-server`; `webhook_receiver/watchdog.py` treats growth in this file as a secondary activity signal so it does not kill a run that is silent on stdout but active in a subagent delegation.
 - **GitHub API**: `webhook_receiver/workspace.py` (`create_pr`, called from `beads_loop.py`) and `webhook_receiver/runner.py` (issue failure comments) both shell out to `gh`, authenticated with `GH_ORCHESTRATION_AGENT_TOKEN` (falling back to `GITHUB_TOKEN`) — distinct from the HMAC secret used to validate inbound webhooks.
-- **`webhook-proxy`**: reached only in the inbound direction; Caddy forwards to this container's internal port `8080` and the container never talks back to Caddy.
+- **`webhook-proxy`**: reached only in the inbound direction; Caddy forwards `/webhooks/github` and `/health` to this container's internal port `8080` and answers `404` for every other path on the public site. The container never talks back to Caddy. The remaining routes — dashboard pages, `/api/dashboard/*`, `/simulator` — are reached directly via the compose loopback-only publish (`127.0.0.1:8081`), optionally tailnet-served, bypassing the proxy entirely.
 
 ## Modification entry points
 
@@ -80,6 +82,7 @@ Separately, `BeadsLoop` runs in a daemon thread started by `__main__.py`; it doe
 - Change idle/error/timeout kill behavior: `webhook_receiver/watchdog.py`.
 - Change Beads polling, retry, or worktree logic: `webhook_receiver/beads_loop.py`.
 - Change dashboard data or pages: `webhook_receiver/dashboard.py`.
+- Change which paths the public edge can reach, or the host port the dashboard is served on: `deploy/caddy/Caddyfile` (rebuild the `webhook-proxy` image) and the `webhook-receiver` `ports:` entry in `compose.yaml` / `compose.development.yaml`.
 - Change installed tooling or the image build: `Dockerfile.webhook`.
 - Change container startup/ownership fixups: `scripts/webhook-entrypoint.sh`.
 
