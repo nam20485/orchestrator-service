@@ -55,6 +55,21 @@
     "agent-instructions-expert": {
       "model": "zai-coding-plan/glm-5.3-flash",
       "variant": "xhigh"
+    },
+    // Defined only by the cloned project layer (.opencode/agents/*.md from the
+    // intel-agency/agent-context template) — no md ships in this image, but the
+    // tier must be pinned here or they inherit the primary model.
+    "qa-tester": {
+      "model": "zai-coding-plan/glm-5.3-flash",
+      "variant": "xhigh"
+    },
+    "team-lead": {
+      "model": "zai-coding-plan/glm-5.3-flash",
+      "variant": "xhigh"
+    },
+    "team-orchestrator": {
+      "model": "zai-coding-plan/glm-5.3-flash",
+      "variant": "xhigh"
     }
   },
   "mcp": {
