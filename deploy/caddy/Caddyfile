@@ -22,8 +22,10 @@
 #     may carry the real client IP on some versions, but Caddy trusts XFF from
 #     loopback, so a header-keyed rule is forgeable by any host that can reach
 #     :80 directly (it is published on all interfaces today).
-# Everything that is not listed below answers 404, matching the receiver's own
-# "route does not exist" shape so the public surface enumerates nothing.
+# Everything that is not listed below answers 404 — the same status code the
+# receiver returns for unknown routes — so the public surface enumerates
+# nothing. (Only the status code matches: the receiver's own 404 body is JSON,
+# this one is plain text.)
 #
 # The dashboard is reached on the loopback-published receiver port instead
 # (compose `127.0.0.1:8081:8080`), optionally tailnet-served with

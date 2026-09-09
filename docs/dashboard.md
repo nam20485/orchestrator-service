@@ -4,7 +4,7 @@ A real-time web UI for observing the three-tier Beads pipeline: bead DAG status,
 
 ## Open it
 
-The dashboard runs inside `webhook-receiver` (container port `8080`), published to the host on **loopback only** at `127.0.0.1:8081`. It is deliberately *not* reachable through the Caddy site on host `:80` — that site is the public surface (the Tailscale Funnel target) and proxies only `POST /webhooks/github` and `GET /health`; every other path answers `404`.
+The dashboard runs inside `webhook-receiver` (container port `8080`), published to the host on **loopback only** at `127.0.0.1:8081`. It is deliberately *not* reachable through the Caddy site on host `:80` — that site is the public surface (the Tailscale Funnel target) and proxies only the `/webhooks/github` and `/health` paths (any method; wrong methods are rejected by the receiver itself); every other path answers `404`.
 
 | How you're running | URL |
 | -------------------- | ----- |

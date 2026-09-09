@@ -21,6 +21,7 @@ graph TB
 
     GH -->|POST, HMAC-signed body| Edge
     Browser -->|Bearer, token=, or cookie| Loop
+    Browser -.->|public :80/:443 — /health only| Edge
     Edge --> R
     Loop --> R
     R --> Health

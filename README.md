@@ -171,7 +171,7 @@ http://127.0.0.1:8081/dashboard
 
 UI status badges, sortable bead table with inline logs, event timeline, and a JSON API under `/api/dashboard/*`. Full reference: [docs/dashboard.md](docs/dashboard.md).
 
-> **Not reachable through the public proxy.** Caddy's host `:80` site (the Tailscale Funnel target) proxies only `POST /webhooks/github` and `GET /health`; `/dashboard` and `/api/dashboard/*` answer `404` there. Reach the dashboard on `127.0.0.1:8081`, or over the tailnet with `tailscale serve --bg --https=8443 localhost:8081` ([details](docs/dashboard.md#tailnet-access)).
+> **Not reachable through the public proxy.** Caddy's host `:80` site (the Tailscale Funnel target) proxies only the `/webhooks/github` and `/health` paths (any method; wrong methods are rejected by the receiver itself); `/dashboard` and `/api/dashboard/*` answer `404` there. Reach the dashboard on `127.0.0.1:8081`, or over the tailnet with `tailscale serve --bg --https=8443 localhost:8081` ([details](docs/dashboard.md#tailnet-access)).
 >
 > **Token-gated.** Independently of the network path, the dashboard is **disabled by default** (every route returns `404`) until `DASHBOARD_TOKEN` is set. Once set, requests must present that token via an `Authorization: Bearer` header, a `?token=` query parameter, or a `dashboard_token` cookie (constant-time compared); a missing/wrong token returns `401`. Set `DASHBOARD_TOKEN` before enabling it (`webhook_receiver/auth.py`).
 
