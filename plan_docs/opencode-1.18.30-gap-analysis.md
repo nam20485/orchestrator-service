@@ -1,7 +1,7 @@
 # OpenCode 1.18.4 → 1.18.30 Gap Analysis & Pin Decision
 
 **Date:** 2026-09-10
-**Status:** CHECKPOINT — awaiting pin decision before implementation
+**Status:** DECIDED — Option A (pin 1.18.30); implemented in commit `7670b8c`, verified by the Phase 5 live smoke and green CI
 **Context:** PR #49 cursor security review 5160501148 (HIGH: workspace-containment fail-open from `"permission": "allow"` + `--auto`). This report is the Phase 1 deliverable of the approved remediation plan.
 
 ## Executive summary
@@ -73,7 +73,9 @@ Possible explanations for the divergence (unresolved, none confirmable from the 
 
 Relevant upstream highlights in range: **v1.18.20** — answer subagent permission asks during `opencode run`; surface failed subagent tool calls with resumable `task_id`; surface resumable subagent failures; retry `finish_reason: network_error` and more network-error variants (the golf38 `AI_APICallError` symptom class). **v1.18.5 shipped 2026-07-24** — the day after golf38; i.e., 1.18.4 was the then-current release and the whole range postdates the incident.
 
-## 6. Pin options (decision required)
+## 6. Pin options — DECIDED: Option A (1.18.30)
+
+Decision made 2026-09-10 after presenting this report; Option A implemented in commit `7670b8c` (both Dockerfiles pinned) and validated by the live smoke (simulator dispatch on a locally built 1.18.30 stack: parent + subagent external writes denied fail-fast, zero `message=asking`, run completed exit 0) plus green CI (validate, Docker publish, trivy). Options preserved below for the record.
 
 | Option | Pin | Pros | Cons |
 |---|---|---|---|
@@ -82,6 +84,10 @@ Relevant upstream highlights in range: **v1.18.20** — answer subagent permissi
 | C | keep `1.18.4` | No image change at all | Containment still works (deny-only block), but none of the deadlock-class fixes; stays 3 months stale; contradicts the upgrade intent you already approved |
 
 All three options include the same Phase 2 config change (deny-only block) and `--auto` removal — those are version-independent per the matrix.
+
+## Residual risk — bash surface (post-implementation, PR #49 review follow-up)
+
+The restored `external_directory` deny gates path-bearing file tools (`read`/`edit`/`write`/`glob`/`grep`) but does not inspect `bash` command operands, and the specialist agents that require bash (developer, github-expert, qa-test-engineer) run with bash allowed under `"*": "allow"`. Prompt-injected bash on a dispatched run could therefore read sibling `/workspace/` trees or container secrets (`auth.json`, `GH_ORCHESTRATION_AGENT_TOKEN`) even though file tools are contained. What bounds it today: the `gh-issue-tracking:direct-body` entry point (the only arbitrary-prompt surface) is fail-closed behind `DIRECT_BODY_ALLOWED_SENDERS`, and every other dispatch label renders a fixed workflow prompt around the event data rather than executing it verbatim. Durable closure options — a per-agent bash command allowlist (git/gh/pwsh/python prefixes), or moving `gh` + token out of the session container — are recorded as follow-ups; a global bash deny is not viable because the agent pipeline depends on bash.
 
 ## 7. Artifacts
 

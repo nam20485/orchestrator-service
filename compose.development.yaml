@@ -59,6 +59,10 @@ services:
       - OS_WEBHOOK_SECRET=${OS_WEBHOOK_SECRET}
       - OPENCODE_SERVER_URL=http://orchestratorservice:4099
       - OPENCODE_SERVER_PASSWORD=${OPENCODE_SERVER_PASSWORD:?OPENCODE_SERVER_PASSWORD is required}
+      # Dispatch model override (provider/model); mirrors the base compose.yaml
+      # entry — this file is standalone and never layered on compose.yaml, so
+      # every receiver env var must be re-declared here (docs/deployment-compose.md).
+      - OPENCODE_MODEL=${OPENCODE_MODEL:-qwencloud/qwen3.7-max}
       - GH_ORCHESTRATION_AGENT_TOKEN=${GH_ORCHESTRATION_AGENT_TOKEN}
       - GITHUB_TOKEN=${GITHUB_TOKEN}
       # Trusted-sender allowlist (GitHub usernames/logins, comma-separated) for
