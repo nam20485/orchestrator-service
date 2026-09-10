@@ -36,14 +36,14 @@ scope: repository
       (`OS_WEBHOOK_SECRET`) → matches the label (`webhook_receiver/filters.py` `should_dispatch`) →
       renders the prompt (`webhook_receiver/prompts.py` from `orchestration_prompt.jinja2.md`) →
       `webhook_receiver/runner.py` `dispatch_to_opencode()` → `scripts/prompt.ps1` →
-      `opencode run --attach http://orchestratorservice:4099 --dir /workspace/<slug> --agent orchestrator --auto`.
+      `opencode run --attach http://orchestratorservice:4099 --dir /workspace/<slug> --agent orchestrator` (no --auto; permission policy is server-side fail-closed).
       *(Legacy, superseded trigger: `orchestration:dispatch` label + `/orchestrate-dynamic-workflow`.)*
       KNOWN GAP: nothing currently drives implementation after `/gh-issue-tracking-init` builds the Plan/Epic/Story hierarchy.
     </dispatch_contract>
   </multi_repo_system>
 
   <tech_stack>
-    <item>opencode CLI (v1.18.4) — agent runtime: `opencode serve` on :4099; dispatched as `opencode run --model qwencloud/qwen3.7-max --variant high --agent orchestrator`.</item>
+    <item>opencode CLI (v1.18.30) — agent runtime: `opencode serve` on :4099; dispatched as `opencode run --model qwencloud/qwen3.7-max --variant high --agent orchestrator`.</item>
     <item>Z.AI GLM models (`glm-5.3-flash` for subagents and small model) via `ZAI_CODING_API_KEY`; orchestrator default `qwencloud/qwen3.7-max` via `QWENCLOUD_TOKEN_PLAN_API_KEY`; `OPENROUTER_API_KEY`, `MODEL_STUDIO_API_KEY` for alternates.</item>
     <item>Python (FastAPI) `webhook_receiver/` — webhook validation (HMAC), label matching, prompt rendering, dispatch.</item>
     <item>docker-compose stack — `orchestratorservice` (opencode serve :4099) + `webhook-receiver` (FastAPI :8080) + `webhook-proxy` (Caddy :80). Self-built GHCR images from this repo's `Dockerfile`/`Dockerfile.webhook` + `image/` (CI: `.github/workflows/docker-publish.yml`).</item>
@@ -61,10 +61,10 @@ scope: repository
     <entry><path>webhook_receiver/filters.py</path><description>`should_dispatch` + log blacklist — label-prefix matching (`gh-issue-tracking:`/`orchestration:`), `direct-body` sender allowlist.</description></entry>
     <entry><path>webhook_receiver/prompts.py</path><description>Renders the Jinja2 `orchestration_prompt.jinja2.md` match-clause state machine.</description></entry>
     <entry><path>webhook_receiver/runner.py</path><description>`dispatch_to_opencode()` + `IdleWatchdog` run classifier (completed/failed/idle_timeout/zero-work).</description></entry>
-    <entry><path>scripts/prompt.ps1</path><description>Non-interactive dispatch: `opencode run --attach <url> --dir <workspace> --model … --agent orchestrator --auto`.</description></entry>
+    <entry><path>scripts/prompt.ps1</path><description>Non-interactive dispatch: `opencode run --attach <url> --dir <workspace> --model … --agent orchestrator` (no --auto).</description></entry>
     <!-- Agent/config source -->
     <entry><path>image/.opencode/</path><description>opencode config shipped into the container: `opencode.json`, THIS `AGENTS.md`, `agents/` (orchestrator + 8 specialists: code-reviewer, developer, documentation-expert, github-expert, odbplusplus-expert, planner, qa-test-engineer, researcher), `commands/`, `local_ai_instruction_modules/`.</description></entry>
-    <entry><path>image/.opencode/opencode.json</path><description>`instructions:["AGENTS.md"]`, `default_agent:"orchestrator"`, `model:qwencloud/qwen3.7-max` (orchestrator), subagents pinned to `zai-coding-plan/glm-5.3-flash`, per-agent model+variant overrides, MCP defs, `"permission": "allow"` (server-side: allows all actions for all sessions including subagents — the definitive fix for the headless permission deadlock).</description></entry>
+    <entry><path>image/.opencode/opencode.json</path><description>`instructions:["AGENTS.md"]`, `default_agent:"orchestrator"`, `model:qwencloud/qwen3.7-max` (orchestrator), subagents pinned to `zai-coding-plan/glm-5.3-flash`, per-agent model+variant overrides, MCP defs, fail-closed `permission` block (`"*": "allow"` + `external_directory: {"*": "deny"}` — everything allowed with no ask so headless runs cannot deadlock, except paths outside the session working directory which fail fast; enforced for ALL sessions including task-spawned subagents).</description></entry>
     <!-- CI -->
     <entry><path>.github/workflows/</path><description>`validate` (lint/scan/test), `docker-publish` (build+push GHCR images), `trivy` (image scan), `opencode`, `dependency-review`, `droid`/`droid-review`. There is NO `orchestrator-agent.yml` workflow in this repo.</description></entry>
     <!-- Docs -->
@@ -139,7 +139,7 @@ scope: repository
     <rule>Pin ALL GitHub Actions by full SHA to the latest release — no tag or branch references (`@v4`, `@main`). Format: `uses: owner/action@<full-40-char-SHA> # vX.Y.Z`. The trailing comment with the semver tag is mandatory for human readability. This applies to every `uses:` line in every workflow file, including third-party actions, first-party (`actions/*`), and reusable workflows. Supply-chain attacks via tag mutation are a critical threat — SHA pinning is the only mitigation. When creating or modifying workflows, look up the SHA for the latest release of each action (e.g., via `gh api repos/actions/checkout/releases/latest --jq .tag_name` then resolve to SHA) and pin to it.</rule>
     <rule>Never add duplicate top-level `name:`, `on:`, or `jobs:` keys in workflow YAML.</rule>
       <rule>`image/.opencode/` is the agent config shipped into the container — the `Dockerfile` DOES `COPY image/ /app/` then installs it to `/home/app/.config/opencode/`. There is NO external prebuild repo; images build in this repo.</rule>
-      <rule>Server-side permission config (`"permission": "allow"` in `image/.opencode/opencode.json`) governs ALL sessions including task-spawned subagents. The client-side `--auto` flag is belt-and-suspenders. Agent frontmatter `external_directory` rules are defense-in-depth only.</rule>
+      <rule>Permission policy is server-side fail-closed in `image/.opencode/opencode.json`: `"*": "allow"` plus `external_directory: {"*": "deny"}` — no ask can fire (headless runs cannot deadlock) and paths outside the session working directory fail fast with deny, for ALL sessions including task-spawned subagents. `--auto` is deliberately NOT passed by scripts/prompt.ps1: if the config fails to load, external_directory falls back to ask, the run deadlocks, and the watchdog kills it (fail-closed) instead of silently auto-approving. Agent frontmatter `external_directory` denies are defense-in-depth.</rule>
     <rule>Repository labels are defined in `.github/.labels.json`. Use `scripts/import-labels.ps1` to sync them to a repo instance. When adding new labels, add them to this file — it is the single source of truth for the label set.</rule>
     <rule>Implementation approval protocol: before implementing any non-trivial change, verify that explicit approval was given for that specific item AND that no significant state or circumstances have changed since approval was given. If approval was never given, or was invalidated by changed circumstances, stop and ask before acting. When in doubt — ask, don't act.</rule>
   </coding_conventions>
@@ -279,7 +279,7 @@ scope: repository
       1. `webhook_receiver` receives a GitHub `issues:labeled` webhook and HMAC-verifies it (`OS_WEBHOOK_SECRET`).
       2. `should_dispatch` (`webhook_receiver/filters.py`) matches the label (e.g. `gh-issue-tracking:direct-body`).
       3. `build_orchestrator_prompt` (`webhook_receiver/prompts.py`) renders `orchestration_prompt.jinja2.md`, injecting the event JSON.
-      4. `dispatch_to_opencode` (`webhook_receiver/runner.py`) spawns `scripts/prompt.ps1`, which runs `opencode run --attach http://orchestratorservice:4099 --dir /workspace/<slug> --agent orchestrator --auto`.
+      4. `dispatch_to_opencode` (`webhook_receiver/runner.py`) spawns `scripts/prompt.ps1`, which runs `opencode run --attach http://orchestratorservice:4099 --dir /workspace/<slug> --agent orchestrator`.
     </rule>
   </agent_specific_guardrails>
 
@@ -428,7 +428,7 @@ scope: repository
     </system_utilities>
 
     <cli_tools>
-      <tool name="opencode" version="1.18.4">OpenCode CLI — server runs `opencode serve`; agents defined under `.opencode/agents/`.</tool>
+      <tool name="opencode" version="1.18.30">OpenCode CLI — server runs `opencode serve`; agents defined under `.opencode/agents/`.</tool>
       <tool name="gh">GitHub CLI — issues, PRs, repos, Actions. Authenticate with `GH_ORCHESTRATION_AGENT_TOKEN` / `GITHUB_TOKEN` from compose env.</tool>
     </cli_tools>
 

@@ -45,7 +45,7 @@ sequenceDiagram
     App->>Prompts: build_orchestrator_prompt(payload)
     App->>Runner: dispatch_to_opencode (background task)
     Runner->>PS: pwsh scripts/prompt.ps1 -PromptFile ...
-    PS->>OC: opencode run --attach http://orchestratorservice:4099 --auto
+    PS->>OC: opencode run --attach http://orchestratorservice:4099
     OC-->>PS: streamed stdout/stderr
     PS-->>Runner: exit code
     Runner->>Runner: write manifest, classify run

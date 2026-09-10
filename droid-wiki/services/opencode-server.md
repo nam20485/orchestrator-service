@@ -33,7 +33,7 @@ The Dockerfile's `HEALTHCHECK` probes the raw TCP listener on `127.0.0.1:4099` r
 
 ## Integration points
 
-- **Webhook receiver**: `webhook_receiver/runner.py` builds the command line for `scripts/prompt.ps1`, which runs `opencode run --attach http://orchestratorservice:4099 --dir <workspace> --model <model> --agent orchestrator --auto` as a subprocess against this server. `compose.yaml` sets the receiver's `depends_on: orchestratorservice: condition: service_healthy`, so the receiver only starts once the healthcheck passes.
+- **Webhook receiver**: `webhook_receiver/runner.py` builds the command line for `scripts/prompt.ps1`, which runs `opencode run --attach http://orchestratorservice:4099 --dir <workspace> --model <model> --agent orchestrator` as a subprocess against this server. `compose.yaml` sets the receiver's `depends_on: orchestratorservice: condition: service_healthy`, so the receiver only starts once the healthcheck passes.
 - **Shared `/workspace`**: agent sessions run with `--dir /workspace/<slug>`, the same bind mount the receiver uses for cloning and Beads worktrees.
 - **`opencode-logs` volume**: the server writes its log to `/home/app/.local/share/opencode/log`; the receiver mounts the same volume read-only at `/var/log/opencode-server` so its watchdog can use server-log growth as an activity signal.
 - **`opencode-memory` volume**: backs the `memory-graph` MCP server (`/app/.memory/memory.jsonl`), used by the orchestrator agent under the single-writer protocol described in `image/.opencode/AGENTS.md`.

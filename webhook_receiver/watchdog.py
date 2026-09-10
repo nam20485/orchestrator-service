@@ -163,8 +163,9 @@ class _ServerLogMonitor:
 class _PermissionAskMonitor:
     """Detects unanswered permission ``ask`` prompts in the opencode server log.
 
-    A headless dispatch (``--auto``, no human responder)
-    can NEVER satisfy a permission ``ask``: the agent blocks forever waiting for
+    A headless dispatch (no human responder; ``--auto`` is
+    deliberately NOT passed so permission policy comes from the server-side
+    config alone) can NEVER satisfy a permission ``ask``: the agent blocks forever waiting for
     a reply. opencode emits ``message=asking ... permission=<type>`` lines to its
     server log when ``evaluate()`` resolves a tool call to ``ask`` (distinct from
     ``message=evaluated``, which fires for allow/deny too). This scanner reads

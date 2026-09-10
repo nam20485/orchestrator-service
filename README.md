@@ -121,7 +121,7 @@ https://<your-host>/webhooks/github
 Content type: `application/json`. Subscribe to **Issues** on the GitHub App. The receiver only dispatches the orchestrator for `issues.labeled` events from a non-bot actor carrying a workflow label; all other deliveries are acknowledged but ignored. The dispatch set (defined in `webhook_receiver/filters.py`) is:
 
 - labels in the `orchestration:*` or `gh-issue-tracking:*` prefix namespaces, or the exact labels `implementation:ready` / `implementation:complete`;
-- the special `gh-issue-tracking:direct-body` label runs the **issue body verbatim** as the orchestrator prompt. Because that prompt inherits the orchestration GitHub token and `--auto`, it is fail-closed-gated by `DIRECT_BODY_ALLOWED_SENDERS` (comma-separated trusted-sender allowlist; when unset/empty, or the sender is not listed, the delivery is ignored).
+- the special `gh-issue-tracking:direct-body` label runs the **issue body verbatim** as the orchestrator prompt. Because that prompt inherits the orchestration GitHub token and runs with full agent tool access, it is fail-closed-gated by `DIRECT_BODY_ALLOWED_SENDERS` (comma-separated trusted-sender allowlist; when unset/empty, or the sender is not listed, the delivery is ignored).
 
 ### Environment variables
 

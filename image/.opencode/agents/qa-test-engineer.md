@@ -15,10 +15,11 @@ tools:
   todoread: true
   webfetch: true
 permission:
-  # Defense-in-depth only (INERT for task subagents in opencode v1.18.4).
-  # If honored, an external-dir write fails fast via deny instead of
-  # hanging on `ask`. Scratch MUST go in-workspace (<workspace>/.scratch),
-  # never /tmp — see AGENTS.md "Subagent scratch" rule.
+  # Defense-in-depth on top of the global opencode.json external_directory
+  # deny (enforced for ALL sessions incl. task subagents on opencode 1.18.30;
+  # verified in plan_docs/opencode-1.18.30-gap-analysis.md). Scratch MUST go
+  # in-workspace (<workspace>/.scratch), never /tmp — see AGENTS.md
+  # "Subagent scratch" rule.
   external_directory:
     "*": deny
 ---

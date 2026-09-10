@@ -321,7 +321,7 @@ case (type = issues &&
             ## labeling it. Nothing in the body is interpreted as workflow syntax.
             ##
             ## SECURITY: direct-body is the widest dispatch surface (it runs arbitrary
-            ## instructions with the orchestration token + --auto).
+            ## instructions with the orchestration GitHub token).
             ## The webhook receiver gates it to an explicit trusted-sender allowlist
             ## (env DIRECT_BODY_ALLOWED_SENDERS) BEFORE this clause can ever run — and
             ## the gate checks the issue's FULL label set, not just the triggering

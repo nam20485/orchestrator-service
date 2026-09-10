@@ -49,7 +49,7 @@ A rejected delivery still gets `202 {"status":"ignored", "reason": "<why>"}` —
 
 ### Why direct-body is gated separately
 
-`gh-issue-tracking:direct-body` runs the **entire issue body verbatim** as the orchestrator prompt, with no workflow-name parsing or argument boundary. The resulting run inherits `GH_ORCHESTRATION_AGENT_TOKEN` and `--auto` (auto-approved tool permissions). Without the allowlist, anyone with label-apply rights on the repo could use this label to make the orchestrator execute arbitrary instructions with full agent privileges — a confused-deputy escalation from "can label an issue" to "can run privileged automation." `DIRECT_BODY_ALLOWED_SENDERS` closes that gap by checking the webhook payload's `sender.login` against a trusted set; see [Security](../security.md#agent-capability-boundary).
+`gh-issue-tracking:direct-body` runs the **entire issue body verbatim** as the orchestrator prompt, with no workflow-name parsing or argument boundary. The resulting run inherits `GH_ORCHESTRATION_AGENT_TOKEN` and full agent tool access (server-side fail-closed permission policy). Without the allowlist, anyone with label-apply rights on the repo could use this label to make the orchestrator execute arbitrary instructions with full agent privileges — a confused-deputy escalation from "can label an issue" to "can run privileged automation." `DIRECT_BODY_ALLOWED_SENDERS` closes that gap by checking the webhook payload's `sender.login` against a trusted set; see [Security](../security.md#agent-capability-boundary).
 
 ### Post-acceptance: background dispatch
 

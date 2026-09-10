@@ -64,7 +64,7 @@ _LABEL_EXACT: set[str] = {"implementation:ready", "implementation:complete"}
 # The ``gh-issue-tracking:direct-body`` label dispatches the ENTIRE issue body
 # VERBATIM as the orchestrator prompt (no workflow-name parsing or argument
 # boundary — see the prompt's direct-body clause). The resulting run inherits
-# the orchestration GitHub token plus ``--auto``, so
+# the orchestration GitHub token, so
 # unrestricted access would let anyone with label rights escalate to arbitrary
 # privileged-agent execution (a confused-deputy risk). It is therefore gated
 # to an explicit allowlist of trusted sender logins (env
@@ -118,7 +118,7 @@ def should_dispatch(event: str, payload: dict) -> tuple[bool, str]:
         return False, f"label {label_name!r} not workflow-relevant"
 
     # direct-body executes the issue body VERBATIM as the orchestrator prompt
-    # with the orchestration token + --auto. The prompt's direct-body clause
+    # with the orchestration GitHub token. The prompt's direct-body clause
     # matches on the issue's FULL label set (``labels contains: ...``), not the
     # triggering label — and a denied direct-body dispatch leaves the label on
     # the issue. A later labeled event with any other workflow label would

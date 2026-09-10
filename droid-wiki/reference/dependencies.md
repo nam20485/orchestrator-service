@@ -64,7 +64,7 @@ Both application Dockerfiles use the same two-stage pattern: a Rust builder stag
 
 | Tool | Version | Install method | Purpose |
 | --- | --- | --- | --- |
-| `opencode` | `1.18.4` | Vendor install script, binary copied to `/usr/local/bin` | The OpenCode CLI; runs `opencode serve` as the container's main process. |
+| `opencode` | `1.18.30` | Vendor install script, binary copied to `/usr/local/bin` | The OpenCode CLI; runs `opencode serve` as the container's main process. |
 | `pwsh` (PowerShell) | `7.6.2` | linux-x64 tarball (Microsoft's apt repo fails on trixie's SHA1 key policy) | Runs `scripts/*.ps1` inside the container when needed. |
 | Node.js | `24.14.0` LTS | linux-x64 tarball | Required by MCP server packages launched via `npx` (`sequential-thinking`, `memory-graph`). |
 | `uv` | `0.10.9` | Astral install script | Python package manager; enables `uvx` for ephemeral Python tools. |
@@ -76,7 +76,7 @@ Both application Dockerfiles use the same two-stage pattern: a Rust builder stag
 
 | Tool | Version | Install method | Purpose |
 | --- | --- | --- | --- |
-| `opencode` | `1.18.4` | Vendor install script | The **client** used by `scripts/prompt.ps1` for `opencode run --attach`. |
+| `opencode` | `1.18.30` | Vendor install script | The **client** used by `scripts/prompt.ps1` for `opencode run --attach`. |
 | `pwsh` (PowerShell) | `7.6.2` | linux-x64 tarball | Runs `scripts/prompt.ps1`, the dispatch launcher invoked by `runner.py`. |
 | `uv` | `0.10.9` | Astral install script | Installs the pinned Python deps (`uv sync --frozen --no-dev`) and runs the app (`uv run orchestrator-webhook`). |
 | `br` and `bvr` (Beads CLI + viewer) | `br` v0.2.15, `bvr` v0.2.1 (`beads_viewer_rust` @ `e4506f63214d32c8bcac4f29479a9b80cb932a6a`) | Copied from the `rust-builder` stage | `br` for task closure checks; `bvr` for graph-aware next-bead selection and the dashboard's pages/graph export. |

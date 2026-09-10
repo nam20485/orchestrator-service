@@ -132,7 +132,7 @@ If any check fails, execute directly or optimize context first.
 - Correct: `<workspace>/.scratch/...` (e.g. `/workspace/<slug>/.scratch/driver.ps1`, `.../.scratch/bodies/`). Create the directory first.
 - WRONG: `/tmp/kilo/<slug>/...`, `/tmp/anything`, `~/.cache/...`.
 
-Why this is mandatory: these dispatches are **headless fire-and-forget** (no human answers permission prompts). opencode v1.18.4 has a subagent permission-inheritance bug (issue #30527 cluster) where a task-spawned subagent does NOT receive the parent's (skip-permissions) or its own frontmatter `external_directory` allow rules. Any write to a path **outside** the project `--dir` (`/workspace/<slug>`) therefore resolves to `external_directory → ask`, which can never be answered → the subagent blocks forever and the run hangs until the watchdog kills it. Writes **inside** `--dir` are never "external," so they bypass that check entirely.
+Why this is mandatory: these dispatches are **headless fire-and-forget** (no human answers permission prompts). The server-side opencode.json permission block denies `external_directory` for ALL sessions including task-spawned subagents (verified on opencode 1.18.30), so a write outside the project `--dir` (`/workspace/<slug>`) fails fast with a deny error — the subagent must react to that error, not retry elsewhere. Keeping scratch in-workspace avoids the failure entirely. Writes **inside** `--dir` are never "external," so they bypass that check altogether.
 
 Action: in each `task` prompt that will produce scratch files, state explicitly:
 > "Write all scratch/driver scripts and rendered files to `<workspace>/.scratch/` (create it). Do NOT use `/tmp` or any path outside the workspace."
