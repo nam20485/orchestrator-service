@@ -28,9 +28,6 @@ param (
     $PrintLogs = "true",
     [Parameter()]
     [String]
-    $Auto = "true",
-    [Parameter()]
-    [String]
     $Thinking = "true",
     [Parameter()]
     [String]
@@ -74,10 +71,13 @@ $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $hostWorkspaceDir = Get-WorkspaceDirFromEnvOrDotEnv
 $Workspace = Resolve-ProjectWorkspace -Workspace $Workspace -Project $Project -HostWorkspaceDir $hostWorkspaceDir
 
-# opencode boolean flags (--thinking, --auto, --print-logs) take NO argument
-# (yargs [boolean]); passing an explicit value (e.g. "--auto true") leaks
+# opencode boolean flags (--thinking, --print-logs) take NO argument
+# (yargs [boolean]); passing an explicit value (e.g. "--thinking true") leaks
 # "true" as a positional message token, corrupting the prompt. Include each
 # flag only when its (string) param is truthy.
+# No --auto: permission policy is fail-closed server-side (opencode.json
+# external_directory deny); a config-load failure must deadlock into a
+# watchdog kill, not auto-approve.
 $runArgs = @(
     "run",
     "--attach", $ServerUrl,
@@ -88,7 +88,6 @@ $runArgs = @(
     "--log-level", $LogLevel
 )
 if ($Thinking -eq 'true')  { $runArgs += "--thinking" }
-if ($Auto -eq 'true')      { $runArgs += "--auto" }
 if ($PrintLogs -eq 'true') { $runArgs += "--print-logs" }
 if ($Variant) {
     $runArgs += @("--variant", $Variant)

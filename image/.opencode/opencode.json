@@ -124,7 +124,19 @@
       "enabled": true
     },
   },
-  "permission": "allow",
+  // Fail-closed workspace containment (PR #49 review): everything is allowed
+  // (no `ask` can fire, so headless runs cannot deadlock) EXCEPT paths outside
+  // the session working directory, which fail fast with deny. Verified against
+  // opencode 1.18.30 (plan_docs/opencode-1.18.30-gap-analysis.md): these rules
+  // govern the orchestrator session AND task-spawned subagents, frontmatter or
+  // not. `--auto` is deliberately NOT passed by scripts/prompt.ps1 — if this
+  // block ever fails to load, external_directory falls back to its `ask`
+  // default, which deadlocks headless runs and is killed by the watchdog
+  // (PERMISSION_ASK_GRACE_SECS) instead of silently auto-approving.
+  "permission": {
+    "*": "allow",
+    "external_directory": { "*": "deny" }
+  },
   "provider": {
     // Z.AI Coding Plan — built-in provider (creds resolved from auth.json;
     // env fallback ZAI_CODING_PLAN_OPEN_AI_API_KEY / Z_AI_API_KEY).
