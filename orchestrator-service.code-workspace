@@ -2,6 +2,12 @@
 	"folders": [
 		{
 			"path": "."
+		},
+		{
+			"path": "../workflow-launch2"
+		},
+		{
+			"path": "../../intel-agency/agent-context"
 		}
 	],
 	"settings": {
