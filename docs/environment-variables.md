@@ -67,7 +67,7 @@ convention). Only required when the corresponding provider/model is actually sel
 
 | Variable | Used by | Purpose |
 |---|---|---|
-| `QWENCLOUD_TOKEN_PLAN_API_KEY` | `qwencloud` provider | QwenCloud Token Plan (Anthropic-compatible endpoint). Required for the default model `qwencloud/qwen3.8-max`. |
+| `QWENCLOUD_TOKEN_PLAN_API_KEY` | `qwencloud` provider | QwenCloud Token Plan (Anthropic-compatible endpoint). Required for the default model `qwencloud/qwen3.7-max`. |
 | `ZAI_CODING_API_KEY` | Z.AI MCP servers + `zai-coding-plan` provider | Z.AI GLM models + MCP auth (see above). |
 | `CLINE_API_KEY` | `cline-pass` provider | ClinePass subscription API key. Optional. |
 
