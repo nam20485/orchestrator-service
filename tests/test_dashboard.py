@@ -1062,6 +1062,38 @@ def test_dashboard_html_has_view_selector() -> None:
     assert "dashboard.viewType" in resp.text
 
 
+# ── HTML pages: attribute-safe esc() (PR #49 review XSS regression) ────────
+
+
+_ESC_QUOTE_SAFE = 'd.innerHTML.replace(/"/g'
+
+
+def test_dashboard_pages_serve_attribute_safe_esc() -> None:
+    # esc() must encode double quotes: timeline summaries, run stems, bead
+    # IDs, and agent/tool-derived text are interpolated into double-quoted
+    # HTML attributes (e.g. data-summary="..."), where encoding only &<>
+    # allows attribute breakout (cursor review 5160501148, MEDIUM).
+    store = EventStore()
+    app = create_app(_test_settings(), event_store=store)
+    client = _client(app)
+    pages = {
+        "/dashboard": "dashboard",
+        "/dashboard/bead/br-1": "bead_detail",
+        "/dashboard/runs": "orchestration_runs",
+        "/dashboard/runs/prompt-owner__repo__issue-7__project-setup__ts-abc": (
+            "orchestration_run_detail"
+        ),
+        "/dashboard/events": "events",
+        "/dashboard/webhooks": "webhooks",
+    }
+    for route, page in pages.items():
+        resp = client.get(route)
+        assert resp.status_code == 200, f"{page}: {route} -> {resp.status_code}"
+        assert _ESC_QUOTE_SAFE in resp.text, (
+            f"{page}: esc() must encode double quotes for attribute contexts"
+        )
+
+
 # ── Orchestration runs (webhook dispatches) ────────────────────────────────
 
 from webhook_receiver.dashboard import (  # noqa: E402

@@ -30,7 +30,6 @@ This document provides mandatory delegation requirements that enhance the orches
 | Code Structure    | `developer`            | —                  | If specialized needs          |
 | Documentation     | `documentation-expert` | `developer`        | If expert unavailable         |
 | Testing           | `qa-test-engineer`     | `developer`        | If QA unavailable             |
-| Security          | `security-expert`      | `developer`        | Never                         |
 
 ### Verification Checkpoints
 
@@ -86,7 +85,6 @@ Each assignment MUST be delegated to specialized agents **-OR-** broken down by 
 | `create-project-structure` | `developer`            | `github-expert`, `qa-test-engineer` | Scaffold services, CI/CD, and baseline tests.               |
 | `update-documentation`     | `documentation-expert` | `developer`                      | Capture decisions, runbooks, and onboarding guides.         |
 | `expand-test-suite`        | `qa-test-engineer`     | `developer`                      | Add regression, integration, and edge-case coverage.        |
-| `security-audit`           | `security-expert`      | `developer`                      | Review threat models, secrets hygiene, and dependency risk. |
 
 ### Execution Rules
 

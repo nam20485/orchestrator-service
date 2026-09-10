@@ -37,6 +37,7 @@ select = ["E", "F", "I", "UP"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+addopts = "--cov=webhook_receiver --cov-report=term-missing --cov-report=html:htmlcov"
 
 [tool.coverage.run]
 source = ["webhook_receiver"]

@@ -14,6 +14,12 @@ RUN apk add --no-cache su-exec libcap \
  && chown -R caddy:caddy /data /config /srv /etc/caddy \
  && setcap cap_net_bind_service=+ep /usr/bin/caddy
 
+# Probe the local admin API (enabled by default; no `admin off` in the
+# Caddyfile) rather than the proxied site, since WEBHOOK_SITE_ADDRESS may be
+# a hostname requiring ACME/DNS that isn't reachable in every environment.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+    CMD wget -q -O- http://127.0.0.1:2019/config/ >/dev/null 2>&1 || exit 1
+
 # Start as root so the entrypoint can chown root-owned named volumes on first
 # mount, then drop to the caddy user via su-exec before running Caddy.
 ENTRYPOINT ["/caddy-entrypoint.sh"]

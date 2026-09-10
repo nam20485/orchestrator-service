@@ -8,7 +8,7 @@ set -e
 CADDY_UID="$(id -u caddy 2>/dev/null || printf '%s\n' 0)"
 for d in /data /config; do
   if [ -d "$d" ] && [ "$(stat -c %u "$d")" != "$CADDY_UID" ]; then
-    chown -R caddy:caddy "$d" 2>/dev/null || true
+    chown -R caddy:caddy "$d" 2>/dev/null || echo "caddy-entrypoint: WARNING: chown $d failed (owner=$(stat -c %u "$d" 2>/dev/null || echo unknown))" >&2
   fi
 done
 
@@ -20,5 +20,6 @@ done
 if command -v su-exec >/dev/null 2>&1; then
   exec su-exec caddy "$@"
 else
+  echo "caddy-entrypoint: WARNING: su-exec not found, running as $(id -u)" >&2
   exec "$@"
 fi

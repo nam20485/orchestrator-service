@@ -1,7 +1,7 @@
 ---
 description: Generalist engineer delivering small, surgical, well-tested cross-cutting enhancements with quality safeguards. Invoke for implementing features, fixing bugs, and making scoped code changes.
 mode: subagent
-model: zai-coding-plan/glm-5.2
+model: zai-coding-plan/glm-5.3-flash
 color: primary
 temperature: 0.2
 permission:

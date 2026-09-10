@@ -3,7 +3,7 @@
 ## Purpose
 
 This document evaluates viable ways to implement the dual orchestrator architecture described in
-`plan_docs/orchestration_supervisor.md`. The supervisor role is called the **maestro**: a higher-level
+`orchestration_supervisor.md` (same directory). The supervisor role is called the **maestro**: a higher-level
 orchestrator that receives structured status from normal orchestrator runs, decides whether the work
 should continue, retry, skip, or stop, and issues the next directive.
 

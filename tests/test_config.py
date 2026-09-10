@@ -46,3 +46,34 @@ def test_settings_from_env_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
     assert cfg.dashboard_token is None
     # log_dir defaults to the in-container path the compose bind mount covers.
     assert cfg.log_dir.name == "orchestrator-webhook"
+
+
+def test_hard_ceiling_zero_is_respected(monkeypatch: pytest.MonkeyPatch) -> None:
+    """HARD_CEILING_SECS=0 must not silently fall back to the default 5400.
+
+    Zero is a meaningful value (disables the hard ceiling), so the resolver
+    must use explicit None checks rather than `or` chaining.
+    """
+    monkeypatch.setenv("OS_WEBHOOK_SECRET", "test-secret")
+    monkeypatch.setenv("HARD_CEILING_SECS", "0")
+    cfg = Settings.from_env()
+    assert cfg.hard_ceiling_secs == 0
+
+
+def test_hard_ceiling_falls_back_to_dispatch_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When HARD_CEILING_SECS is unset, DISPATCH_TIMEOUT_SECS is used."""
+    monkeypatch.setenv("OS_WEBHOOK_SECRET", "test-secret")
+    monkeypatch.setenv("DISPATCH_TIMEOUT_SECS", "3600")
+    cfg = Settings.from_env()
+    assert cfg.hard_ceiling_secs == 3600
+
+
+def test_hard_ceiling_defaults_to_5400(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When neither env var is set, hard_ceiling_secs defaults to 5400."""
+    monkeypatch.setenv("OS_WEBHOOK_SECRET", "test-secret")
+    cfg = Settings.from_env()
+    assert cfg.hard_ceiling_secs == 5400

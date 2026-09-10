@@ -1,7 +1,7 @@
 ---
 description: Background research agent — surveys the web, docs, and external sources, then returns distilled, cited briefs for other agents. Read-only; produces summaries, not code. Invoke for best-practice surveys, competitive analysis, dependency/API research, and answering factual questions that need current external information.
 mode: subagent
-model: zai-coding-plan/glm-5.2
+model: zai-coding-plan/glm-5.3-flash
 color: "#a855f7"
 temperature: 0.3
 permission:

@@ -10,10 +10,13 @@ param (
     $Workspace = "/workspace",
     [Parameter()]
     [String]
-    $Model = "zai-coding-plan/glm-5",
+    $Model = 'qwencloud/qwen3.7-max',
     [Parameter()]
     [String]
     $Agent = "orchestrator",
+    [Parameter()]
+    [String]
+    $Variant = "",
     [Parameter()]
     [String]
     $Format = "default",
@@ -23,9 +26,6 @@ param (
     [Parameter()]
     [String]
     $PrintLogs = "true",
-    [Parameter()]
-    [String]
-    $DangerouslySkipPermissions = "true",
     [Parameter()]
     [String]
     $Thinking = "true",
@@ -71,14 +71,26 @@ $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $hostWorkspaceDir = Get-WorkspaceDirFromEnvOrDotEnv
 $Workspace = Resolve-ProjectWorkspace -Workspace $Workspace -Project $Project -HostWorkspaceDir $hostWorkspaceDir
 
-opencode run `
-    --attach $ServerUrl `
-    --dir $Workspace `
-    --model $Model `
-    --agent $Agent `
-    --thinking $Thinking `
-    --dangerously-skip-permissions $DangerouslySkipPermissions `
-    --format $Format `
-    --print-logs $PrintLogs `
-    --log-level $LogLevel `
-    $Prompt
+# opencode boolean flags (--thinking, --print-logs) take NO argument
+# (yargs [boolean]); passing an explicit value (e.g. "--thinking true") leaks
+# "true" as a positional message token, corrupting the prompt. Include each
+# flag only when its (string) param is truthy.
+# No --auto: permission policy is fail-closed server-side (opencode.json
+# external_directory deny); a config-load failure must deadlock into a
+# watchdog kill, not auto-approve.
+$runArgs = @(
+    "run",
+    "--attach", $ServerUrl,
+    "--dir",    $Workspace,
+    "--model",  $Model,
+    "--agent",  $Agent,
+    "--format", $Format,
+    "--log-level", $LogLevel
+)
+if ($Thinking -eq 'true')  { $runArgs += "--thinking" }
+if ($PrintLogs -eq 'true') { $runArgs += "--print-logs" }
+if ($Variant) {
+    $runArgs += @("--variant", $Variant)
+}
+$runArgs += $Prompt
+opencode @runArgs

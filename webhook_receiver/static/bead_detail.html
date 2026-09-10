@@ -167,7 +167,7 @@ let BEAD_ID = decodeURIComponent(
 function esc(s) {
   const d = document.createElement('div');
   d.textContent = s || '';
-  return d.innerHTML;
+  return d.innerHTML.replace(/"/g, '&quot;');
 }
 
 // ── bead metadata ───────────────────────────────────────────────────────────

@@ -1,7 +1,7 @@
 ---
 description: Converts strategic goals into sequenced milestones with dependencies and acceptance criteria. Read-mostly analysis agent — produces plans, not code. Invoke before implementation to scope and design an approach.
 mode: subagent
-model: opencode-go/qwen3.7-max
+model: zai-coding-plan/glm-5.3-flash
 color: info
 temperature: 0.1
 permission:

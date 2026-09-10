@@ -10,7 +10,7 @@ set -e
 LOG_DIR="/tmp/orchestrator-webhook"
 APP_UID="$(id -u app 2>/dev/null || printf '%s\n' 0)"
 if [ -d "$LOG_DIR" ] && [ "$(stat -c %u "$LOG_DIR")" != "$APP_UID" ]; then
-  chown -R app:app "$LOG_DIR" 2>/dev/null || true
+  chown -R app:app "$LOG_DIR" 2>/dev/null || echo "webhook-entrypoint: WARNING: chown $LOG_DIR failed (owner=$(stat -c %u "$LOG_DIR" 2>/dev/null || echo unknown))" >&2
 fi
 
 # Privilege drop: start as root (no USER directive in Dockerfile), then exec
@@ -19,5 +19,6 @@ fi
 if command -v gosu >/dev/null 2>&1; then
   exec gosu app "$@"
 else
+  echo "webhook-entrypoint: WARNING: gosu not found, running as $(id -u)" >&2
   exec "$@"
 fi

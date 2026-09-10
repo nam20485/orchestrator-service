@@ -53,12 +53,24 @@ while i < n:
 
 cleaned = re.sub(r",(\s*[}\]])", r"\1", "".join(out))
 try:
-    json.loads(cleaned)
+    cfg = json.loads(cleaned)
 except json.JSONDecodeError as e:
     print(
         f"opencode.json: invalid JSONC ({e.msg} at line {e.lineno} col {e.colno})",
         file=sys.stderr,
     )
+    sys.exit(1)
+
+# Permission policy must stay fail-closed (PR #49 review): a structured
+# object with external_directory deny-by-default. The string shorthand
+# "permission": "allow" is the fail-open regression this guards against.
+perm = cfg.get("permission")
+if not isinstance(perm, dict):
+    print("opencode.json: permission must be a structured object, not a string shorthand", file=sys.stderr)
+    sys.exit(1)
+ext = perm.get("external_directory")
+if not isinstance(ext, dict) or ext.get("*") != "deny":
+    print('opencode.json: permission.external_directory must deny by default ("*": "deny")', file=sys.stderr)
     sys.exit(1)
 PY
 

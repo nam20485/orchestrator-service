@@ -111,7 +111,10 @@ def test_should_dispatch_rejects_non_workflow_labels() -> None:
         assert "label" in reason or "workflow" in reason
 
 
-def test_should_dispatch_allows_each_workflow_label() -> None:
+def test_should_dispatch_allows_each_workflow_label(monkeypatch) -> None:
+    # direct-body is gated to a trusted-sender allowlist; authorize the
+    # default sender so it passes here. Other labels are unrestricted.
+    monkeypatch.setenv("DIRECT_BODY_ALLOWED_SENDERS", "nam20485")
     for label in (
         "orchestration:plan-approved",
         "orchestration:epic-ready",
@@ -121,9 +124,147 @@ def test_should_dispatch_allows_each_workflow_label() -> None:
         "orchestration:dispatch",
         "implementation:ready",
         "implementation:complete",
+        # gh-issue-tracking: dispatch-trigger prefix — every state label maps
+        # to a match clause in orchestration_prompt.jinja2.md.
+        "gh-issue-tracking:direct-body",
+        "gh-issue-tracking:init-success",
     ):
         allow, _ = filters.should_dispatch("issues", _labeled(label=label))
         assert allow is True, label
+
+
+def test_should_dispatch_allows_gh_issue_tracking_prefix(monkeypatch) -> None:
+    # The entire gh-issue-tracking: namespace is a dispatch-trigger space;
+    # future state-suffixed labels must dispatch without a code change.
+    # direct-body still requires the trusted-sender allowlist (set below).
+    monkeypatch.setenv("DIRECT_BODY_ALLOWED_SENDERS", "nam20485")
+    for label in (
+        "gh-issue-tracking:direct-body",
+        "gh-issue-tracking:init-success",
+        "gh-issue-tracking:some-future-state",
+        "GH-ISSUE-TRACKING:Direct-Body",
+    ):
+        allow, _ = filters.should_dispatch("issues", _labeled(label=label))
+        assert allow is True, label
+
+
+# ── direct-body trusted-sender allowlist (security gate) ──────────────────
+
+
+def test_direct_body_rejected_by_default(monkeypatch) -> None:
+    """Fail-closed: with no allowlist configured, direct-body never dispatches."""
+    monkeypatch.delenv("DIRECT_BODY_ALLOWED_SENDERS", raising=False)
+    allow, reason = filters.should_dispatch(
+        "issues", _labeled(label="gh-issue-tracking:direct-body")
+    )
+    assert allow is False
+    assert "DIRECT_BODY_ALLOWED_SENDERS" in reason
+
+
+def test_direct_body_rejected_for_unlisted_sender(monkeypatch) -> None:
+    """An allowlist that excludes the sender blocks the dispatch."""
+    monkeypatch.setenv("DIRECT_BODY_ALLOWED_SENDERS", "trusted-admin")
+    allow, reason = filters.should_dispatch(
+        "issues",
+        _labeled(label="gh-issue-tracking:direct-body", sender="attacker"),
+    )
+    assert allow is False
+    assert "not permitted" in reason
+
+
+def test_direct_body_allowed_for_listed_sender(monkeypatch) -> None:
+    monkeypatch.setenv("DIRECT_BODY_ALLOWED_SENDERS", "trusted-admin, nam20485")
+    allow, _ = filters.should_dispatch(
+        "issues",
+        _labeled(label="gh-issue-tracking:direct-body", sender="nam20485"),
+    )
+    assert allow is True
+
+
+def test_direct_body_allowlist_is_case_insensitive(monkeypatch) -> None:
+    monkeypatch.setenv("DIRECT_BODY_ALLOWED_SENDERS", "Nam20485")
+    allow, _ = filters.should_dispatch(
+        "issues",
+        _labeled(label="GH-ISSUE-TRACKING:Direct-Body", sender="nam20485"),
+    )
+    assert allow is True
+
+
+def _labeled_with_issue_labels(
+    trigger: str, issue_labels: list[str], sender: str = "nam20485"
+) -> dict:
+    """issues.labeled payload whose issue carries the given full label set."""
+    return {
+        "action": "labeled",
+        "label": {"name": trigger},
+        "sender": {"login": sender},
+        "issue": {"labels": [{"name": n} for n in issue_labels]},
+    }
+
+
+def test_direct_body_lingering_label_gates_other_trigger(monkeypatch) -> None:
+    """Bypass fix: a denied direct-body label LINGERS on the issue. A later
+    labeled event triggered by another workflow label re-selects the prompt's
+    direct-body clause (``labels contains: ...``), so it must stay gated to
+    the allowlist even though direct-body is not the triggering label."""
+    monkeypatch.setenv("DIRECT_BODY_ALLOWED_SENDERS", "trusted-admin")
+    payload = _labeled_with_issue_labels(
+        trigger="orchestration:dispatch",
+        issue_labels=["orchestration:dispatch", "gh-issue-tracking:direct-body"],
+        sender="attacker",
+    )
+    allow, reason = filters.should_dispatch("issues", payload)
+    assert allow is False
+    assert "not permitted" in reason
+
+
+def test_direct_body_lingering_label_fail_closed_without_allowlist(
+    monkeypatch,
+) -> None:
+    monkeypatch.delenv("DIRECT_BODY_ALLOWED_SENDERS", raising=False)
+    payload = _labeled_with_issue_labels(
+        trigger="gh-issue-tracking:init-success",
+        issue_labels=["gh-issue-tracking:direct-body", "gh-issue-tracking:init-success"],
+    )
+    allow, reason = filters.should_dispatch("issues", payload)
+    assert allow is False
+    assert "DIRECT_BODY_ALLOWED_SENDERS" in reason
+
+
+def test_direct_body_lingering_label_allows_listed_sender(monkeypatch) -> None:
+    monkeypatch.setenv("DIRECT_BODY_ALLOWED_SENDERS", "trusted-admin")
+    payload = _labeled_with_issue_labels(
+        trigger="orchestration:dispatch",
+        issue_labels=["orchestration:dispatch", "gh-issue-tracking:direct-body"],
+        sender="trusted-admin",
+    )
+    allow, _ = filters.should_dispatch("issues", payload)
+    assert allow is True
+
+
+def test_direct_body_lingering_label_match_is_case_insensitive(monkeypatch) -> None:
+    monkeypatch.setenv("DIRECT_BODY_ALLOWED_SENDERS", "trusted-admin")
+    payload = _labeled_with_issue_labels(
+        trigger="orchestration:dispatch",
+        issue_labels=["GH-ISSUE-TRACKING:Direct-Body"],
+        sender="attacker",
+    )
+    allow, _ = filters.should_dispatch("issues", payload)
+    assert allow is False
+
+
+def test_issue_without_direct_body_label_is_not_gated(monkeypatch) -> None:
+    """Ordinary dispatches on issues that never carried direct-body must not
+    require the allowlist — the gate applies only when the verbatim-body
+    clause can actually be selected."""
+    monkeypatch.delenv("DIRECT_BODY_ALLOWED_SENDERS", raising=False)
+    payload = _labeled_with_issue_labels(
+        trigger="orchestration:dispatch",
+        issue_labels=["orchestration:dispatch", "bug"],
+        sender="anyone",
+    )
+    allow, _ = filters.should_dispatch("issues", payload)
+    assert allow is True
 
 
 def test_should_dispatch_label_is_case_insensitive() -> None:

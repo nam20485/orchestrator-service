@@ -7,6 +7,7 @@ import re
 import subprocess
 import tempfile
 import threading
+import time
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -15,6 +16,15 @@ from webhook_receiver.config import Settings
 from webhook_receiver.event_store import EventStore
 from webhook_receiver.filters import should_filter
 from webhook_receiver.run_stream import extract_tool_names
+from webhook_receiver.watchdog import (
+    REASON_CONSECUTIVE_ERRORS,
+    REASON_HARD_CEILING,
+    REASON_IDLE_TIMEOUT,
+    REASON_PERMISSION_DEADLOCK,
+    IdleWatchdog,
+    WatchdogConfig,
+    WatchdogState,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -227,6 +237,8 @@ def _base_args(settings: Settings) -> list[str]:
         settings.model,
         "-Agent",
         settings.agent,
+        "-Variant",
+        settings.variant,
     ]
 
 
@@ -245,13 +257,47 @@ def _prompt_script_invocation(settings: Settings, prompt_path: Path) -> list[str
     ]
 
 
+# ── Container-log formatting ───────────────────────────────────────────────
+# The opencode server emits slog text-handler lines like:
+#   timestamp=2026-07-23T02:17:55.898Z level=INFO run=2127ad56 message=…
+# For visual scanning in docker logs the common envelope (timestamp/level/run)
+# is grouped into brackets so the variable payload that follows stands out:
+#   [timestamp=… level=INFO run=…] message=… key=value …
+# Non-slog lines (glyphs, Python logger output, etc.) pass through unchanged.
+# The trace file always receives the raw line; only the container logger is
+# reformatted — filters and the watchdog must see the original text.
+_SLOG_ENVELOPE_RE = re.compile(
+    r"^(timestamp=\S+)\s+(level=\S+)(?:\s+(run=\S+))?(?:\s+(.*))?$"
+)
+
+
+def _format_log_line(line: str) -> str:
+    """Group the slog envelope (timestamp/level/run) into brackets.
+
+    See ``_SLOG_ENVELOPE_RE`` for the matched pattern. Non-slog lines return
+    unchanged.
+    """
+    m = _SLOG_ENVELOPE_RE.match(line)
+    if not m:
+        return line
+    parts = [m.group(1), m.group(2)]
+    if m.group(3):
+        parts.append(m.group(3))
+    rest = m.group(4) or ""
+    if rest:
+        return f"[{' '.join(parts)}] {rest}"
+    return f"[{' '.join(parts)}]"
+
+
 def _stream_to_logger_and_file(
-    pipe, file_handle, label: str
+    pipe, file_handle, label: str, state: WatchdogState | None = None
 ) -> None:
     """Read lines from *pipe*, write each to *file_handle* and log at INFO.
 
     Lines matching the trace blacklist are written to the file but suppressed
-    from the logger so container output stays clean.
+    from the logger so container output stays clean. When *state* is provided,
+    every line (filtered or not) updates the :class:`WatchdogState` so the idle
+    watchdog has an accurate activity signal.
     """
     try:
         for line in iter(pipe.readline, ""):
@@ -259,10 +305,43 @@ def _stream_to_logger_and_file(
                 break
             file_handle.write(line)
             file_handle.flush()
+            if state is not None:
+                state.record_line(line)
             if not should_filter(line):
-                logger.info("[%s] %s", label, line.rstrip())
+                logger.info(
+                    "[%s] %s", label, _format_log_line(line.rstrip())
+                )
     except ValueError:
         pass  # pipe closed
+
+
+# ── Secret sanitization for GitHub issue comments ──────────────────────────
+# Patterns for common credentials that may appear in error messages. These are
+# scrubbed before any error detail is posted to a public GitHub issue comment
+# to prevent accidental secret leakage from CLI stderr output.
+_SECRET_PATTERNS: list[re.Pattern[str]] = [
+    re.compile(r"gh[pousr]_[A-Za-z0-9]{36,}"),  # GitHub classic PATs
+    re.compile(r"github_pat_[A-Za-z0-9]{22,}"),  # GitHub fine-grained PATs
+    re.compile(r"sk-[A-Za-z0-9]{20,}"),  # OpenAI-style API keys
+    re.compile(r"[Bb]earer\s+[A-Za-z0-9._-]{20,}"),  # Bearer tokens
+    re.compile(
+        r"(?i)(password|passwd|secret|api[_-]?key|token|auth)"
+        r"\s*[:=]\s*\S+"
+    ),  # key=value assignments
+]
+
+
+def _sanitize_for_comment(text: str) -> str:
+    """Scrub common credential patterns from *text* before posting to GitHub.
+
+    Replaces matches with ``[REDACTED]``. This is a best-effort filter — it is
+    not a substitute for proper secret management, but it prevents the most
+    common credential formats from leaking into public issue comments.
+    """
+    result = text
+    for pattern in _SECRET_PATTERNS:
+        result = pattern.sub("[REDACTED]", result)
+    return result
 
 
 def _build_failure_body(
@@ -271,14 +350,40 @@ def _build_failure_body(
     log_dir: str,
     prompt_stem: str,
     timed_out: bool = False,
+    kill_reason: str | None = None,
+    consecutive_errors: int = 0,
+    last_error_message: str = "",
 ) -> str:
-    reason = "timed out" if timed_out else f"exited with status {exit_code}"
-    return (
+    """Build the failure comment body for a non-zero/killed/timeout exit.
+
+    When *kill_reason* is set (watchdog kill), the message is tailored to the
+    specific condition: idle timeout, hard ceiling, or consecutive errors.
+    """
+    if kill_reason == REASON_IDLE_TIMEOUT:
+        reason = "went idle (no output from the orchestrator CLI)"
+    elif kill_reason == REASON_HARD_CEILING:
+        reason = "hit the hard runtime ceiling"
+    elif kill_reason == REASON_CONSECUTIVE_ERRORS:
+        reason = f"hit {consecutive_errors} consecutive errors"
+    elif kill_reason == REASON_PERMISSION_DEADLOCK:
+        reason = (
+            "was killed: permission ask deadlock "
+            "(headless mode cannot answer permission prompts)"
+        )
+    elif timed_out:
+        reason = "timed out"
+    else:
+        reason = f"exited with status {exit_code}"
+
+    body = (
         f"❌ Orchestrator run did not complete ({reason}).\n\n"
         f"Runner logs (`{log_dir}`):\n"
         f"- `{prompt_stem}.stdout`\n"
         f"- `{prompt_stem}.stderr`\n"
     )
+    if kill_reason == REASON_CONSECUTIVE_ERRORS and last_error_message:
+        body += f"\nLast error: `{_sanitize_for_comment(last_error_message[:200])}`\n"
+    return body
 
 
 def _build_zero_work_body(
@@ -360,10 +465,23 @@ def _post_failure_comment(
     log_dir: str,
     prompt_stem: str,
     timed_out: bool = False,
+    kill_reason: str | None = None,
+    consecutive_errors: int = 0,
+    last_error_message: str = "",
 ) -> None:
     """Post a failure comment on the triggering issue (non-zero/killed/timeout)."""
     _post_issue_comment(
-        ctx, _build_failure_body(ctx, exit_code, log_dir, prompt_stem, timed_out)
+        ctx,
+        _build_failure_body(
+            ctx,
+            exit_code,
+            log_dir,
+            prompt_stem,
+            timed_out,
+            kill_reason=kill_reason,
+            consecutive_errors=consecutive_errors,
+            last_error_message=last_error_message,
+        ),
     )
 
 
@@ -385,38 +503,106 @@ def _run_completion_watcher(
     prompt_stem: str,
     timeout: int | None = None,
     stderr_thread: threading.Thread | None = None,
+    state: WatchdogState | None = None,
+    watchdog_config: WatchdogConfig | None = None,
 ) -> None:
     """Wait for the dispatched run to finish, then emit events + post a failure
     comment on a non-zero/killed/timeout exit.
+
+    When *state* and *watchdog_config* are provided, an :class:`IdleWatchdog`
+    monitors the process for activity and kills it on idle / consecutive
+    errors / hard ceiling. Otherwise the legacy ``proc.wait(timeout=...)``
+    path is used (backward compat for existing tests and non-dispatch callers).
 
     Additionally traces the run: a clean (status 0) exit that invoked only
     planning/reading tools — never ``bash``/``task``/``write``/``edit`` — is
     flagged as a "zero-work" run (the agent narrated a plan and
     self-terminated) and gets an advisory comment on the triggering issue.
-    Factored out of the daemon thread so it is directly unit-testable with a
-    mock ``proc``. A timeout (``DISPATCH_TIMEOUT_SECS``) kills the process and
-    treats the result as a failure.
     """
     timed_out = False
-    try:
-        if timeout is not None:
-            try:
-                proc.wait(timeout=timeout)
-            except subprocess.TimeoutExpired:
-                proc.kill()
-                proc.wait()
-                timed_out = True
-        else:
-            proc.wait()
-    except Exception:
-        logger.exception("Completion watcher error while waiting for pid")
+    kill_reason: str | None = None
+    wd_consecutive_errors = 0
+    wd_last_error_message = ""
 
-    exit_code = proc.returncode
+    stderr_path = Path(log_dir) / f"{prompt_stem}.stderr"
+
+    if state is not None and watchdog_config is not None:
+        # ── Idle-watchdog path (production dispatch) ──────────────────────
+        logger.info(
+            "[watchdog] starting pid=%s idle_timeout=%ds hard_ceiling=%ss "
+            "poll=%ds max_errors=%d debug=%s",
+            proc.pid,
+            watchdog_config.idle_timeout_secs,
+            watchdog_config.hard_ceiling_secs,
+            watchdog_config.poll_interval_secs,
+            watchdog_config.max_consecutive_errors,
+            watchdog_config.debug,
+        )
+        try:
+            wd = IdleWatchdog(proc, state, watchdog_config, stderr_path)
+            result = wd.run()
+            exit_code = (
+                result.exit_code
+                if result.exit_code is not None
+                else (proc.returncode if proc.returncode is not None else -1)
+            )
+            if result.killed:
+                kill_reason = result.reason
+                timed_out = result.reason in (
+                    REASON_IDLE_TIMEOUT,
+                    REASON_HARD_CEILING,
+                )
+                wd_consecutive_errors = result.consecutive_errors
+                wd_last_error_message = result.last_error_message
+        except Exception:
+            logger.exception("Watchdog error; falling back to bounded wait")
+            # Use the hard ceiling as a backstop so a watchdog crash doesn't
+            # leave the process running forever. If the wait times out, kill
+            # the process — the safety net must still hold.
+            fallback_timeout = watchdog_config.hard_ceiling_secs or 5400
+            try:
+                proc.wait(timeout=fallback_timeout)
+            except subprocess.TimeoutExpired:
+                logger.warning(
+                    "Fallback wait timed out after %ds; killing process",
+                    fallback_timeout,
+                )
+                try:
+                    proc.kill()
+                except Exception:
+                    logger.exception("Fallback proc.kill() failed")
+                proc.wait()
+            except Exception:
+                logger.exception("Fallback proc.wait() also failed")
+            exit_code = proc.returncode if proc.returncode is not None else -1
+    else:
+        # ── Legacy path (backward compat for tests / non-watchdog callers) ──
+        try:
+            if timeout is not None:
+                try:
+                    proc.wait(timeout=timeout)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+                    proc.wait()
+                    timed_out = True
+            else:
+                proc.wait()
+        except Exception:
+            logger.exception("Completion watcher error while waiting for pid")
+        exit_code = proc.returncode if proc.returncode is not None else -1
+
     failed = exit_code != 0
 
     if failed and dispatch_ctx is not None:
         _post_failure_comment(
-            dispatch_ctx, exit_code, str(log_dir), prompt_stem, timed_out
+            dispatch_ctx,
+            exit_code,
+            str(log_dir),
+            prompt_stem,
+            timed_out,
+            kill_reason=kill_reason,
+            consecutive_errors=wd_consecutive_errors,
+            last_error_message=wd_last_error_message,
         )
 
     # Tracing: classify a clean exit by the tools it actually invoked. A run
@@ -458,18 +644,23 @@ def _run_completion_watcher(
     # exactly this — exit 0, real tools used, but the workflow was abandoned
     # partway and Issue #1 stayed open with no comment.
     #
-    # The close-on-success contract is ONLY part of the ``orchestration:dispatch``
-    # prompt clause (it closes the triggering issue). Other dispatched labels
-    # (``orchestration:plan-approved``, ``epic-ready``, …) succeed by creating an
-    # epic and ``skip to ##Final`` without closing the issue, so probing their
-    # state would false-positive. Gate the check on the dispatch label.
-    _DISPATCH_LABEL = "orchestration:dispatch"
+    # The close-on-success contract applies to every prompt clause that closes
+    # the triggering issue on success and publishes work with best-effort steps
+    # that leave the issue open on push/PR failure — currently
+    # ``orchestration:dispatch`` and ``gh-issue-tracking:direct-body``. Other
+    # labels (``orchestration:plan-approved``, ``epic-ready``, …) succeed by
+    # creating an epic and skip to ##Final WITHOUT closing the issue, so
+    # probing their state would false-positive. Gate the check on that label
+    # set.
+    _CLOSE_ON_SUCCESS_LABELS = frozenset(
+        {"orchestration:dispatch", "gh-issue-tracking:direct-body"}
+    )
     incomplete = False
     if (
         not failed
         and not zero_work
         and dispatch_ctx is not None
-        and (dispatch_ctx.trigger_label or "").lower() == _DISPATCH_LABEL
+        and (dispatch_ctx.trigger_label or "").lower() in _CLOSE_ON_SUCCESS_LABELS
     ):
         if not _dispatch_issue_closed(dispatch_ctx):
             incomplete = True
@@ -478,7 +669,8 @@ def _run_completion_watcher(
             )
 
     classification = (
-        "failed" if failed
+        kill_reason if kill_reason is not None
+        else "failed" if failed
         else "zero_work" if zero_work
         else "incomplete" if incomplete
         else "completed"
@@ -490,7 +682,9 @@ def _run_completion_watcher(
             "ended_at": datetime.now(UTC).isoformat(),
             "exit_code": exit_code,
             "timed_out": timed_out,
+            "kill_reason": kill_reason,
             "classification": classification,
+            "consecutive_errors": wd_consecutive_errors,
             "tools": sorted(tools),
         },
     )
@@ -530,8 +724,12 @@ def dispatch_to_opencode(
     prompt: str,
     event_store: EventStore | None = None,
     dispatch_ctx: DispatchContext | None = None,
-) -> None:
-    """Run the prompt script in the background (non-blocking for the HTTP handler)."""
+) -> str:
+    """Run the prompt script in the background (non-blocking for the HTTP handler).
+
+    Returns the prompt file stem (``<slug>-<rand>``) so callers can correlate
+    the dispatch with run logs and the webhooks trace page.
+    """
     log_dir = settings.log_dir
     log_dir.mkdir(parents=True, exist_ok=True)
 
@@ -607,33 +805,47 @@ def dispatch_to_opencode(
             pid=proc.pid,
         )
 
+    # ── Idle watchdog state ───────────────────────────────────────────────
+    # A single WatchdogState is shared between the stdout/stderr reader
+    # threads and the completion watcher's IdleWatchdog. The stream readers
+    # call state.record_line() on every line so the watchdog has an accurate
+    # activity signal.
+    wd_state = WatchdogState(time.monotonic())
+    wd_config = WatchdogConfig.from_settings(settings)
+
     # Stream stdout and stderr to both logger and files via daemon threads.
+    # Both threads update the shared WatchdogState so the idle watchdog tracks
+    # any output from either stream.
     threading.Thread(
         target=_stream_to_logger_and_file,
-        args=(proc.stdout, stdout_file, "opencode"),
+        args=(proc.stdout, stdout_file, "opencode", wd_state),
         daemon=True,
     ).start()
     stderr_thread = threading.Thread(
         target=_stream_to_logger_and_file,
-        args=(proc.stderr, stderr_file, "opencode-err"),
+        args=(proc.stderr, stderr_file, "opencode-err", wd_state),
         daemon=True,
     )
     stderr_thread.start()
 
-    # Watcher: wait for process completion, emit events, and post a failure
-    # comment on a non-zero/killed/timeout exit. Also traces each run (see
-    # _run_completion_watcher) so a clean-exit narrate-and-self-terminate is
-    # surfaced instead of looking like success. Always started (even without
-    # an event_store) so a failed/zero-work run leaves a diagnosable comment.
+    # Watcher: the IdleWatchdog monitors the process for activity and kills it
+    # on idle / consecutive errors / hard ceiling. After exit, the watcher
+    # classifies the run, posts failure/zero-work/incomplete comments, and
+    # writes the run manifest. Always started (even without an event_store) so
+    # a failed/zero-work run leaves a diagnosable comment.
     def _watch() -> None:
         _run_completion_watcher(
             proc,
             event_store,
             dispatch_ctx,
-            log_dir,
+            str(log_dir),
             prompt_path.stem,
             settings.dispatch_timeout,
             stderr_thread=stderr_thread,
+            state=wd_state,
+            watchdog_config=wd_config,
         )
 
     threading.Thread(target=_watch, daemon=True).start()
+
+    return prompt_path.stem

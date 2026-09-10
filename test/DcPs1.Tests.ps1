@@ -19,7 +19,7 @@ Describe 'dc.ps1' {
 
     It 'declares the Command ImageRef and ExtraArgs parameters' {
         $content = Get-Content -LiteralPath $script:DcPs1 -Raw
-        $content | Should -Match '\[ValidateSet\(.up., .down., .logs.\)\]'
+        $content | Should -Match '\[ValidateSet\(.up., .down., .logs., .u., .d., .l.\)\]'
         $content | Should -Match '\[ValidateSet\(.main., .development., .nam20485.\)\]'
         $content | Should -Match 'ValueFromRemainingArguments'
     }

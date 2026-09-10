@@ -48,7 +48,7 @@ fi
 # as root; opencode runs as `app` after the gosu drop and must mkdir/write within
 # it (e.g. repos/), so chown the runtime data tree back to app. Idempotent and
 # tiny at startup (only auth.json until opencode populates it).
-chown -R app:app "${HOME_DIR}/.local/share/opencode" 2>/dev/null || true
+chown -R app:app "${HOME_DIR}/.local/share/opencode" 2>/dev/null || echo "docker-entrypoint: WARNING: chown ${HOME_DIR}/.local/share/opencode failed" >&2
 
 # First-mount fixup: named volumes (e.g. opencode-memory) are root-owned on
 # first attach, or may pre-date an APP_UID rebuild (stale prior-UID owner).
@@ -57,7 +57,7 @@ chown -R app:app "${HOME_DIR}/.local/share/opencode" 2>/dev/null || true
 MEM_DIR="/app/.memory"
 APP_UID="$(id -u app 2>/dev/null || printf '%s\n' 0)"
 if [ -d "$MEM_DIR" ] && [ "$(stat -c %u "$MEM_DIR")" != "$APP_UID" ]; then
-  chown -R app:app "$MEM_DIR" 2>/dev/null || true
+  chown -R app:app "$MEM_DIR" 2>/dev/null || echo "docker-entrypoint: WARNING: chown $MEM_DIR failed (owner=$(stat -c %u "$MEM_DIR" 2>/dev/null || echo unknown))" >&2
 fi
 
 # Memory store self-heal: @modelcontextprotocol/server-memory writes the entire
@@ -72,7 +72,7 @@ if [ -f "$MEM_FILE" ] && ! python3 -c "import json,sys;[json.loads(l) for l in o
   echo "docker-entrypoint: memory.jsonl is unparseable — backing up and resetting" >&2
   mv "$MEM_FILE" "$MEM_FILE.corrupt-$(date +%s)" 2>/dev/null || true
   : > "$MEM_FILE"
-  chown app:app "$MEM_FILE" 2>/dev/null || true
+  chown app:app "$MEM_FILE" 2>/dev/null || echo "docker-entrypoint: WARNING: chown $MEM_FILE failed" >&2
 fi
 
 # Privilege drop: start as root (no USER directive in Dockerfile), then exec
@@ -81,5 +81,6 @@ fi
 if command -v gosu >/dev/null 2>&1; then
   exec gosu app "$@"
 else
+  echo "docker-entrypoint: WARNING: gosu not found, running as $(id -u)" >&2
   exec "$@"
 fi

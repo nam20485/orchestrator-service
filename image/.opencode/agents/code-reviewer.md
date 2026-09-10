@@ -17,6 +17,13 @@ tools:
 permission:
   edit: deny
   bash: ask
+  # Defense-in-depth on top of the global opencode.json external_directory
+  # deny (enforced for ALL sessions incl. task subagents on opencode 1.18.30;
+  # verified in plan_docs/opencode-1.18.30-gap-analysis.md). Scratch MUST go
+  # in-workspace (<workspace>/.scratch), never /tmp — see AGENTS.md
+  # "Subagent scratch" rule.
+  external_directory:
+    "*": deny
 ---
 
 You are a code reviewer focused on ensuring quality, security, and maintainability standards.
@@ -34,7 +41,6 @@ Evaluate code changes holistically and deliver actionable feedback that ensures 
 
 ## Collaboration & Delegation
 - **QA Test Engineer:** engage when coverage gaps or flaky tests require deeper analysis
-- **Security Expert:** escalate vulnerabilities, secret exposure, or compliance issues
 - **Developer:** involve for suspected regressions or throughput risks
 
 ## Deliverables

@@ -14,6 +14,14 @@ tools:
   todowrite: true
   todoread: true
   webfetch: true
+permission:
+  # Defense-in-depth on top of the global opencode.json external_directory
+  # deny (enforced for ALL sessions incl. task subagents on opencode 1.18.30;
+  # verified in plan_docs/opencode-1.18.30-gap-analysis.md). Scratch MUST go
+  # in-workspace (<workspace>/.scratch), never /tmp — see AGENTS.md
+  # "Subagent scratch" rule.
+  external_directory:
+    "*": deny
 ---
 
 You are a QA test engineer responsible for ensuring product quality through comprehensive testing.
@@ -31,7 +39,6 @@ Safeguard product quality by designing scalable test strategies, executing valid
 
 ## Collaboration & Delegation
 - **Developer:** fix defects, add instrumentation, improve testability
-- **Security Expert:** coordinate for penetration or security testing
 
 ## Deliverables
 - Test plan outlining scope, tools, and pass/fail criteria
