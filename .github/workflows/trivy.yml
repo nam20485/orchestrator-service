@@ -1,6 +1,10 @@
 name: trivy
 
 on:
+  # Manual trigger: the code-scanning merge rule requires a Trivy result for
+  # the CURRENT merge/head SHA, and path-filtered events can miss it (e.g. a
+  # docs-only push recreates the merge ref without firing this workflow).
+  workflow_dispatch:
   push:
     branches: [ "main", "development", "nam20485" ]
     paths:
