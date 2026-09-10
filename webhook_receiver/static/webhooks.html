@@ -85,7 +85,7 @@ const API = '/api/dashboard';
 let allEvents = [];
 let expandedRow = null;
 
-function esc(s){const d=document.createElement('div');d.textContent=s==null?'':String(s);return d.innerHTML;}
+function esc(s){const d=document.createElement('div');d.textContent=s==null?'':String(s);return d.innerHTML.replace(/"/g,'&quot;');}
 function fmtTs(t){ if(!t) return '—'; const d=new Date(t*1000); return d.toISOString().substr(11,8); }
 
 function badgeFor(decision){

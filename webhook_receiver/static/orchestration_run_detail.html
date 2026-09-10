@@ -145,7 +145,7 @@ let rawCache = {prompt:'',stdout:'',stderr:''};
 let narrativeCache = null;
 let pollTimer = null;
 
-function esc(s){const d=document.createElement('div');d.textContent=s==null?'':String(s);return d.innerHTML;}
+function esc(s){const d=document.createElement('div');d.textContent=s==null?'':String(s);return d.innerHTML.replace(/"/g,'&quot;');}
 function fmtOffset(s){ if(s==null) return ''; const m=Math.floor(s/60); const sec=Math.floor(s%60); return '+'+m+':'+(sec<10?'0':'')+sec; }
 function kindClass(k){ return 'k-' + (k||'tool'); }
 

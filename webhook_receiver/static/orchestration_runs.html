@@ -52,7 +52,7 @@
   </div>
 <script>
 const API = '/api/dashboard';
-function esc(s){const d=document.createElement('div');d.textContent=s==null?'':String(s);return d.innerHTML;}
+function esc(s){const d=document.createElement('div');d.textContent=s==null?'':String(s);return d.innerHTML.replace(/"/g,'&quot;');}
 function clsBadge(c){return c ? `<span class="badge ${esc(c)}">${esc(c)}</span>` : '<span class="badge running">running</span>';}
 async function load(){
   const wrap = document.getElementById('tableWrap');
