@@ -5,7 +5,7 @@
     "AGENTS.md"
   ],
   "default_agent": "orchestrator",
-  "model": "qwencloud/qwen3.8-max",
+  "model": "qwencloud/qwen3.7-max",
   "small_model": "zai-coding-plan/glm-5.3-flash",
   "mcp": {
     "sequential-thinking": {

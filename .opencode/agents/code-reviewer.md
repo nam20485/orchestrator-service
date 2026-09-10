@@ -1,7 +1,7 @@
 ---
 description: Provides rigorous code reviews covering correctness, security, performance, and documentation. Read-only — never edits code. Invoke when reviewing PRs, diffs, or proposed changes.
 mode: subagent
-model: zai-coding-plan/glm-5.2
+model: zai-coding-plan/glm-5.3-flash
 color: accent
 temperature: 0.1
 permission:

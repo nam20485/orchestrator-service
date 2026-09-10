@@ -1,7 +1,7 @@
 ---
 description: Defines test strategies, writes and executes validation suites, and enforces quality gates before release. Invoke for test authoring, regression coverage analysis, and running/fixing failing test suites.
 mode: subagent
-model: zai-coding-plan/glm-5.2
+model: zai-coding-plan/glm-5.3-flash
 color: success
 temperature: 0.2
 permission:

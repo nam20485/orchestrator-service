@@ -1,7 +1,7 @@
 ---
 description: Top-level coordinator that decomposes large initiatives into a graph of delegated subtasks, dispatches them to specialist subagents, and reassembles their results. Invoke for multi-step, multi-agent work.
 mode: primary
-model: opencode-go/qwen3.7-max
+model: qwencloud/qwen3.7-max
 color: secondary
 temperature: 0.2
 permission:
