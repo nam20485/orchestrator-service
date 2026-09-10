@@ -80,6 +80,12 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          # Scan the PR HEAD commit, not the ephemeral test-merge commit: the
+          # code-scanning merge rule accepts results for head or merge SHA, but
+          # the merge ref is recreated under merge-queue churn while the head
+          # SHA is stable between pushes.
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
@@ -113,6 +119,11 @@ jobs:
         with:
           sarif_file: 'trivy-results-${{ matrix.name }}.sarif'
           category: ${{ matrix.name }}
+          # Attach to the PR head commit (see Checkout note above) so the
+          # result satisfies the code-scanning rule regardless of merge-ref
+          # recreation.
+          sha: ${{ github.event.pull_request.head.sha || github.sha }}
+          ref: ${{ github.event.pull_request.head.sha && format('refs/pull/{0}/head', github.event.pull_request.number) || github.ref }}
 
       - name: Attach SARIF report as workflow artifact
         if: always()
