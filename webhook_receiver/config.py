@@ -136,7 +136,7 @@ class Settings:
                 os.environ.get("PROMPT_SCRIPT", str(_default_prompt_script()))
             ).resolve(),
             workspace=os.environ.get("ORCHESTRATOR_WORKSPACE", "/workspace"),
-            model=os.environ.get("OPENCODE_MODEL", "qwencloud/qwen3.8-max"),
+            model=os.environ.get("OPENCODE_MODEL", "qwencloud/qwen3.7-max"),
             variant=os.environ.get("OPENCODE_VARIANT", "high"),
             agent=os.environ.get("OPENCODE_AGENT", "orchestrator"),
             max_payload_chars=int(os.environ.get("WEBHOOK_MAX_PAYLOAD_CHARS", "120000")),

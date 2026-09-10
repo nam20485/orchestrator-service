@@ -10,7 +10,7 @@ param (
     $Workspace = "/workspace",
     [Parameter()]
     [String]
-    $Model = 'qwencloud/qwen3.8-max',
+    $Model = 'qwencloud/qwen3.7-max',
     [Parameter()]
     [String]
     $Agent = "orchestrator",
