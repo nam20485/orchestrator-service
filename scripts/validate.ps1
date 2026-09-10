@@ -91,6 +91,7 @@ try {
         }
 
         Invoke-BashStep -Name 'opencode.json' -ScriptPath './test/test-opencode-json.sh'
+        Invoke-BashStep -Name 'opencode pin consistency' -ScriptPath './test/test-opencode-pin-consistency.sh'
         Invoke-BashStep -Name 'beads versions' -ScriptPath './test/test-beads-versions-consistency.sh'
         Invoke-BashStep -Name 'webhook scripts' -ScriptPath './test/test-webhook-scripts.sh'
         Invoke-BashStep -Name 'memory protocol' -ScriptPath './test/test-memory-protocol.sh'
@@ -136,6 +137,7 @@ try {
         Invoke-BashStep -Name 'docker healthchecks' -ScriptPath './test/test-docker-healthchecks.sh'
         Invoke-BashStep -Name 'openapi schema' -ScriptPath './test/test-openapi-schema.sh'
         Invoke-BashStep -Name 'opencode.json (test)' -ScriptPath './test/test-opencode-json.sh'
+        Invoke-BashStep -Name 'opencode pin consistency (test)' -ScriptPath './test/test-opencode-pin-consistency.sh'
         Invoke-BashStep -Name 'beads versions (test)' -ScriptPath './test/test-beads-versions-consistency.sh'
         Invoke-BashStep -Name 'webhook scripts' -ScriptPath './test/test-webhook-scripts.sh'
         Invoke-BashStep -Name 'memory protocol (test)' -ScriptPath './test/test-memory-protocol.sh'
