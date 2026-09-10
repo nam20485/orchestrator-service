@@ -36,11 +36,14 @@ both layers that ship in this repo:
 ## Required for default model access
 
 The entrypoint needs **at least one** provider key to write `auth.json`, or it exits with an
-error. The default model is `zai-coding-plan/glm-5`, so the primary key is:
+error. The default orchestrator model `qwencloud/qwen3.7-max` authenticates via a compose
+env passthrough (not `auth.json`); the pinned subagent/small model
+`zai-coding-plan/glm-5.3-flash` comes from `auth.json`:
 
 | Variable | Used by | Purpose |
 |---|---|---|
-| `ZAI_CODING_API_KEY` | `docker-entrypoint.sh` → `auth.json` (`zai-coding-plan`); `image/.opencode/opencode.json` (Z.AI MCP servers) | Z.AI GLM model access **and** authentication for the `web-reader`/`zread`/`web-search-prime` MCP servers. |
+| `QWENCLOUD_TOKEN_PLAN_API_KEY` | compose `environment:` passthrough → `image/.opencode/opencode.json` (`qwencloud` provider) | Authenticates the default orchestrator model `qwencloud/qwen3.7-max`. Not written to `auth.json`. |
+| `ZAI_CODING_API_KEY` | `docker-entrypoint.sh` → `auth.json` (`zai-coding-plan`); `image/.opencode/opencode.json` (Z.AI MCP servers) | Z.AI GLM access (incl. the `glm-5.3-flash` subagent/small model) **and** authentication for the `web-reader`/`zread`/`web-search-prime` MCP servers. |
 
 Alternate/standalone provider keys (any one satisfies the entrypoint):
 
@@ -100,7 +103,7 @@ Every variable below is read by `webhook_receiver/config.py` (`Settings.from_env
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `OPENCODE_MODEL` | `zai-coding-plan/glm-5` | Model used for dispatched runs (passed as `--model`). |
+| `OPENCODE_MODEL` | `qwencloud/qwen3.7-max` | Model used for dispatched runs (passed as `--model`). |
 | `OPENCODE_VARIANT` | `high` | Reasoning-effort variant passed via `--variant` (e.g. `low`/`medium`/`high`/`minimal`; empty string omits the flag). |
 | `OPENCODE_AGENT` | `orchestrator` | Agent passed as `--agent`. |
 | `ORCHESTRATOR_WORKSPACE` | `/workspace` | `--dir` passed to `opencode run`. |

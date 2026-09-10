@@ -9,7 +9,7 @@ The `orchestratorservice` container runs `opencode serve`, hosting the OpenCode 
 | File | Role |
 | --- | --- |
 | `Dockerfile` | Multi-stage build: a `rust-builder` stage compiles the Beads `br` CLI, then a `debian:trixie-20260518-slim` final stage installs Node.js, PowerShell, `gh`, `uv`, and the `opencode` CLI, copies `image/` to `/app`, and relocates `image/.opencode/` into the global config directory. |
-| `image/.opencode/opencode.json` | OpenCode config: `default_agent: "orchestrator"`, default model `zai-coding-plan/glm-5`, per-agent `variant` overrides, MCP server definitions, and `"permission": "allow"` (the server-side allow-all that makes headless dispatch possible). |
+| `image/.opencode/opencode.json` | OpenCode config: `default_agent: "orchestrator"`, default model `qwencloud/qwen3.7-max`, per-agent `variant` overrides, MCP server definitions, and a fail-closed `permission` block (`"*": "allow"` + `external_directory: {"*": "deny"}` — no `ask` can fire in headless dispatch, and paths outside the session working directory fail fast). |
 | `image/.opencode/AGENTS.md` | Instructions loaded into every session (`instructions: ["AGENTS.md"]` in `opencode.json`); defines the orchestrator/subagent roster and delegation rules. |
 | `scripts/docker-entrypoint.sh` | Container entrypoint: writes `auth.json` from provider environment variables, fixes ownership on first-mount volumes, self-heals a corrupted `memory.jsonl`, then drops from root to the `app` user via `gosu` before executing `opencode serve`. |
 | `compose.yaml` (`orchestratorservice` service) | Publishes port `4099`, mounts `opencode-memory`, `/workspace`, and `opencode-logs`, and declares the provider/token environment variables passed into the container. |
